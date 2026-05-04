@@ -303,9 +303,23 @@ namespace BiliBili.UWP.Modules.Home
 
             public RecommendRcmdReasonStyleModel rcmd_reason_style { get; set; }
             public RecommendDescButtonModel desc_button { get; set; }
+            public RecommendOwnerModel owner { get; set; }
             public RecommendADInfoModel ad_info { get; set; }
-            public string cover_left_text_1 { get; set; }
-            public string cover_left_text_2 { get; set; }
+            public RecommendStatModel stat { get; set; }
+            public string cover_left_text_1
+            {
+                get
+                {
+                    return stat != null ? (stat.view > 10000 ? $"{(stat.view / 10000.0):0.0}万观看" : stat.view.ToString() + "观看") : "";
+                }
+            }
+            public string cover_left_text_2
+            {
+                get
+                {
+                    return stat != null ? (stat.danmaku > 10000 ? $"{(stat.danmaku / 10000.0):0.0}万弹幕" : stat.danmaku.ToString() + "弹幕") : "";
+                }
+            }
             public int cover_left_icon_1 { get; set; }
 
             public int cover_left_icon_2 { get; set; }
@@ -352,9 +366,13 @@ namespace BiliBili.UWP.Modules.Home
             {
                 get
                 {
-                    if (desc_button != null)
+                    //if (desc_button != null)
+                    //{
+                    //    return desc_button.text;
+                    //}
+                    if (owner != null)
                     {
-                        return desc_button.text;
+                        return owner.name;
                     }
                     return "";
                 }
@@ -379,6 +397,19 @@ namespace BiliBili.UWP.Modules.Home
                         return "";
                 }
             }
+        }
+        public class RecommendStatModel
+        {
+            public int view { get; set; }
+            public int like { get; set; }
+            public int danmaku { get; set; }
+            public int vt { get; set; }
+        }
+        public class RecommendOwnerModel
+        {
+            public long mid { get; set; }
+            public string name { get; set; }
+            public string face { get; set; }
         }
         public class RecommendBannerItemModel
         {
