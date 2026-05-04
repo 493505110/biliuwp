@@ -430,7 +430,7 @@ namespace BiliBili.UWP.Modules.Home
             public int tid { get; set; }
             public string tname { get; set; }
             public string rname { get; set; }
-            public int aid { get; set; }
+            public long aid { get; set; } // 大人，时代变了
 
         }
         public class RecommendRcmdReasonStyleModel

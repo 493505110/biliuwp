@@ -78,7 +78,7 @@ namespace BiliBili.UWP.Pages
 
             error.Visibility = Visibility.Collapsed;
             var _id = (e.Parameter as object[])[0].ToString();
-            if (int.TryParse(_id, out var aid))
+            if (long.TryParse(_id, out var aid)) // 大人，时代变了，avid已经超出int范围，要用long了
             {
                 txt_Header.Text = $"AV{_id}";
                 _aid = _id;

@@ -137,6 +137,8 @@ namespace BiliBili.UWP
              * bilibili://video/19239064
              * bilibili://?av=4284663
              * https://m.bilibili.com/playlist/pl733016988?avid=68818070
+             * 
+             * bilibili://video/116488925153122
              */
 
             var video = Utils.RegexMatch(url.Replace("aid", "av").Replace("/","").Replace("=",""), @"av(\d+)");
