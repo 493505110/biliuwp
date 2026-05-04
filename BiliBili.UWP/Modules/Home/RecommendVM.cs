@@ -62,7 +62,7 @@ namespace BiliBili.UWP.Modules.Home
                     var obj = await result.GetData<JObject>();
                     if (obj.code == 0)
                     {
-                        var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["items"].ToString());
+                        var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["item"].ToString());
                         var banner = items.FirstOrDefault(x => x.card_goto == "banner");
                         if (banner != null)
                         {
@@ -182,7 +182,7 @@ namespace BiliBili.UWP.Modules.Home
 
                     if (obj.code == 0)
                     {
-                        var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["items"].ToString());
+                        var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["item"].ToString());
                       
                         for (int i = items.Count - 1; i >= 0; i--)
                         {
@@ -251,6 +251,7 @@ namespace BiliBili.UWP.Modules.Home
 
             public string _cover { get; set; }
 
+            [JsonProperty("pic")]
             public string cover
             {
                 get
@@ -272,6 +273,8 @@ namespace BiliBili.UWP.Modules.Home
 
             public string uri { get; set; }
             public string param { get; set; }
+
+            [JsonProperty("goto")]
             public string card_goto { get; set; }
 
             public string idx { get; set; }

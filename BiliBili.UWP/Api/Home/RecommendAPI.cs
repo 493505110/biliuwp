@@ -13,10 +13,11 @@ namespace BiliBili.UWP.Api.Home
             ApiModel api = new ApiModel()
             {
                 method =  HttpMethod.GET,
-                baseUrl = $"https://app.bilibili.com/x/v2/feed/index",
-                parameter = ApiUtils.MustParameter(ApiHelper.AndroidKey, true) + $"&flush=0&idx={idx}&login_event=2&network=wifi&open_event=&pull={(idx == "0").ToString().ToLower()}&qn=32&style=2"
+                //baseUrl = $"https://app.bilibili.com/x/v2/feed/index",
+                baseUrl = $"https://api.bilibili.com/x/web-interface/wbi/index/top/feed/rcmd",
+                parameter = ApiUtils.MustParameter(ApiHelper.WebVideoKey, true) + $"&flush=0&idx={idx}&login_event=2&network=wifi&open_event=&pull={(idx == "0").ToString().ToLower()}&qn=32&style=2"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiHelper.AndroidKey);
+            api.parameter += ApiUtils.GetSign(api.parameter, ApiHelper.WebVideoKey);
             return api;
         }
         public ApiModel Dislike(string _goto, string id, string mid, int reason_id, int rid, int tag_id)
