@@ -186,8 +186,11 @@ namespace BiliBili.UWP.Pages
                     }
                     if (!string.IsNullOrEmpty(m.data.argue_msg))
                     {
-                        Argue_msg.Visibility = Visibility.Visible;
-                        txtArgue_msg.Text = m.data.argue_msg;
+                        if (m.data.argue_msg != "您使用的APP版本过低，导致部分视频无法播放，您可以在应用商店更新APP版本后播放该视频")
+                        {
+                            Argue_msg.Visibility = Visibility.Visible;
+                            txtArgue_msg.Text = m.data.argue_msg;
+                        }
                     }
                     else
                     {
