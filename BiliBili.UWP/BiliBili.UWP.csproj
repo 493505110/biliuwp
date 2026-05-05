@@ -295,6 +295,7 @@
     <Compile Include="Api\User\LoginAPI.cs" />
     <Compile Include="Api\User\UserCenterAPI.cs" />
     <Compile Include="Api\VideoAPI.cs" />
+    <Compile Include="Api\WbiAPI.cs" />
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
@@ -374,6 +375,7 @@
     <Compile Include="Helper\SystemHelper.cs" />
     <Compile Include="Helper\UserManage.cs" />
     <Compile Include="Helper\Utils.cs" />
+    <Compile Include="Helper\WbiEncodeHelper.cs" />
     <Compile Include="Helper\WebClientClass.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>

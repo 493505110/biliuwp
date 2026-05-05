@@ -1,16 +1,23 @@
-﻿using BiliBili.UWP.Controls;
+﻿using BiliBili.UWP.Api;
+using BiliBili.UWP.Controls;
+using BiliBili.UWP.Helper;
 using BiliBili.UWP.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RestSharp.Portable.Deserializers;
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Windows.Security.Cryptography;
 using Windows.Security.Cryptography.Core;
 using Windows.Storage;
@@ -18,8 +25,7 @@ using Windows.Storage.Streams;
 using Windows.UI.Xaml.Controls;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
-using System.Xml.Linq;
-using BiliBili.UWP.Helper;
+using ZXing.Common.ReedSolomon;
 
 namespace BiliBili.UWP
 {
@@ -187,6 +193,34 @@ namespace BiliBili.UWP
             return cookie;
         }
 
+        public static async Task<string> GetWbiSign(string parstr)
+        {
+            var wbiAPI = new WbiAPI();
+            var apiModel = wbiAPI.GetWbiKey();
+            var result = await apiModel.Request();
+            if (result.status)
+            {
+                var data = result.GetJObject();
+                if (data["code"].ToInt32() == 0)
+                {
+                    var wbiKeyFakeUrl = JsonConvert.DeserializeObject<UserNavModel>(data["data"].ToString());
+                    var wbiKey = Regex.Match(wbiKeyFakeUrl.wbi_img.img_url, @"wbi\/(.+).png").Groups[1].Value;
+                    var subKey = Regex.Match(wbiKeyFakeUrl.wbi_img.sub_url, @"wbi\/(.+).png").Groups[1].Value;
+                    var par = System.Web.HttpUtility.ParseQueryString(parstr);
+
+                    var signedParams = WbiEncodeHelper.EncWbi(
+                        parameters: par.AllKeys.ToDictionary(k => k, k => par[k]),
+                        imgKey: wbiKey,
+                        subKey: subKey
+                    );
+                    string query = await new FormUrlEncodedContent(signedParams).ReadAsStringAsync();
+
+                    return query;
+                }
+            }
+            return "";
+        }
+
     }
 
 
@@ -222,4 +256,14 @@ namespace BiliBili.UWP
 
     }
 
+    public class UserNavModel
+    {
+        public WbiKeyModel wbi_img;
+    }
+
+    public class WbiKeyModel
+    {
+        public string img_url;
+        public string sub_url;
+    }
 }

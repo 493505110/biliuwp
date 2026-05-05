@@ -46,13 +46,18 @@ namespace BiliBili.UWP.Api.User
         /// </summary>
         /// <param name="mid"></param>
         /// <returns></returns>
-        public ApiModel UserSubmitVideosWeb(string mid,int page=1,int pagesize=30)
+        public async Task<ApiModel> UserSubmitVideosWeb(string mid,int page=1,int pagesize=30)
         {
+            var parameter = $"mid={mid}&ps={pagesize}&pn={page}&keywords=&order=pubdate&platform=web&tid=0";
+            var newParameter = await ApiHelper.GetWbiSign(parameter);
+            var headers = new Dictionary<string, string>();
+            headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0");
             ApiModel api = new ApiModel()
             {
-                method =HttpMethod.GET,
-                baseUrl = "https://api.bilibili.com/x/space/arc/search",
-                parameter = $"mid={mid}&ps={pagesize}&tid=0&pn={page}&keyword=&order=pubdate",
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/space/wbi/arc/search",
+                parameter = newParameter,
+                headers = headers
             };
             return api;
         }
