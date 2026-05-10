@@ -91,8 +91,8 @@ namespace BiliBili.UWP
             }
             else
             {
-                Set_ColunmHome(false);
-                return false;
+                Set_ColunmHome(true); // 默认分栏显示
+                return true;
             }
         }
 
