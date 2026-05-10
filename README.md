@@ -1,22 +1,39 @@
 ## 哔哩哔哩第三方UWP客户端
 
 ### 介绍
-这是一个水平很菜的半个开发者写的UWP项目，由于项目开始是两三年前刚学习UWP写的，所以没有使用什么框架之类的，后面在此基础上迭代，存在一堆BUG及辣鸡代码，阅读代码请做好瞎眼准备。
 
-![biliuwp](https://i.loli.net/2018/12/20/5c1bb55577b8e.png)
+fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已停止维护)
 
-### 体验
-* [应用商店](https://www.microsoft.com/zh-cn/store/p/%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9uwp/9n7c87236453)
+### TODO
 
-### 注意
-* 弹幕使用的我的另一个项目[NSDanmaku](https://github.com/xiaoyaocz/NSDanmaku)
-* 该项目现在不能很好兼容Win10 Mobile(~~额..应该没人用了吧~~)
+- [ ] 主页
+  - [X] 主页视频推荐
+  - [ ] 主页banner显示
 
-### 引用及参考
-* [You-get](https://github.com/soimort/you-get)
-* [SYEngine](https://github.com/amamiya/SYEngine)
-* [VLC.MediaElement](https://github.com/kakone/VLC.MediaElement)
-* [biliroku](https://github.com/zyzsdy/biliroku)
-* [bilibili-service](https://github.com/WhiteBlue/bilibili-service)
-* [弹弹Play](https://api.acplay.net/swagger/ui/index)
-* [Biliplus](https://www.biliplus.com)
+- [ ] 搜索
+
+- [ ] 基础功能
+  - [X] 视频播放修复(avid->long)
+  - [X] Wbi API 支持
+  - [ ] Wbi 缓存
+
+- [ ] 用户
+  - [X] 用户主页视频列表
+
+- [ ] 频道
+  - [ ] 频道首页
+  - [ ] 二级分区广告去除
+  - [ ] 二级分区视频信息优化
+  - [ ] 我的频道
+  - [ ] 发现频道
+  - [ ] 活动中心
+  - [ ] 音频
+
+- [ ] 直播
+- [ ] 番剧
+- [ ] 动态
+  - [ ] 动态转发信息
+
+### 使用
+
+目前还没有完成基础功能的修复，完成之后会发release，请使用VS2022(用VS2026编译不了,我也不知道要怎么解决)编译
