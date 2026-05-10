@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BiliBili.UWP.Helper;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -81,6 +82,17 @@ namespace BiliBili.UWP.Api
         /// <returns></returns>
         public async static Task<HttpResults> Request(this ApiModel api)
         {
+            if (api.baseUrl.Contains("search"))
+            {
+                var headers = new Dictionary<string, string>();
+                headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0");
+                api.headers = headers;
+            }
+            if (api.useWbi)
+            {
+                var newParameter = await ApiHelper.GetWbiSign(api.parameter);
+                api.parameter = newParameter;
+            }
             if (api.method == HttpMethod.GET)
             {
                 return await ApiRequest.Get(api.url, api.headers);
@@ -128,5 +140,9 @@ namespace BiliBili.UWP.Api
                 return baseUrl + "?" + parameter;
             }
         }
+        /// <summary>
+        /// 启用Wbi
+        /// </summary>
+        public bool useWbi { get; set; }
     }
 }

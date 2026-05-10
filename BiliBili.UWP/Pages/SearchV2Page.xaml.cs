@@ -64,6 +64,7 @@ namespace BiliBili.UWP.Pages
                     item.Keyword = par.keyword;
                 }
                 pivot.SelectedIndex = (int)par.searchType;
+                searchVM.SelectItem.Refresh();
             }
            
 
