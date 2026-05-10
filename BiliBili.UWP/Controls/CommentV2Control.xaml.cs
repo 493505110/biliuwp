@@ -296,13 +296,26 @@ namespace BiliBili.UWP.Controls
 
                     if (m.data.replies != null && m.data.replies.Count != 0)
                     {
-
+                        var topRpid = 0L;
                         if (_page == 1)
                         {
                             if (m.data.upper.top != null)
                             {
                                 m.data.upper.top.showTop = Visibility.Visible;
                                 m.data.replies.Insert(0, m.data.upper.top);
+                                topRpid = m.data.upper.top.rpid;
+                            }
+                            CommentModel needRemoveItem = null;
+                            foreach (var item in m.data.replies)
+                            {
+                                if (item == m.data.replies.First())
+                                    continue;
+                                if (item.rpid == topRpid)
+                                    needRemoveItem = item;
+                            }
+                            if (needRemoveItem != null)
+                            {
+                                m.data.replies.Remove(needRemoveItem); // 在foreach里remove会报错
                             }
                             //ls_hot.ItemsSource = m.data.hots;
                             ls_new.ItemsSource = m.data.replies;
