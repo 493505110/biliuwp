@@ -335,6 +335,11 @@ namespace BiliBili.UWP.Pages
                         conmmentSortMode = ConmmentSortMode.All,
                         oid = _aid
                     });
+
+                    if (!ApiHelper.IsLogin()) // 不登录只能看前几个评论，没有相关视频
+                    {
+                        Utils.ShowMessageToast("未登录，部分功能受限", 3000);
+                    }
                 }
                 else
                 {
