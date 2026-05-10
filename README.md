@@ -4,6 +4,8 @@
 
 fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已停止维护)
 
+<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/a31ba644-76f3-449b-b35f-8b9c24b3426b" />
+
 ### TODO
 
 - [ ] 主页
