@@ -141,14 +141,14 @@ namespace BiliBili.UWP
              * bilibili://video/116488925153122
              */
 
-            var video = Utils.RegexMatch(url.Replace("aid", "av").Replace("/","").Replace("=",""), @"av(\d+)");
-            if (video!="")
+            var video = Utils.RegexMatch(url, @"bilibili://video/(\d+)"); // 优先解析bilibili://video/XXX，不然有的视频会跳转到av2
+            if (video != "")
             {
                 InfoNavigateToEvent(typeof(VideoViewPage), video);
                 return true;
             }
-            video = Utils.RegexMatch(url, @"bilibili://video/(\d+)");
-            if (video != "")
+            video = Utils.RegexMatch(url.Replace("aid", "av").Replace("/","").Replace("=",""), @"av(\d+)");
+            if (video!="")
             {
                 InfoNavigateToEvent(typeof(VideoViewPage), video);
                 return true;
