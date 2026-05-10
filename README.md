@@ -4,13 +4,13 @@
 
 fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已停止维护)
 
-<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/a31ba644-76f3-449b-b35f-8b9c24b3426b" />
+<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/6b38a3b3-dcdb-4641-8c90-e9db9755ea49" />
 
 ### TODO
 
 - [ ] 主页
   - [X] 主页视频推荐
-  - [ ] 主页banner显示
+  - ~~[ ] 主页banner显示~~(api未见banner返回)
 
 - [ ] 搜索
   - [X] 基础功能

@@ -33,7 +33,7 @@
                     <Setter Property="Background" Value="{ThemeResource Bili-List-Background}"></Setter>
                 </Style>
             </GridView.ItemContainerStyle>
-            <GridView.Header>
+            <!--<GridView.Header>
                 <Grid>
                     <controls:Carousel Margin="8" ItemsSource="{x:Bind Path=recommendVM.Banner,Mode=OneWay}" MaxItems="1"  AspectRatio="2" GradientOpacity="1.0" MaxHeight="240">
                         <controls:Carousel.ContentTemplate>
@@ -45,7 +45,7 @@
                         </controls:Carousel.ContentTemplate>
                     </controls:Carousel>
                 </Grid>
-            </GridView.Header>
+            </GridView.Header>-->
             <GridView.Footer>
                 <ProgressRing HorizontalAlignment="Center" Visibility="{x:Bind Path=recommendVM.Items.IsLoading,Mode=OneWay}"></ProgressRing>
             </GridView.Footer>
