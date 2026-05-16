@@ -104,7 +104,7 @@ namespace BiliBili.UWP.Pages
 
             try
             {
-                string url = string.Format("http://api.bilibili.com/x/v2/history?pn={0}&ps=30&jsonp=json", PageNum);
+                string url = string.Format("https://api.bilibili.com/x/v2/history?pn={0}&ps=30&jsonp=json", PageNum); // 坑爹，没有https居然不发sessdata过去
 
                 string results = await WebClientClass.GetResults(new Uri(url));
                 //一层
