@@ -25,6 +25,7 @@ namespace BiliBili.UWP
             using (HttpClient hc = new HttpClient(fiter))
             {
                 //hc.DefaultRequestHeaders.Add("user-agent", $"Mozilla/5.0 BiliDroid/6.1.0 (bbcallen@gmail.com)");
+                hc.DefaultRequestHeaders.Add("user-agent", $"Bilibili UWP Client/3.4.10.0 (atelier39@outlook.com)");
                 //hc.DefaultRequestHeaders.Referer = new Uri("http://www.bilibili.com/");
                 HttpResponseMessage hr = await hc.GetAsync(url);
                 hr.EnsureSuccessStatusCode();

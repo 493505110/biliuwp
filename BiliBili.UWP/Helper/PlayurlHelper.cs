@@ -662,11 +662,12 @@ namespace BiliBili.UWP.Helper
                 List<string> urls = new List<string>();
                 //string url = $"https://api.bilibili.com/x/player/playurl?appkey={ApiHelper.AndroidKey.Appkey}&avid={ aid}&cid={cid}&qn={qn}&type=&otype=json&fnver=0&fnval=16";
 
-                string url = $"https://api.bilibili.com/x/player/playurl?avid={aid}&cid={cid}&qn={qn}&type=&otype=json&fourk=1&fnver=0&fnval=16&appkey={ ApiHelper.WebVideoKey.Appkey}";
+                //string url = $"https://api.bilibili.com/x/player/playurl?avid={aid}&cid={cid}&qn={qn}&type=&otype=json&fourk=1&fnver=0&fnval=16&appkey={ ApiHelper.WebVideoKey.Appkey}";
+                string url = $"https://api.bilibili.com/x/player/playurl?appkey={ApiHelper.AndroidKey.Appkey}&avid={aid}&cid={cid}&type=&qn={qn}&fourk=1&otype=json&fnval=1232";
                 //url += "&sign=" + ApiHelper.GetSign(url, ApiHelper.WebVideoKey);
                 if (ApiHelper.IsLogin())
                 {
-                    url += $"&access_key={ApiHelper.access_key}&mid={ApiHelper.GetUserId()}";
+                    url += $"&access_key={ApiHelper.access_key}&mid={ApiHelper.GetUserId()}&ts={DateTimeOffset.Now.ToUnixTimeSeconds()}";
                 }
                 url = ApiHelper.GetSignWithUrl(url, ApiHelper.WebVideoKey);
                 string re = await WebClientClass.GetResults(new Uri(url));
