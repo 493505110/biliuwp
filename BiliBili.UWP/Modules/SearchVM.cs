@@ -844,7 +844,7 @@ namespace BiliBili.UWP.Modules
             public string cover
             {
                 get { return _pic; }
-                set { _pic = "https:" + value; }
+                set { _pic = value; }
             }
 
             public string angle_title { get; set; }
