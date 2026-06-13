@@ -120,7 +120,6 @@ namespace BiliBili.UWP.Pages
         #region MediaPlayer事件
         private async void MediaPlayer_MediaOpened(MediaPlayer sender, object args)
         {
-
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
             {
 
@@ -241,7 +240,7 @@ namespace BiliBili.UWP.Pages
         {
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
             {
-                await new MessageDialog($"无法播放此视频 ＞﹏＜ \r\n{args.ErrorMessage}\r\n请尝试更换清晰度或者在播放设置中打开/关闭DASH").ShowAsync();
+                await new MessageDialog($"无法播放此视频 ＞﹏＜ \r\n{args.Error.ToString()}: {args.ExtendedErrorCode.Message}\r\n请尝试更换清晰度或者在播放设置中打开/关闭DASH").ShowAsync();
             });
         }
         private async void MediaPlayer_MediaEnded(MediaPlayer sender, object args)
@@ -688,6 +687,7 @@ namespace BiliBili.UWP.Pages
                 //  gv_play.ItemsSource = null;
                 // mediaElement.Source = null;
 
+                mediaPlayer.Source = null;
                 mediaPlayer = null;
                 mediaPlayer_audio = null;
                 //danmu.ClearAll();
