@@ -9,6 +9,7 @@
 - 主目标：`BiliBili.UWP`（AppContainerExe）；默认 Debug 平台为 `x86`
 - Release 构建使用 `.NET Native toolchain`，部分依赖反射的代码行为可能不同
 - 无 CI、无测试、无代码检查/格式化配置
+- **不要尝试在命令行编译**，在 Visual Studio 中生成即可
 
 ## 架构
 
@@ -73,4 +74,5 @@ WebView 的登录页面通过 `window.biliapp.ValidateLogin(data)` 和 `window.s
 - `ApiHelper` 中的签名密钥（`AndroidKey`）与 `ApiUtils.AndroidKey` **不同** — `ApiHelper` 使用较新的 key
 - `ApiHelper.VideoKey` 的 Appkey 为空（仅有 Secret）— 用于视频 playurl 签名
 - `ApiRequest` 在 HTTP 过滤器中添加了 `IgnorableServerCertificateErrors.Expired`
+- `CommentV2Control` 评论区外层 `ScrollViewer` 在切换视频时滚动位置不会自动重置。`ClearComment()` 中调用 `GetScollViewer()` 获取 `scrollViewer` 后再 `ChangeView(null, 0, null)`；`LoadComment()` 和 `LoadComment(LoadCommentInfo)` 两个重载也都需在 `GetScollViewer()` 后做复位（`VideoViewPage.LoadVideo()` 实际调用的是有参重载）
 - 包标识：`5421.501019FA0C51B`，发布者 `CN=zhou2008`，版本 `3.11.3.0`

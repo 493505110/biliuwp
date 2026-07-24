@@ -91,6 +91,7 @@ namespace BiliBili.UWP.Controls
 
         public void ClearComment()
         {
+            GetScollViewer();
             //ls_hot.ItemsSource = null;
             ls_new.ItemsSource = null;
             _page = 1;
@@ -151,6 +152,7 @@ namespace BiliBili.UWP.Controls
         public void LoadComment()
         {
             GetScollViewer();
+            scrollViewer?.ChangeView(null, 0, null);
 
             //if (loadCommentInfo.conmmentSortMode!= ConmmentSortMode.All)
             //{
@@ -206,6 +208,7 @@ namespace BiliBili.UWP.Controls
         public void LoadComment(LoadCommentInfo loadCommentInfo)
         {
             GetScollViewer();
+            scrollViewer?.ChangeView(null, 0, null);
 
             switch (loadCommentInfo.commentMode)
             {
