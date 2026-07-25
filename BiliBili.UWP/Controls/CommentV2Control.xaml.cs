@@ -398,6 +398,7 @@ namespace BiliBili.UWP.Controls
                 dataCommentModel m = JsonConvert.DeserializeObject<dataCommentModel>(re);
                 if (m.code == 0)
                 {
+                    if (m.data.replies == null) return;
                     if (m.data.replies.Count != 0)
                     {
                         if (m.data.replies.Count >= 10)
