@@ -1052,12 +1052,22 @@ namespace BiliBili.UWP.Helper
         {
             try
             {
-                var url = $"https://api.bilibili.com/x/player.so?id=cid:{cid}&aid={aid}";
+                //var url = $"https://api.bilibili.com/x/player.so?id=cid:{cid}&aid={aid}";
+                var url = $"https://api.bilibili.com/x/player/wbi/v2?aid={aid}&cid={cid}";
                 var results = await WebClientClass.GetResults(new Uri(url));
                 if (results.Contains("subtitle"))
                 {
-                    var json = Regex.Match(results, @"<subtitle>(.*?)</subtitle>").Groups[1].Value;
-                    return JsonConvert.DeserializeObject<HasSubtitleModel>(json);
+                    var json = Regex.Match(results, @",""subtitle"":(.*?),""view_points""").Groups[1].Value;
+                    var jsonObj = JsonConvert.DeserializeObject<HasSubtitleModel>(json);
+                    foreach (var subtitle in jsonObj.subtitles)
+                    {
+                        if (subtitle.lan.StartsWith("ai-")) // 是 ai- 不是 ai_
+                        {
+                            subtitle.lan_doc += "(AI)";
+                        }
+                    }
+                    jsonObj.subtitles.Sort((HasSubtitleItemModel x, HasSubtitleItemModel y) => x.lan_doc.CompareTo(y.lan_doc));
+                    return jsonObj;
                 }
                 else
                 {

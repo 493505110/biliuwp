@@ -1266,8 +1266,8 @@ namespace BiliBili.UWP.Pages
                 ToggleMenuFlyoutItem noneItem = new ToggleMenuFlyoutItem() { Text = "无" };
                 noneItem.Click += Menuitem_Click;
                 menu.Items.Add(noneItem);
-                (menu.Items[0] as ToggleMenuFlyoutItem).IsChecked = true;
-                SetSubTitle((menu.Items[0] as ToggleMenuFlyoutItem).Tag.ToString());
+                (menu.Items.LastOrDefault() as ToggleMenuFlyoutItem).IsChecked = true;
+                //SetSubTitle((menu.Items[0] as ToggleMenuFlyoutItem).Tag.ToString());
                 MTC.CCSelectFlyout = menu;
             }
             else
@@ -1343,6 +1343,7 @@ namespace BiliBili.UWP.Pages
             if (mediaElement.MediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
             {
                 var time = mediaElement.MediaPlayer.PlaybackSession.Position.TotalSeconds;
+                if (subtitles == null) return;
                 var first = subtitles.body.FirstOrDefault(x => x.from <= time && x.to >= time);
                 if (first != null)
                 {
