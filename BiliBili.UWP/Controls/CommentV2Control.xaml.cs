@@ -63,6 +63,7 @@ namespace BiliBili.UWP.Controls
         public CommentV2Control()
         {
             this.InitializeComponent();
+            this.Loaded += (s, e) => GetScollViewer();
         }
         ScrollViewer scrollViewer;
         double scrollViewerLocation = 0;
@@ -96,7 +97,6 @@ namespace BiliBili.UWP.Controls
             ls_new.ItemsSource = null;
             _page = 1;
             hot.Visibility = Visibility.Collapsed;
-            scrollViewer?.ChangeView(null, 0, null);
         }
         public int CommentCount
         {
