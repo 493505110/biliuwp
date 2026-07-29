@@ -358,6 +358,10 @@ namespace BiliBili.UWP.Modules.Home
                     {
                         return desc_button.text;
                     }
+                    if (args.up_name != null)
+                    {
+                        return args.up_name;
+                    }
                     return "";
                 }
             }
