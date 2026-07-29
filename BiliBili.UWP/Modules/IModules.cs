@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Windows.UI.Popups;
 
 namespace BiliBili.UWP.Modules
 {
@@ -26,6 +27,7 @@ namespace BiliBili.UWP.Modules
             else
             {
                 LogHelper.WriteLog("模块出错", LogType.ERROR, ex);
+                _ = new MessageDialog("出现了一个错误:\r\n" + ex.Message + "\r\n" + ex.StackTrace).ShowAsync();
                 return new ReturnModel()
                 {
                     success = false,
@@ -46,6 +48,7 @@ namespace BiliBili.UWP.Modules
             else
             {
                 LogHelper.WriteLog("模块出错", LogType.ERROR, ex);
+                _ = new MessageDialog("出现了一个错误:\r\n" + ex.Message + "\r\n" + ex.StackTrace).ShowAsync();
                 return new ReturnModel<T>()
                 {
                     success = false,
