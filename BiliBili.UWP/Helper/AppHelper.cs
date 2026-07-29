@@ -84,14 +84,23 @@ namespace BiliBili.UWP.Helper
         {
             return verStr.Split('/')[0];
         }
-        public static string verStr = string.Format(@"Ver {0} 2026-06-19
+        public static string verStr = string.Format(@"Ver {0} 2026-07-29
+01、修复CC字幕加载
+02、修复在加载无回复的评论时的报错
+03、修复在切换视频时评论区滚动位置不重置的问题
+04、修复直播播放(只能播放)
+05、修复首页部分视频UP主名字显示问题
+06、添加报错提示
+07、优化首页、搜索页的视频时长显示
+
+/Ver 3.11.3 2026-06-19
 01、修改logo
 
 /Ver 3.11.2 2026-06-13
 01、修复大部分功能(仍然有部分功能不可用)
 02、修复了内存泄露问题
 
-/Ver 3.10.2.0 2020-12-14
+/Ver 3.10.2 2020-12-14
 01、修复一些小问题
 
 /Ver 3.9.99&3.9.100 2020-11-19

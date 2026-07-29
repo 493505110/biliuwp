@@ -1924,7 +1924,8 @@ namespace BiliBili.UWP
         static PackageId pack = (Package.Current).Id;
         public static string GetVersion()
         {
-            return string.Format("{0}.{1}.{2}.{3}", pack.Version.Major, pack.Version.Minor, pack.Version.Build, pack.Version.Revision);
+            //return string.Format("{0}.{1}.{2}.{3}", pack.Version.Major, pack.Version.Minor, pack.Version.Build, pack.Version.Revision);
+            return string.Format("{0}.{1}.{2}", pack.Version.Major, pack.Version.Minor, pack.Version.Build);
         }
 
         public static bool IsPc()
