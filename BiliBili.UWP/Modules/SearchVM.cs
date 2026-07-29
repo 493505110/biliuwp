@@ -816,20 +816,20 @@ namespace BiliBili.UWP.Modules
                 {
                     string[] parts = value.Split(':');
 
-                    // 情况1：分:秒  -> 输出 MM:SS（两位）
                     if (parts.Length == 2)
                     {
                         int minutes = int.Parse(parts[0].Trim());
                         int seconds = int.Parse(parts[1].Trim());
-                        _duration = $"{minutes:D2}:{seconds:D2}";
-                    }
-                    // 情况2：时:分:秒 -> 输出 HH:MM:SS
-                    else if (parts.Length == 3)
-                    {
-                        int hours = int.Parse(parts[0].Trim());
-                        int minutes = int.Parse(parts[1].Trim());
-                        int seconds = int.Parse(parts[2].Trim());
-                        _duration = $"{hours:D2}:{minutes:D2}:{seconds:D2}";
+                        if (minutes >= 60)
+                        {
+                            int hours = minutes / 60;
+                            minutes -= hours * 60;
+                            _duration = $"{hours:D2}:{minutes:D2}:{seconds:D2}";
+                        }
+                        else
+                        {
+                            _duration = $"{minutes:D2}:{seconds:D2}";
+                        }
                     }
                     else
                     {
