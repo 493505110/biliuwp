@@ -147,12 +147,12 @@ namespace BiliBili.UWP
                 InfoNavigateToEvent(typeof(VideoViewPage), video);
                 return true;
             }
-            video = Utils.RegexMatch(url.Replace("aid", "av").Replace("/","").Replace("=",""), @"av(\d+)");
-            if (video!="")
-            {
-                InfoNavigateToEvent(typeof(VideoViewPage), video);
-                return true;
-            }
+            //video = Utils.RegexMatch(url.Replace("aid", "av").Replace("/","").Replace("=",""), @"av(\d+)");
+            //if (video!="")
+            //{
+            //    InfoNavigateToEvent(typeof(VideoViewPage), video);
+            //    return true;
+            //}
             video = Utils.RegexMatch(url, @"avid=(\d+)");
             if (video != "")
             {
