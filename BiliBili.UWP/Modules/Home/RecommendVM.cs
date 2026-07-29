@@ -313,7 +313,12 @@ namespace BiliBili.UWP.Modules.Home
                     return $"{iconToText(cover_left_icon_1)}{cover_left_text_1 ?? ""} {iconToText(cover_left_icon_2)}{cover_left_text_2 ?? ""}";
                 }
             }
-            public string cover_right_text { get; set; }
+            private string _cover_right_text;
+            public string cover_right_text // 视频时长
+            {
+                get { return _cover_right_text; }
+                set { _cover_right_text = Utils.FormatVideoDuration(value); }
+            }
 
             public string badge { get; set; }
             public bool showBadge

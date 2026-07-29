@@ -812,30 +812,7 @@ namespace BiliBili.UWP.Modules
             private string _duration;
             public string duration {
                 get { return _duration; }
-                set
-                {
-                    string[] parts = value.Split(':');
-
-                    if (parts.Length == 2)
-                    {
-                        int minutes = int.Parse(parts[0].Trim());
-                        int seconds = int.Parse(parts[1].Trim());
-                        if (minutes >= 60)
-                        {
-                            int hours = minutes / 60;
-                            minutes -= hours * 60;
-                            _duration = $"{hours:D2}:{minutes:D2}:{seconds:D2}";
-                        }
-                        else
-                        {
-                            _duration = $"{minutes:D2}:{seconds:D2}";
-                        }
-                    }
-                    else
-                    {
-                        _duration = value; // 其他格式原样返回
-                    }
-                }
+                set { _duration = Utils.FormatVideoDuration(value); }
             }
             private string _pic;
             public string pic

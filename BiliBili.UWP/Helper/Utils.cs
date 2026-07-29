@@ -1,5 +1,6 @@
 ﻿using BiliBili.UWP.Controls;
 using BiliBili.UWP.Helper;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -11,11 +12,11 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using Windows.UI;
-using Newtonsoft.Json;
+using Windows.Security.Cryptography;
 using Windows.Security.Cryptography.Core;
 using Windows.Storage.Streams;
-using Windows.Security.Cryptography;
+using Windows.UI;
+using Windows.UI.Xaml;
 
 namespace BiliBili.UWP
 {
@@ -345,7 +346,28 @@ namespace BiliBili.UWP
             });
         }
 
+        public static string FormatVideoDuration(string duration)
+        {
+            string[] parts = duration.Split(':');
 
+            if (parts.Length == 2)
+            {
+                int minutes = int.Parse(parts[0].Trim());
+                int seconds = int.Parse(parts[1].Trim());
+                if (minutes >= 60)
+                {
+                    int hours = minutes / 60;
+                    minutes -= hours * 60;
+                    return $"{hours:D2}:{minutes:D2}:{seconds:D2}";
+                }
+                else
+                {
+                    return $"{minutes:D2}:{seconds:D2}";
+                }
+            }
+
+            return duration; // 其他格式原样返回
+        }
     }
 
 
