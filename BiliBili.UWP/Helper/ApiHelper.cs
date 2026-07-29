@@ -16,6 +16,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Windows.Security.Cryptography;
@@ -193,32 +194,84 @@ namespace BiliBili.UWP
             return cookie;
         }
 
+        //Wbi key缓存，生命周期为应用的单次运行，不落盘
+        private static string _wbiImgKey;
+        private static string _wbiSubKey;
+        //防止并发请求(如搜索连续翻页)时重复拉取key
+        private static readonly SemaphoreSlim _wbiKeyLock = new SemaphoreSlim(1, 1);
+
+        /// <summary>
+        /// 获取Wbi签名用的img_key/sub_key，优先取缓存
+        /// </summary>
+        /// <returns>是否成功拿到key</returns>
+        private static async Task<bool> EnsureWbiKey()
+        {
+            if (!string.IsNullOrEmpty(_wbiImgKey) && !string.IsNullOrEmpty(_wbiSubKey))
+            {
+                return true;
+            }
+            await _wbiKeyLock.WaitAsync();
+            try
+            {
+                //等锁期间可能已被其他调用填好
+                if (!string.IsNullOrEmpty(_wbiImgKey) && !string.IsNullOrEmpty(_wbiSubKey))
+                {
+                    return true;
+                }
+                var wbiAPI = new WbiAPI();
+                var apiModel = wbiAPI.GetWbiKey();
+                var result = await apiModel.Request();
+                if (result.status)
+                {
+                    var data = result.GetJObject();
+                    if (data["code"].ToInt32() == 0)
+                    {
+                        var wbiKeyFakeUrl = JsonConvert.DeserializeObject<UserNavModel>(data["data"].ToString());
+                        var wbiKey = Regex.Match(wbiKeyFakeUrl.wbi_img.img_url, @"wbi\/(.+).png").Groups[1].Value;
+                        var subKey = Regex.Match(wbiKeyFakeUrl.wbi_img.sub_url, @"wbi\/(.+).png").Groups[1].Value;
+                        //正则没匹配上时不要写入缓存，否则整个生命周期都签不出正确的w_rid
+                        if (!string.IsNullOrEmpty(wbiKey) && !string.IsNullOrEmpty(subKey))
+                        {
+                            _wbiImgKey = wbiKey;
+                            _wbiSubKey = subKey;
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+            finally
+            {
+                _wbiKeyLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// 清空Wbi key缓存，下次签名会重新拉取。key失效(如-352风控)时调用
+        /// </summary>
+        public static void ClearWbiKey()
+        {
+            _wbiImgKey = null;
+            _wbiSubKey = null;
+        }
+
         public static async Task<string> GetWbiSign(string parstr)
         {
-            var wbiAPI = new WbiAPI();
-            var apiModel = wbiAPI.GetWbiKey();
-            var result = await apiModel.Request();
-            if (result.status)
+            if (!await EnsureWbiKey())
             {
-                var data = result.GetJObject();
-                if (data["code"].ToInt32() == 0)
-                {
-                    var wbiKeyFakeUrl = JsonConvert.DeserializeObject<UserNavModel>(data["data"].ToString());
-                    var wbiKey = Regex.Match(wbiKeyFakeUrl.wbi_img.img_url, @"wbi\/(.+).png").Groups[1].Value;
-                    var subKey = Regex.Match(wbiKeyFakeUrl.wbi_img.sub_url, @"wbi\/(.+).png").Groups[1].Value;
-                    var par = System.Web.HttpUtility.ParseQueryString(parstr);
-
-                    var signedParams = WbiEncodeHelper.EncWbi(
-                        parameters: par.AllKeys.ToDictionary(k => k, k => par[k]),
-                        imgKey: wbiKey,
-                        subKey: subKey
-                    );
-                    string query = await new FormUrlEncodedContent(signedParams).ReadAsStringAsync();
-
-                    return query;
-                }
+                return "";
             }
-            return "";
+            var par = System.Web.HttpUtility.ParseQueryString(parstr);
+
+            //wts与w_rid每次都要重算，缓存的只有那对key
+            var signedParams = WbiEncodeHelper.EncWbi(
+                parameters: par.AllKeys.ToDictionary(k => k, k => par[k]),
+                imgKey: _wbiImgKey,
+                subKey: _wbiSubKey
+            );
+            string query = await new FormUrlEncodedContent(signedParams).ReadAsStringAsync();
+
+            return query;
         }
 
     }
