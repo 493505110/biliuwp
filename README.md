@@ -59,3 +59,7 @@ fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已�
 ### 使用
 
 release
+
+### 其他
+
+<img width="398" height="400" alt="image" src="https://github.com/user-attachments/assets/c74ee29e-e26e-4149-af21-efb3ac8c6cd0" />
