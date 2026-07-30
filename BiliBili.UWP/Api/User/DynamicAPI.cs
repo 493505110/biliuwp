@@ -70,5 +70,41 @@ namespace BiliBili.UWP.Api.User
             };
         }
 
+        /// <summary>
+        /// 获取动态详情（新版polymer接口，需要Wbi签名）
+        /// </summary>
+        public ApiModel GetDetail(string id)
+        {
+            return new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail",
+                parameter = $"id={id}&timezone_offset=-480&platform=web&features=itemOpusStyle",
+                useWbi = true
+            };
+        }
+
+        /// <summary>
+        /// 获取转发列表（新版polymer接口，需要桌面UA）
+        /// </summary>
+        public ApiModel GetForwardList(string id, string offset = "")
+        {
+            var par = $"id={id}";
+            if (!string.IsNullOrEmpty(offset))
+                par += $"&offset={Uri.EscapeDataString(offset)}";
+            var api = new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail/forward",
+                parameter = par
+            };
+            // 该接口需要桌面 UA，否则返回 -352 风控错误
+            api.headers = new System.Collections.Generic.Dictionary<string, string>()
+            {
+                { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" }
+            };
+            return api;
+        }
+
     }
 }

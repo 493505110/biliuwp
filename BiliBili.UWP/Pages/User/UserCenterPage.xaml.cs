@@ -2,6 +2,7 @@
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Api;
 using BiliBili.UWP.Pages.FindMore;
+using BiliBili.UWP.Pages;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -237,12 +238,11 @@ namespace BiliBili.UWP.Pages.User
                     if (item.PgcEpId > 0)
                         MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), item.PgcEpId);
                     break;
-                case "DYNAMIC_TYPE_ARTICLE":
-                    if (item.ArticleId > 0)
-                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticleContentPage),
-                            "https://www.bilibili.com/read/app/" + item.ArticleId);
-                    break;
                 default:
+                    // 图文、纯文字、转发、文章等其他类型：跳动态详情页（含评论/转发）
+                    if (!string.IsNullOrEmpty(item.IdStr))
+                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(DynamicInfoPage),
+                            new object[] { item.IdStr });
                     break;
             }
         }

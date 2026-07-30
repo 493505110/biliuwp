@@ -24,6 +24,15 @@ namespace BiliBili.UWP.Models
         public SpaceDynModules modules { get; set; }
         //转发动态的原始内容
         public SpaceDynamicItem orig { get; set; }
+        // 详情页评论信息（/x/polymer/web-dynamic/v1/detail 返回）
+        public SpaceDynBasic basic { get; set; }
+    }
+
+    public class SpaceDynBasic
+    {
+        public string comment_id_str { get; set; }
+        public int comment_type { get; set; }
+        public string rid_str { get; set; }
     }
 
     public class SpaceDynModules
@@ -140,6 +149,66 @@ namespace BiliBili.UWP.Models
     public class SpaceDynStatCount
     {
         public int count { get; set; }
+    }
+
+    // ===== 动态详情接口响应（/x/polymer/web-dynamic/v1/detail）=====
+
+    public class SpaceDynDetailData
+    {
+        public SpaceDynamicItem item { get; set; }
+    }
+
+    // ===== 转发列表接口响应（/x/polymer/web-dynamic/v1/detail/forward）=====
+
+    public class SpaceDynForwardResp
+    {
+        public bool has_more { get; set; }
+        public List<SpaceDynForwardItem> items { get; set; }
+        public string offset { get; set; }
+        public int total { get; set; }
+    }
+
+    public class SpaceDynForwardItem
+    {
+        public string id_str { get; set; }
+        public string pub_time { get; set; }
+        public SpaceDynForwardUser user { get; set; }
+        public SpaceDynForwardDesc desc { get; set; }
+    }
+
+    public class SpaceDynForwardUser
+    {
+        public string face { get; set; }
+        public string name { get; set; }
+        public long mid { get; set; }
+    }
+
+    public class SpaceDynForwardDesc
+    {
+        public string text { get; set; }
+    }
+
+    /// <summary>转发列表行 ViewModel，供 ls_repost x:Bind 绑定</summary>
+    public class SpaceDynForwardItemVM
+    {
+        public string FaceThumb { get; set; }
+        public string Name { get; set; }
+        public long Mid { get; set; }
+        public string PubTime { get; set; }
+        public string Text { get; set; }
+
+        public static SpaceDynForwardItemVM From(SpaceDynForwardItem item)
+        {
+            var face = item.user?.face ?? "";
+            return new SpaceDynForwardItemVM
+            {
+                FaceThumb = string.IsNullOrEmpty(face) ? "" : face + "@36w_36h.jpg",
+                Name = item.user?.name ?? "",
+                Mid = item.user?.mid ?? 0,
+                PubTime = item.pub_time ?? "",
+                Text = item.desc?.text ?? ""
+            };
+        }
     }
 
     // ===== ViewModel（供 XAML x:Bind 绑定）=====
