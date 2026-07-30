@@ -22,10 +22,10 @@ fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已�
   - [X] 视频播放修复(avid->long)
   - [X] 视频清晰度选择(目前只能480P)
   - [X] Wbi API 支持
-  - [ ] Wbi 缓存
-  - [ ] 账号登录
-	- [ ] 账密登录
-	- [ ] 网页登录
+  - [X] Wbi 缓存
+  - [X] 账号登录
+	- [X] 账密登录
+	- [X] 网页登录
   - [X] 历史记录显示
   - [X] 视频CC字幕
 

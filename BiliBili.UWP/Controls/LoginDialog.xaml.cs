@@ -20,6 +20,9 @@ using System.Text.RegularExpressions;
 using BiliBili.UWP.Modules.AccountModels;
 using System.Threading.Tasks;
 using System.Timers;
+using Microsoft.Web.WebView2.Core;
+using Windows.Web.Http;
+using Windows.Web.Http.Filters;
 
 // https://go.microsoft.com/fwlink/?LinkId=234238 上介绍了“内容对话框”项模板
 
@@ -28,85 +31,128 @@ namespace BiliBili.UWP.Controls
     public sealed partial class LoginDialog : ContentDialog
     {
         Account account;
+        /// <summary>
+        /// webView当前用途，NavigationCompleted据此分流
+        /// </summary>
+        enum LoginMode
+        {
+            None,
+            /// <summary>极验人机验证(本地页面)</summary>
+            Geetest,
+            /// <summary>网页登录</summary>
+            Web,
+            /// <summary>网页登录后的授权确认</summary>
+            WebConfirm,
+            /// <summary>登录后的安全验证</summary>
+            Validate
+        }
+        LoginMode mode = LoginMode.None;
+        /// <summary>极验完成的等待，由geetest.html经postMessage回调完成</summary>
+        TaskCompletionSource<GeetestValidateModel> geetestWaiter;
+        CaptchaInfoModel captchaInfo;
+        bool webViewReady = false;
+
         public LoginDialog()
         {
             this.InitializeComponent();
             account = new Account();
-            _biliapp.CloseBrowserEvent += _biliapp_CloseBrowserEvent;
-            _biliapp.ValidateLoginEvent += _biliapp_ValidateLoginEvent;
-            _secure.CloseCaptchaEvent += _biliapp_CloseCaptchaEvent;
-            _secure.CaptchaEvent += _biliapp_CaptchaEvent;
         }
+
         protected async override void OnApplyTemplate()
         {
             base.OnApplyTemplate();
             await GetQRAuthInfo();
         }
-        private void _biliapp_CaptchaEvent(object sender, string e)
-        {
-            //throw new NotImplementedException();
-        }
 
-        private void _biliapp_CloseCaptchaEvent(object sender, string e)
+        /// <summary>
+        /// 按需初始化WebView2。扫码登录用不到它，故不在构造时初始化。
+        /// 返回false表示WebView2运行时不可用
+        /// </summary>
+        private async Task<bool> EnsureWebView()
         {
-            //throw new NotImplementedException();
-        }
-
-        BiliBili.JSBridge.biliapp _biliapp = new BiliBili.JSBridge.biliapp();
-        BiliBili.JSBridge.secure _secure = new BiliBili.JSBridge.secure();
-        private void _biliapp_CloseBrowserEvent(object sender, string e)
-        {
-            UserManage.Logout();
-            this.Hide();
-        }
-
-        private async void _biliapp_ValidateLoginEvent(object sender, string e)
-        {
+            if (webViewReady)
+            {
+                return true;
+            }
             try
             {
-                JObject jObject = JObject.Parse(e);
-                if (jObject["access_token"] != null)
-                {
-                    var m = await account.CheckAgainLogin(jObject["access_token"].ToString(), jObject["refresh_token"].ToString(), jObject["expires_in"].ToInt32(), Convert.ToInt64(jObject["mid"]));
-                    if (m.success)
-                    {
-                        this.Hide();
-                        if (cb_AuthBP.IsChecked.Value)
-                        {
-                            var auth = await Account.AuthBiliPlus();
-                            if (auth == "")
-                            {
-                                Utils.ShowMessageToast("登录成功,但BiliPlus授权失败");
-                            }
-                            else
-                            {
-                                Utils.ShowMessageToast("登录成功");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        Title = "登录";
-                        IsPrimaryButtonEnabled = true;
-                        webView.Visibility = Visibility.Collapsed;
-                        Utils.ShowMessageToast("登录失败,请重试");
-                    }
-                    //await UserManage.LoginSucess(jObject["access_token"].ToString());
-                }
-                else
-                {
-                    Title = "登录";
-                    IsPrimaryButtonEnabled = true;
-                    webView.Visibility = Visibility.Collapsed;
-                    Utils.ShowMessageToast("登录失败,请重试");
-                }
+                await webView.EnsureCoreWebView2Async();
+                //把Assets映射成https源，本地页才能正常加载极验的外部脚本
+                var assetsPath = System.IO.Path.Combine(
+                    Windows.ApplicationModel.Package.Current.InstalledLocation.Path, "Assets");
+                webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    "biliuwp.local", assetsPath, CoreWebView2HostResourceAccessKind.Allow);
+                webView.NavigationStarting += webView_NavigationStarting;
+                webView.NavigationCompleted += webView_NavigationCompleted;
+                webView.WebMessageReceived += webView_WebMessageReceived;
+                //注销时由 UserManage.Logout() 调用，清 WebView2 自己的 cookie 存储
+                UserManage.ClearWebViewCookies = () => webView.CoreWebView2?.CookieManager.DeleteAllCookies();
+                webViewReady = true;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("WebView2初始化失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("浏览器组件不可用，请安装 WebView2 运行时后重试");
+                return false;
+            }
+        }
 
+        /// <summary>
+        /// geetest.html通过chrome.webview.postMessage回传结果
+        /// </summary>
+        private void webView_WebMessageReceived(Microsoft.UI.Xaml.Controls.WebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
+        {
+            string raw = null;
+            try
+            {
+                raw = args.TryGetWebMessageAsString();
             }
             catch (Exception)
             {
+                //非字符串消息，忽略
+                return;
             }
-
+            if (string.IsNullOrEmpty(raw))
+            {
+                return;
+            }
+            try
+            {
+                var obj = JObject.Parse(raw);
+                var type = obj["type"]?.ToString();
+                if (type == "geetest_result")
+                {
+                    var m = new GeetestValidateModel()
+                    {
+                        validate = obj["validate"]?.ToString(),
+                        seccode = obj["seccode"]?.ToString()
+                    };
+                    if (geetestWaiter != null && !geetestWaiter.Task.IsCompleted)
+                    {
+                        geetestWaiter.TrySetResult(m);
+                    }
+                }
+                else if (type == "geetest_error")
+                {
+                    var msg = obj["message"]?.ToString();
+                    Utils.ShowMessageToast(string.IsNullOrEmpty(msg) ? "验证失败" : msg);
+                    if (geetestWaiter != null && !geetestWaiter.Task.IsCompleted)
+                    {
+                        geetestWaiter.TrySetResult(null);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("解析WebView2消息失败：" + raw, LogType.ERROR, ex);
+                if (geetestWaiter != null && !geetestWaiter.Task.IsCompleted)
+                {
+                    geetestWaiter.TrySetResult(null);
+                }
+            }
         }
+
         private async void ContentDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
         {
             args.Cancel = true;
@@ -129,8 +175,18 @@ namespace BiliBili.UWP.Controls
                 return;
             }
             IsPrimaryButtonEnabled = false;
-            var results = await account.LoginV3(txt_Username.Text, txt_Password.Password);
-            //var results = await account.LoginV2(txt_Username.Text, txt_Password.Password,txt_captcha.Text);
+
+            //先做人机验证，拿到validate才能调登录接口
+            var validate = await DoGeetest();
+            if (validate == null)
+            {
+                IsPrimaryButtonEnabled = true;
+                return;
+            }
+
+            Title = "登录中";
+            var results = await account.WebPasswordLogin(txt_Username.Text, txt_Password.Password,
+                captchaInfo.token, captchaInfo.geetest.challenge, validate.validate);
             switch (results.status)
             {
                 case Modules.LoginStatus.Success:
@@ -138,32 +194,83 @@ namespace BiliBili.UWP.Controls
                     break;
                 case Modules.LoginStatus.Fail:
                 case Modules.LoginStatus.Error:
+                case Modules.LoginStatus.NeedCaptcha:
+                    Title = "登录";
                     IsPrimaryButtonEnabled = true;
                     break;
-                case Modules.LoginStatus.NeedCaptcha:
-                    //V2
-                    //chatcha.Visibility = Visibility.Visible;
-                    //IsPrimaryButtonEnabled = true;
-                    //GetCaptcha();
-                    //V3
-                    //webView.Visibility = Visibility.Visible;
-                    //var httpRequestMessage = new Windows.Web.Http.HttpRequestMessage(Windows.Web.Http.HttpMethod.Get, new Uri(results.url));
-                    //var userAgent = "BiliMangaUwp/0.3.0.0 Windows BiliApp BiliComic/0.3.0.0";
-                    //httpRequestMessage.Headers.Add("User-Agent", userAgent);
-                    //httpRequestMessage.Headers.Add("Upgrade-Insecure-Requests", "1");
-                    //webView.NavigateWithHttpRequestMessage(httpRequestMessage);
-                    //webView.Source = new Uri(results.url);
-                    Utils.ShowMessageToast("登录需要验证码，请使用网页登录");
-                    break;
                 case Modules.LoginStatus.NeedValidate:
+                    if (string.IsNullOrEmpty(results.url))
+                    {
+                        Title = "登录";
+                        IsPrimaryButtonEnabled = true;
+                        Utils.ShowMessageToast("需要安全验证，请改用扫码登录");
+                        break;
+                    }
+                    //安全验证(如异地登录验证手机号)交给网页完成。
+                    //登录过程的cookie在WinRT一侧，先回写给WebView2
+                    await CopyCookiesToWebView();
                     Title = "安全验证";
+                    mode = LoginMode.Validate;
+                    pwdLogin.Visibility = Visibility.Collapsed;
                     webView.Visibility = Visibility.Visible;
+                    webView.Width = 480;
+                    webView.Height = 600;
                     webView.Source = new Uri(results.url.Replace("&ticket=1", ""));
                     break;
                 default:
                     break;
             }
-            Utils.ShowMessageToast(results.message);
+            if (!string.IsNullOrEmpty(results.message))
+            {
+                Utils.ShowMessageToast(results.message);
+            }
+        }
+
+        /// <summary>
+        /// 申请captcha并在WebView里完成极验，返回null表示未通过
+        /// </summary>
+        private async Task<GeetestValidateModel> DoGeetest()
+        {
+            if (!await EnsureWebView())
+            {
+                return null;
+            }
+            Title = "安全验证";
+            var info = await account.GetCaptchaInfo();
+            if (!info.success)
+            {
+                Title = "登录";
+                Utils.ShowMessageToast(info.message);
+                return null;
+            }
+            captchaInfo = info.data;
+
+            mode = LoginMode.Geetest;
+            geetestWaiter = new TaskCompletionSource<GeetestValidateModel>();
+            webView.Visibility = Visibility.Visible;
+            //极验embed面板展开后较高，给足高度避免出现滚动条
+            webView.Width = 420;
+            webView.Height = 520;
+            //经虚拟主机映射加载，参数在NavigationCompleted里注入
+            webView.Source = new Uri("https://biliuwp.local/geetest.html");
+
+            //90秒没完成就当放弃，避免永久挂住
+            var finished = await Task.WhenAny(geetestWaiter.Task, Task.Delay(90000));
+            webView.Visibility = Visibility.Collapsed;
+            mode = LoginMode.None;
+            if (finished != geetestWaiter.Task)
+            {
+                Title = "登录";
+                Utils.ShowMessageToast("验证超时，请重试");
+                return null;
+            }
+            var result = geetestWaiter.Task.Result;
+            if (result == null || string.IsNullOrEmpty(result.validate))
+            {
+                Title = "登录";
+                return null;
+            }
+            return result;
         }
 
         private void ContentDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -201,69 +308,269 @@ namespace BiliBili.UWP.Controls
 
         }
 
-        private async void webView_NavigationStarting(WebView sender, WebViewNavigationStartingEventArgs args)
+        private async void webView_NavigationStarting(Microsoft.UI.Xaml.Controls.WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
         {
-            if (args.Uri.AbsoluteUri.Contains("access_key="))
+            //旧式第三方授权回跳会把access_key带在url上
+            var uri = args.Uri ?? "";
+            if (uri.Contains("access_key="))
             {
-                var access = Regex.Match(args.Uri.AbsoluteUri, "access_key=(.*?)&").Groups[1].Value;
-                var mid = Regex.Match(args.Uri.AbsoluteUri, "mid=(.*?)&").Groups[1].Value;
+                args.Cancel = true;
+                var access = Regex.Match(uri, "access_key=(.*?)&").Groups[1].Value;
+                var mid = Regex.Match(uri, "mid=(.*?)&").Groups[1].Value;
                 await account.SetLoginSuccess(access, mid);
                 this.Hide();
+            }
+        }
+
+        /// <summary>
+        /// 开始轮询授权状态，扫码与网页登录手动确认都用它
+        /// </summary>
+        private void StartQRTimer()
+        {
+            StopQRTimer();
+            timer = new Timer();
+            timer.Interval = 3000;
+            timer.Elapsed += Timer_Elapsed;
+            timer.Start();
+        }
+
+        /// <summary>
+        /// 离开扫码界面时停掉轮询，避免后台无效请求
+        /// </summary>
+        private void StopQRTimer()
+        {
+            if (timer != null)
+            {
+                timer.Stop();
+                timer.Dispose();
+                timer = null;
+            }
+        }
+
+        private async void BtnWebLogin_Click(object sender, RoutedEventArgs e)
+        {
+            if (!await EnsureWebView())
+            {
                 return;
             }
+            Title = "网页登录";
+            StopQRTimer();
+            mode = LoginMode.Web;
+            pwdLogin.Visibility = Visibility.Collapsed;
+            qrLogin.Visibility = Visibility.Collapsed;
+            webView.Visibility = Visibility.Visible;
+            IsPrimaryButtonEnabled = false;
+            webView.Width = 480;
+            webView.Height = 600;
+            //用B站自己的登录页，人机验证由页面自行处理
+            webView.Source = new Uri("https://passport.bilibili.com/login");
+        }
+
+        private async void webView_NavigationCompleted(Microsoft.UI.Xaml.Controls.WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+        {
+            //本地极验页加载完，把gt/challenge注入进去
+            if (mode == LoginMode.Geetest)
+            {
+                if (!args.IsSuccess || captchaInfo == null || captchaInfo.geetest == null)
+                {
+                    return;
+                }
+                try
+                {
+                    //参数用JSON序列化以避免转义问题
+                    var gt = Newtonsoft.Json.JsonConvert.SerializeObject(captchaInfo.geetest.gt);
+                    var challenge = Newtonsoft.Json.JsonConvert.SerializeObject(captchaInfo.geetest.challenge);
+                    await webView.CoreWebView2.ExecuteScriptAsync($"initFromHost({gt},{challenge})");
+                }
+                catch (Exception ex)
+                {
+                    LogHelper.WriteLog("注入极验参数失败", LogType.ERROR, ex);
+                    Utils.ShowMessageToast("加载验证码失败");
+                    if (geetestWaiter != null && !geetestWaiter.Task.IsCompleted)
+                    {
+                        geetestWaiter.TrySetResult(null);
+                    }
+                }
+                return;
+            }
+
+            if (mode == LoginMode.Web || mode == LoginMode.Validate)
+            {
+                if (!args.IsSuccess)
+                {
+                    return;
+                }
+                var host = "";
+                var path = "";
+                try
+                {
+                    var u = sender.Source;
+                    if (u != null)
+                    {
+                        host = u.Host;
+                        path = u.AbsolutePath;
+                    }
+                }
+                catch (Exception)
+                {
+                    return;
+                }
+                //离开登录/验证页且cookie里已有DedeUserID，说明网页侧已登录成功
+                bool stillOnLoginPage = host.Contains("passport.bilibili.com") &&
+                    (path.StartsWith("/login") || path.Contains("/h5-app/passport"));
+                if (!stillOnLoginPage && await GetWebViewCookie("DedeUserID") != "")
+                {
+                    await FinishWebLogin();
+                }
+                return;
+            }
+        }
+
+        /// <summary>
+        /// 读取WebView2自己的cookie。它与WinRT的HttpClient不共用cookie存储
+        /// </summary>
+        private async Task<string> GetWebViewCookie(string name)
+        {
             try
             {
-                this.webView.AddWebAllowedObject("biliapp", _biliapp);
-                this.webView.AddWebAllowedObject("secure", _secure);
+                var cookies = await webView.CoreWebView2.CookieManager.GetCookiesAsync("https://www.bilibili.com");
+                foreach (var item in cookies)
+                {
+                    if (item.Name == name && !string.IsNullOrEmpty(item.Value))
+                    {
+                        return item.Value;
+                    }
+                }
             }
             catch (Exception ex)
             {
-                LogHelper.WriteLog("登录WebView设置JSBridge失败", LogType.ERROR, ex);
+                LogHelper.WriteLog("读取WebView2 cookie失败", LogType.ERROR, ex);
             }
-
+            return "";
         }
 
-        private void webView_ScriptNotify(object sender, NotifyEventArgs e)
+        /// <summary>
+        /// 把WebView2里的cookie搬到WinRT的cookie jar，
+        /// 这样后续用HttpClient发的确认请求才带得上SESSDATA
+        /// </summary>
+        private async Task CopyCookiesToHttpClient()
         {
-
-        }
-
-        private void BtnWebLogin_Click(object sender, RoutedEventArgs e)
-        {
-            Title = "网页登录";
-            webView.Visibility = Visibility.Visible;
-            webView.Source = new Uri("https://passport.bilibili.com/ajax/miniLogin/minilogin");
-            IsPrimaryButtonEnabled = false;
-            webView.Width = 440;
-            webView.Height = 480;
-            //
-        }
-
-        private async void WebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
-        {
-            if (args.Uri.AbsoluteUri == "https://passport.bilibili.com/ajax/miniLogin/redirect")
+            try
             {
-                var results = await WebClientClass.GetResults(new Uri("https://passport.bilibili.com/login/app/third?appkey=27eb53fc9058f8c3&api=http%3A%2F%2Flink.acg.tv%2Fforum.php&sign=67ec798004373253d60114caaad89a8c"));
-                var obj = JObject.Parse(results);
-                if (obj["code"].ToInt32() == 0)
+                var filter = new HttpBaseProtocolFilter();
+                foreach (var origin in new string[] { "https://www.bilibili.com", "https://passport.bilibili.com" })
                 {
-                    webView.Navigate(new Uri(obj["data"]["confirm_uri"].ToString()));
+                    var cookies = await webView.CoreWebView2.CookieManager.GetCookiesAsync(origin);
+                    foreach (var item in cookies)
+                    {
+                        try
+                        {
+                            var domain = string.IsNullOrEmpty(item.Domain) ? "bilibili.com" : item.Domain.TrimStart('.');
+                            var cookiePath = string.IsNullOrEmpty(item.Path) ? "/" : item.Path;
+                            var cookie = new HttpCookie(item.Name, domain, cookiePath);
+                            cookie.Value = item.Value;
+                            if (!item.IsSession && item.Expires > 0)
+                            {
+                                cookie.Expires = DateTimeOffset.FromUnixTimeSeconds((long)item.Expires);
+                            }
+                            filter.CookieManager.SetCookie(cookie);
+                        }
+                        catch (Exception)
+                        {
+                            //个别cookie域名不合法会抛异常，跳过
+                        }
+                    }
                 }
-                else
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("拷贝WebView2 cookie失败", LogType.ERROR, ex);
+            }
+        }
+
+        /// <summary>
+        /// 反向：把WinRT的cookie塞进WebView2。
+        /// 账密登录触发安全验证时，验证页要能看到登录过程写下的cookie
+        /// </summary>
+        private async Task CopyCookiesToWebView()
+        {
+            try
+            {
+                var filter = new HttpBaseProtocolFilter();
+                var cookies = filter.CookieManager.GetCookies(new Uri("https://passport.bilibili.com/"));
+                foreach (var item in cookies)
                 {
-                    Utils.ShowMessageToast("登录失败，请重试");
+                    try
+                    {
+                        var c = webView.CoreWebView2.CookieManager.CreateCookie(
+                            item.Name, item.Value, ".bilibili.com", "/");
+                        webView.CoreWebView2.CookieManager.AddOrUpdateCookie(c);
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("回写cookie到WebView2失败", LogType.ERROR, ex);
+            }
+            await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 网页已登录，把cookie换成App要的access_key
+        /// </summary>
+        private async Task FinishWebLogin()
+        {
+            if (mode == LoginMode.WebConfirm)
+            {
+                return;
+            }
+            mode = LoginMode.WebConfirm;
+            Title = "正在完成登录";
+            webView.Visibility = Visibility.Collapsed;
+            //WebView2与HttpClient的cookie存储是分开的，先搬过去
+            await CopyCookiesToHttpClient();
+            var result = await account.CookieToAccessKey();
+            if (result.status == Modules.LoginStatus.Success)
+            {
+                Utils.ShowMessageToast("登录成功");
+                this.Hide();
+                return;
+            }
+            //自动确认失败时，退回让用户在页面里手动点确认
+            var authResult = await account.GetQRAuthInfo();
+            if (authResult.success)
+            {
+                authInfo = authResult.data;
+                Title = "确认登录";
+                webView.Visibility = Visibility.Visible;
+                webView.Width = 480;
+                webView.Height = 600;
+                webView.Source = new Uri(authInfo.url);
+                StartQRTimer();
+                Utils.ShowMessageToast("请在页面中点击确认登录");
                 return;
             }
 
-
-
+            mode = LoginMode.None;
+            Title = "登录";
+            pwdLogin.Visibility = Visibility.Collapsed;
+            qrLogin.Visibility = Visibility.Visible;
+            webView.Visibility = Visibility.Collapsed;
+            IsPrimaryButtonEnabled = true;
+            Utils.ShowMessageToast(string.IsNullOrEmpty(result.message) ? "登录失败，请重试" : result.message);
+            await GetQRAuthInfo();
         }
 
         private async void btnQRLogin_Click(object sender, RoutedEventArgs e)
         {
+            mode = LoginMode.None;
+            Title = "登录";
             pwdLogin.Visibility = Visibility.Collapsed;
             qrLogin.Visibility = Visibility.Visible;
+            webView.Visibility = Visibility.Collapsed;
             await GetQRAuthInfo();
         }
         bool qr_loading = false;
@@ -274,11 +581,7 @@ namespace BiliBili.UWP.Controls
             try
             {
                 qr_loading = true;
-                if (timer != null)
-                {
-                    timer.Stop();
-                    timer.Dispose();
-                }
+                StopQRTimer();
                 var result = await account.GetQRAuthInfo();
                 if (result.success)
                 {
@@ -293,10 +596,7 @@ namespace BiliBili.UWP.Controls
                     };
                     var img = barcodeWriter.Write(authInfo.url);
                     imgQR.Source = img;
-                    timer = new Timer();
-                    timer.Interval = 3000;
-                    timer.Elapsed += Timer_Elapsed;
-                    timer.Start();
+                    StartQRTimer();
                 }
                 else
                 {
@@ -321,7 +621,7 @@ namespace BiliBili.UWP.Controls
                     var result = await account.PollQRAuthInfo(authInfo.auth_code);
                     if (result.status == Modules.LoginStatus.Success)
                     {
-                        timer.Stop();
+                        StopQRTimer();
                         this.Hide();
                     }
                 });
@@ -330,8 +630,13 @@ namespace BiliBili.UWP.Controls
 
         private void btnPasswordLogin_Click(object sender, RoutedEventArgs e)
         {
+            StopQRTimer();
+            mode = LoginMode.None;
+            Title = "登录";
             pwdLogin.Visibility = Visibility.Visible;
             qrLogin.Visibility = Visibility.Collapsed;
+            webView.Visibility = Visibility.Collapsed;
+            IsPrimaryButtonEnabled = true;
         }
 
         private async void btnRefreshQR_Click(object sender, RoutedEventArgs e)

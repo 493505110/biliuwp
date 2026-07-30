@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>安全验证</title>
+    <style>
+        html, body { margin: 0; padding: 0; font-family: "Microsoft YaHei", sans-serif; background: #fff; }
+        #wrap { padding: 8px; }
+        #tip { color: #666; font-size: 13px; margin-bottom: 6px; }
+        #err { color: #fb7299; font-size: 13px; margin-top: 8px; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div id="wrap">
+        <div id="tip">正在加载验证…</div>
+        <div id="captcha"></div>
+        <div id="err"></div>
+    </div>
+    <script src="https://static.geetest.com/static/tools/gt.js"></script>
+    <script type="text/javascript">
+        // 通过WebView2的postMessage回传宿主
+        function post(obj) {
+            try {
+                window.chrome.webview.postMessage(JSON.stringify(obj));
+            } catch (e) { }
+        }
+
+        function notifyResult(validate, seccode) {
+            post({ type: "geetest_result", validate: validate, seccode: seccode });
+        }
+
+        function notifyError(msg) {
+            document.getElementById("err").innerText = msg;
+            post({ type: "geetest_error", message: msg });
+        }
+
+        var inited = false;
+        // 由宿主在NavigationCompleted后调用
+        function initFromHost(gt, challenge) {
+            if (inited) { return; }
+            inited = true;
+            try {
+                if (!gt || !challenge) { notifyError("验证参数缺失"); return; }
+                if (typeof initGeetest !== "function") {
+                    notifyError("验证组件加载失败，请检查网络");
+                    return;
+                }
+                document.getElementById("tip").innerText = "请完成下方验证";
+                initGeetest({
+                    gt: gt,
+                    challenge: challenge,
+                    offline: false,
+                    new_captcha: true,
+                    product: "embed",
+                    width: "100%",
+                    lang: "zh-cn"
+                }, function (captchaObj) {
+                    captchaObj.appendTo("#captcha");
+                    captchaObj.onSuccess(function () {
+                        var r = captchaObj.getValidate();
+                        if (!r) { notifyError("验证结果为空，请重试"); return; }
+                        document.getElementById("tip").innerText = "验证通过，正在登录…";
+                        notifyResult(r.geetest_validate, r.geetest_seccode);
+                    });
+                    captchaObj.onError(function (e) {
+                        notifyError("验证出错：" + ((e && (e.msg || e.error_code)) || "未知"));
+                    });
+                });
+            } catch (e) {
+                notifyError("验证初始化异常：" + (e && e.message ? e.message : e));
+            }
+        }
+    </script>
+</body>
+</html>

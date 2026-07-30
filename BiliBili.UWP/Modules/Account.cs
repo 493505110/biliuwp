@@ -560,6 +560,199 @@ namespace BiliBili.UWP.Modules
 
         }
         /// <summary>
+        /// 申请captcha验证码，拿到极验gt/challenge与登录token
+        /// </summary>
+        public async Task<ReturnModel<CaptchaInfoModel>> GetCaptchaInfo()
+        {
+            try
+            {
+                var result = await loginAPI.Captcha().Request();
+                if (!result.status)
+                {
+                    return new ReturnModel<CaptchaInfoModel>() { success = false, message = result.message };
+                }
+                var data = await result.GetData<CaptchaInfoModel>();
+                if (data == null || !data.success || data.data == null || data.data.geetest == null)
+                {
+                    return new ReturnModel<CaptchaInfoModel>()
+                    {
+                        success = false,
+                        message = data == null ? "读取验证码失败" : data.message
+                    };
+                }
+                return new ReturnModel<CaptchaInfoModel>() { success = true, data = data.data };
+            }
+            catch (Exception ex)
+            {
+                return HandelError<CaptchaInfoModel>(ex);
+            }
+        }
+
+        /// <summary>
+        /// 用Web端公钥加密密码。与旧的EncryptedPassword不同，失败时抛异常而不是回落到明文
+        /// </summary>
+        private async Task<string> EncryptedPasswordWeb(string password)
+        {
+            var result = await loginAPI.WebKey().Request();
+            if (!result.status)
+            {
+                throw new Exception("获取登录密钥失败：" + result.message);
+            }
+            var obj = result.GetJObject();
+            if (obj == null || obj["code"].ToInt32() != 0 || obj["data"] == null)
+            {
+                throw new Exception("获取登录密钥失败");
+            }
+            //hash为salt，需拼在密码前面，有效期约20秒，所以取key后要立刻登录
+            var hash = obj["data"]["hash"].ToString();
+            var pem = obj["data"]["key"].ToString();
+            var keyBody = Regex.Match(pem, "BEGIN PUBLIC KEY-----(?<key>[\\s\\S]+)-----END PUBLIC KEY").Groups["key"].Value.Trim();
+            if (keyBody == "")
+            {
+                throw new Exception("登录密钥格式异常");
+            }
+            var keyBytes = Convert.FromBase64String(keyBody);
+            var provider = AsymmetricKeyAlgorithmProvider.OpenAlgorithm(AsymmetricAlgorithmNames.RsaPkcs1);
+            var cryptographicKey = provider.ImportPublicKey(keyBytes.AsBuffer(), 0);
+            var buffer = CryptographicEngine.Encrypt(cryptographicKey, Encoding.UTF8.GetBytes(hash + password).AsBuffer(), null);
+            return Convert.ToBase64String(buffer.ToArray());
+        }
+
+        /// <summary>
+        /// Web端账密登录。需先完成极验，成功后把cookie换成access_key
+        /// </summary>
+        /// <param name="username">手机号或邮箱</param>
+        /// <param name="password">明文密码</param>
+        /// <param name="token">captcha接口的token</param>
+        /// <param name="challenge">极验challenge</param>
+        /// <param name="validate">极验validate</param>
+        public async Task<LoginCallbackModel> WebPasswordLogin(string username, string password, string token, string challenge, string validate)
+        {
+            try
+            {
+                var pwd = await EncryptedPasswordWeb(password);
+                var result = await loginAPI.WebPasswordLogin(username, pwd, token, challenge, validate).Request();
+                if (!result.status)
+                {
+                    return new LoginCallbackModel() { status = LoginStatus.Fail, message = result.message };
+                }
+                var obj = result.GetJObject();
+                if (obj == null)
+                {
+                    return new LoginCallbackModel() { status = LoginStatus.Fail, message = "登录返回内容异常" };
+                }
+                var code = obj["code"].ToInt32();
+                if (code == 0)
+                {
+                    var status = obj["data"]?["status"] == null ? 0 : obj["data"]["status"].ToInt32();
+                    if (status == 0)
+                    {
+                        //cookie已写入应用cookie jar，换成App用的access_key
+                        return await CookieToAccessKey();
+                    }
+                    //status非0表示需要安全验证(如异地登录要验证手机号)，url里带tmp_token
+                    return new LoginCallbackModel()
+                    {
+                        status = LoginStatus.NeedValidate,
+                        message = "本次登录需要安全验证",
+                        url = obj["data"]?["url"]?.ToString()
+                    };
+                }
+                return new LoginCallbackModel()
+                {
+                    status = code == -105 ? LoginStatus.NeedCaptcha : LoginStatus.Fail,
+                    message = WebLoginCodeToMessage(code, obj["message"]?.ToString())
+                };
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("Web账密登录失败", LogType.ERROR, ex);
+                return new LoginCallbackModel() { status = LoginStatus.Error, message = "登录失败：" + ex.Message };
+            }
+        }
+
+        private static string WebLoginCodeToMessage(int code, string message)
+        {
+            switch (code)
+            {
+                case -105: return "验证码错误，请重新验证";
+                case -629: return "账号或密码错误";
+                case -653:
+                case -2001: return "登录参数缺失，请重试";
+                case -662: return "登录超时，请重试";
+                case 2400: return "登录密钥错误，请重试";
+                case 2406: return "极验服务出错，请重试";
+                case 86000: return "密码加密失败，请重试";
+                default: return string.IsNullOrEmpty(message) ? ("登录失败，代码：" + code) : message;
+            }
+        }
+
+        /// <summary>
+        /// 把已有的web cookie换成App用的access_key。
+        /// 走TV二维码：申请auth_code → 用cookie确认 → 轮询取token。
+        /// 原先用的/login/app/third接口已下线(code 20000)，故改用此路径
+        /// </summary>
+        public async Task<LoginCallbackModel> CookieToAccessKey()
+        {
+            var csrf = GetCookieValue("bili_jct");
+            var authResult = await GetQRAuthInfo();
+            if (!authResult.success)
+            {
+                return new LoginCallbackModel() { status = LoginStatus.Fail, message = "获取授权码失败：" + authResult.message };
+            }
+            var confirm = await loginAPI.QRLoginConfirm(authResult.data.auth_code, csrf).Request();
+            if (!confirm.status)
+            {
+                return new LoginCallbackModel() { status = LoginStatus.Fail, message = confirm.message };
+            }
+            var obj = confirm.GetJObject();
+            if (obj == null || obj["code"].ToInt32() != 0)
+            {
+                return new LoginCallbackModel()
+                {
+                    status = LoginStatus.Fail,
+                    message = obj == null ? "确认授权失败" : ("确认授权失败：" + obj["message"]?.ToString())
+                };
+            }
+            //确认后轮询取token。服务端状态可能有延迟，重试几次
+            LoginCallbackModel poll = null;
+            for (int i = 0; i < 5; i++)
+            {
+                poll = await PollQRAuthInfo(authResult.data.auth_code);
+                if (poll.status == LoginStatus.Success)
+                {
+                    return poll;
+                }
+                await Task.Delay(800);
+            }
+            return poll ?? new LoginCallbackModel() { status = LoginStatus.Fail, message = "获取登录凭证失败" };
+        }
+
+        /// <summary>
+        /// 从应用cookie jar里读取指定cookie。WebView与HttpClient共用该jar
+        /// </summary>
+        public static string GetCookieValue(string name)
+        {
+            try
+            {
+                var filter = new HttpBaseProtocolFilter();
+                var cookies = filter.CookieManager.GetCookies(new Uri("https://www.bilibili.com/"));
+                foreach (var item in cookies)
+                {
+                    if (item.Name == name)
+                    {
+                        return item.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("读取cookie失败", LogType.ERROR, ex);
+            }
+            return "";
+        }
+
+        /// <summary>
         /// 获取二维码登录信息
         /// </summary>
         /// <returns></returns>
@@ -698,6 +891,46 @@ namespace BiliBili.UWP.Modules
             /// Expires_in
             /// </summary>
             public int expires_in { get; set; }
+        }
+
+        /// <summary>
+        /// captcha接口返回的验证码信息
+        /// </summary>
+        public class CaptchaInfoModel
+        {
+            /// <summary>
+            /// 验证方式，目前只有geetest
+            /// </summary>
+            public string type { get; set; }
+            /// <summary>
+            /// 登录token，与captcha无关，登录接口要用
+            /// </summary>
+            public string token { get; set; }
+            /// <summary>
+            /// 极验参数
+            /// </summary>
+            public GeetestDataModel geetest { get; set; }
+        }
+
+        public class GeetestDataModel
+        {
+            /// <summary>
+            /// 极验id，一般固定
+            /// </summary>
+            public string gt { get; set; }
+            /// <summary>
+            /// 极验KEY，每次请求都不同
+            /// </summary>
+            public string challenge { get; set; }
+        }
+
+        /// <summary>
+        /// 极验验证完成后的结果，由geetest.html回传
+        /// </summary>
+        public class GeetestValidateModel
+        {
+            public string validate { get; set; }
+            public string seccode { get; set; }
         }
 
         public class Cookies

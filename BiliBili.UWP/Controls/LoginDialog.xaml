@@ -3,13 +3,13 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BiliBili.UWP.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Title="登录"
     PrimaryButtonText="登录"
     SecondaryButtonText="取消"
-    
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
     <Grid>
@@ -73,7 +73,7 @@
                 <TextBlock>切换至网页登录</TextBlock>
             </HyperlinkButton>
         </StackPanel>
-        <WebView x:Name="webView" NavigationStarting="webView_NavigationStarting" NavigationCompleted="WebView_NavigationCompleted" ScriptNotify="webView_ScriptNotify"  Height="360" Visibility="Collapsed"></WebView>
+        <muxc:WebView2 x:Name="webView" Height="360" Visibility="Collapsed"></muxc:WebView2>
     </Grid>
   
 </ContentDialog>
