@@ -63,6 +63,32 @@
                         </Style>
                     </GridView.ItemContainerStyle>
                 </GridView>
+                <!--视频卡片-->
+                <Border Visibility="{x:Bind VideoVisible}" Margin="0 0 0 8"
+                        Background="{ThemeResource SystemControlBackgroundAltHighBrush}" CornerRadius="4">
+                    <Grid Height="72">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="108"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <toolkit:ImageEx Source="{x:Bind VideoCover}" IsCacheEnabled="True"
+                                         Stretch="UniformToFill" CornerRadius="4 0 0 4"/>
+                        <Border Grid.Column="0" CornerRadius="0 0 0 4"
+                                VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                                Margin="0 0 4 4" Padding="4 1" Background="#99000000">
+                            <TextBlock Text="{x:Bind VideoDuration}" Foreground="White" FontSize="11"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" Padding="8 6" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind VideoTitle}" FontWeight="SemiBold"
+                                       MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                       FontSize="13"/>
+                            <StackPanel Orientation="Horizontal" Margin="0 4 0 0">
+                                <FontIcon Glyph="&#xE714;" FontSize="11" Foreground="Gray" Margin="0 0 3 0"/>
+                                <TextBlock Text="{x:Bind VideoPlay}" Foreground="Gray" FontSize="11"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
                 <!--文章卡片-->
                 <Border Visibility="{x:Bind ArticleVisible}" Margin="0 0 0 8"
                         Background="{ThemeResource SystemControlBackgroundAltHighBrush}" CornerRadius="4">
