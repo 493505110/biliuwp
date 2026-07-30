@@ -49,5 +49,26 @@ namespace BiliBili.UWP.Api.User
             return api;
         }
 
+        /// <summary>
+        /// 获取用户空间动态（新版polymer接口，需要Wbi签名）
+        /// </summary>
+        /// <param name="hostMid">目标用户UID</param>
+        /// <param name="offset">分页偏移量，第一页留空</param>
+        public ApiModel SpaceDynamic(string hostMid, string offset = "")
+        {
+            var par = $"host_mid={hostMid}&platform=web&features=itemOpusStyle";
+            if (!string.IsNullOrEmpty(offset))
+            {
+                par += $"&offset={Uri.EscapeDataString(offset)}";
+            }
+            return new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space",
+                parameter = par,
+                useWbi = true
+            };
+        }
+
     }
 }

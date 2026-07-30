@@ -1,4 +1,5 @@
 ﻿using BiliBili.UWP.Views;
+using BiliBili.UWP.Models;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -136,7 +137,7 @@ namespace BiliBili.UWP.Pages.User
         {
             if (pivot.SelectedIndex == 1)
             {
-                if (ls_dynamic.Count() == 0)
+                if (_dynItems.Count == 0 && !_loadDynamic)
                 {
                     GetDynamic();
                 }
@@ -145,56 +146,56 @@ namespace BiliBili.UWP.Pages.User
 
         #region 动态
 
-        //TODO 需要重写
-
+        readonly Api.User.DynamicAPI _dynamicAPI = new Api.User.DynamicAPI();
+        readonly ObservableCollection<SpaceDynItemVM> _dynItems = new ObservableCollection<SpaceDynItemVM>();
         bool _loadDynamic = false;
+        string _dynOffset = "";
+        bool _dynHasMore = true;
+
         private async void GetDynamic()
         {
+            if (_loadDynamic) return;
             try
             {
-
                 pr_Load.Visibility = Visibility.Visible;
                 _loadDynamic = true;
-                var next = "0";
-                if (ls_dynamic.Count() != 0)
+
+                var result = await _dynamicAPI.SpaceDynamic(mid, _dynOffset).Request();
+                if (!result.status)
                 {
-                    next = ls_dynamic.GetLastDynamicId();
+                    Utils.ShowMessageToast("读取动态失败：" + result.message);
+                    return;
+                }
+                var resp = await result.GetData<SpaceDynamicResp>();
+                if (resp == null || !resp.success)
+                {
+                    Utils.ShowMessageToast(resp?.message ?? "读取动态失败");
+                    return;
                 }
 
-                string url = string.Format("https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/space_history?_device=android&access_key={0}&appkey={1}&build=5250000&host_uid={2}&mobi_app=android&offset_dynamic_id={3}&platform=android&qn=32&src=bilih5&ts={4}&visitor_uid={5}",
-                ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, mid, next, ApiHelper.GetTimeSpan_2, ApiHelper.GetUserId());
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                results = results.Replace("default", "_default");
-                DynamicModel dynamicModel = JsonConvert.DeserializeObject<DynamicModel>(results);
-                if (dynamicModel.code == 0)
+                if (ls_new_dynamic.ItemsSource == null)
                 {
-                    if (dynamicModel.data.cards == null)
+                    ls_new_dynamic.ItemsSource = _dynItems;
+                }
+
+                var items = resp.data?.items;
+                if (items != null)
+                {
+                    foreach (var item in items)
                     {
-                        Utils.ShowMessageToast("没有更多动态了");
-                        return;
+                        if (!item.visible) continue;
+                        _dynItems.Add(SpaceDynItemVM.FromItem(item));
                     }
-                    ObservableCollection<DynamicCardsModel> cards = new ObservableCollection<DynamicCardsModel>();
-                    foreach (var item in dynamicModel.data.cards)
-                    {
-                        if (item.desc.type != 32)
-                        {
-                            cards.Add(item);
-                        }
-
-
-                    }
-                    ls_dynamic.LoadData(cards);
                 }
-                else
-                {
-                    Utils.ShowMessageToast(dynamicModel.msg);
-                }
+
+                _dynHasMore = resp.data?.has_more ?? false;
+                _dynOffset = resp.data?.offset ?? "";
+                tb_dynEmpty.Visibility = _dynItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-
-                Utils.ShowMessageToast("读取综合动态失败");
+                Helper.LogHelper.WriteLog("读取用户动态失败", Helper.LogType.ERROR, ex);
+                Utils.ShowMessageToast("读取动态失败");
             }
             finally
             {
@@ -203,19 +204,47 @@ namespace BiliBili.UWP.Pages.User
             }
         }
 
-
-        private void ls_dynamic_LoadMore(object sender, string e)
+        private void sv_dynamic_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            if (_loadDynamic)
+            var sv = sender as ScrollViewer;
+            if (sv == null) return;
+            if (sv.VerticalOffset >= sv.ScrollableHeight - 200 && _dynHasMore && !_loadDynamic)
             {
-                return;
+                GetDynamic();
             }
-            GetDynamic();
         }
 
-        private void ls_dynamic_Refresh(object sender, EventArgs e)
+        private void ls_new_dynamic_ItemClick(object sender, ItemClickEventArgs e)
         {
+            var item = e.ClickedItem as SpaceDynItemVM;
+            if (item == null) return;
+            switch (item.DynType)
+            {
+                case "DYNAMIC_TYPE_AV":
+                case "DYNAMIC_TYPE_UGC_SEASON":
+                    if (!string.IsNullOrEmpty(item.VideoAid))
+                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), item.VideoAid);
+                    break;
+                case "DYNAMIC_TYPE_ARTICLE":
+                    if (item.ArticleId > 0)
+                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticleContentPage),
+                            "https://www.bilibili.com/read/app/" + item.ArticleId);
+                    break;
+                default:
+                    break;
+            }
+        }
 
+        private void ImgGrid_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            var vm = (sender as GridView)?.DataContext as SpaceDynItemVM;
+            if (vm?.ImagesRaw == null || vm.ImagesRaw.Count == 0) return;
+            var clickedThumb = e.ClickedItem as string;
+            //缩略图URL去掉后缀还原为原图
+            var origUrl = clickedThumb?.Replace("@300w_200h_1e_1c.jpg", "") ?? "";
+            int index = Math.Max(0, vm.ImagesRaw.IndexOf(origUrl));
+            var preview = new Controls.ImagePreview(vm.ImagesRaw, index);
+            preview.Show();
         }
 
         #endregion

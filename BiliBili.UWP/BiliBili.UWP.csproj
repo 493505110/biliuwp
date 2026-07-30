@@ -385,6 +385,7 @@
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\AttenionModels.cs" />
+    <Compile Include="Models\SpaceDynamicModel.cs" />
     <Compile Include="Models\BangumiModel.cs" />
     <Compile Include="Models\BanInfoModel.cs" />
     <Compile Include="Models\FaceModels.cs" />

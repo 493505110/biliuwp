@@ -10,10 +10,88 @@
     xmlns:controls="using:BiliBili.UWP.Controls"
     xmlns:toolkit="using:Microsoft.Toolkit.Uwp.UI.Controls"
     xmlns:convert="using:BiliBili.UWP.Converters"
+    xmlns:dynModels="using:BiliBili.UWP.Models"
     Background="{ThemeResource Bili-Background}">
     <Page.Resources>
         <convert:DatetimeConvert x:Key="time"/>
         <convert:NumberToStringConvert x:Key="numberToStringConvert"/>
+        <!--让ListView条目横向撑满-->
+        <Style x:Key="ListViewItemStretchStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <DataTemplate x:Key="DynItemTemplate" x:DataType="dynModels:SpaceDynItemVM">
+            <StackPanel Padding="12 10 12 10"
+                        BorderBrush="{ThemeResource Bili-BorderColor}"
+                        BorderThickness="0 0 0 1">
+                <!--作者行-->
+                <Grid Margin="0 0 0 8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="44"/>
+                        <ColumnDefinition/>
+                    </Grid.ColumnDefinitions>
+                    <Ellipse Width="36" Height="36">
+                        <Ellipse.Fill>
+                            <ImageBrush ImageSource="{x:Bind AuthorFace}"/>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6 0 0 0">
+                        <TextBlock Text="{x:Bind AuthorName}" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock Text="{x:Bind PubTime}" Foreground="Gray" FontSize="12"/>
+                    </StackPanel>
+                </Grid>
+                <!--文字内容-->
+                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" Margin="0 0 0 8"
+                           Visibility="{x:Bind TextVisible}" MaxLines="6"
+                           TextTrimming="CharacterEllipsis"/>
+                <!--图片网格-->
+                <GridView Visibility="{x:Bind ImagesVisible}" ItemsSource="{x:Bind Images}"
+                          SelectionMode="None" IsItemClickEnabled="True" Margin="0 0 0 8"
+                          ItemClick="ImgGrid_ItemClick">
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <toolkit:ImageEx Source="{x:Bind}" IsCacheEnabled="True"
+                                             Width="96" Height="96" Stretch="UniformToFill"/>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                    <GridView.ItemContainerStyle>
+                        <Style TargetType="GridViewItem">
+                            <Setter Property="Margin" Value="2"/>
+                            <Setter Property="Padding" Value="0"/>
+                        </Style>
+                    </GridView.ItemContainerStyle>
+                </GridView>
+                <!--文章卡片-->
+                <Border Visibility="{x:Bind ArticleVisible}" Margin="0 0 0 8"
+                        Background="{ThemeResource SystemControlBackgroundAltHighBrush}" CornerRadius="4">
+                    <StackPanel Padding="8">
+                        <toolkit:ImageEx Visibility="{x:Bind ArticleCoverVisible}" Source="{x:Bind ArticleCover}"
+                                         IsCacheEnabled="True" MaxHeight="120" Stretch="UniformToFill"
+                                         Margin="0 0 0 6"/>
+                        <TextBlock Text="{x:Bind ArticleTitle}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   MaxLines="2" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{x:Bind ArticleDesc}" Foreground="Gray" MaxLines="2"
+                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis" FontSize="12"/>
+                    </StackPanel>
+                </Border>
+                <!--转发摘要-->
+                <Border Visibility="{x:Bind ForwardVisible}" Margin="0 0 0 8"
+                        Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                        CornerRadius="4" Padding="8">
+                    <TextBlock Text="{x:Bind ForwardSummary}" Foreground="Gray" MaxLines="4"
+                               TextWrapping="Wrap" TextTrimming="CharacterEllipsis" FontSize="12"/>
+                </Border>
+                <!--统计行-->
+                <StackPanel Orientation="Horizontal" Margin="0 4 0 0">
+                    <FontIcon Glyph="&#xE8BA;" FontSize="12" Foreground="Gray" Margin="0 0 4 0"/>
+                    <TextBlock Text="{x:Bind ForwardStr}" Foreground="Gray" FontSize="12" Margin="0 0 16 0"/>
+                    <FontIcon Glyph="&#xE8F2;" FontSize="12" Foreground="Gray" Margin="0 0 4 0"/>
+                    <TextBlock Text="{x:Bind CommentStr}" Foreground="Gray" FontSize="12" Margin="0 0 16 0"/>
+                    <FontIcon Glyph="&#xEB51;" FontSize="12" Foreground="Gray" Margin="0 0 4 0"/>
+                    <TextBlock Text="{x:Bind LikeStr}" Foreground="Gray" FontSize="12"/>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
     </Page.Resources>
     
     <Grid>
@@ -177,8 +255,16 @@
                     <TextBlock FontSize="18"  >动态</TextBlock>
                 </PivotItem.Header>
                 <Grid>
-                    <controls:DynamicControls x:Name="ls_dynamic" MaxWidth="800" LoadMore="ls_dynamic_LoadMore" Refresh="ls_dynamic_Refresh"/>
-                    <ProgressRing x:Name="pr_Load" IsActive="True"  VerticalAlignment="Center" HorizontalAlignment="Center" ></ProgressRing>
+                    <ScrollViewer x:Name="sv_dynamic" ViewChanged="sv_dynamic_ViewChanged">
+                        <ListView x:Name="ls_new_dynamic"
+                                  SelectionMode="None" IsItemClickEnabled="True"
+                                  ItemClick="ls_new_dynamic_ItemClick"
+                                  ItemTemplate="{StaticResource DynItemTemplate}"
+                                  ItemContainerStyle="{StaticResource ListViewItemStretchStyle}"/>
+                    </ScrollViewer>
+                    <ProgressRing x:Name="pr_Load" IsActive="True" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="tb_dynEmpty" Visibility="Collapsed" Foreground="Gray"
+                               HorizontalAlignment="Center" VerticalAlignment="Center">还没有动态</TextBlock>
                 </Grid>
             </PivotItem>
         </Pivot>

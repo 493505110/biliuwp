@@ -18,7 +18,7 @@ fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已�
   - [ ] ~~话题~~
   - [ ] 结果广告去除
 
-- [ ] 基础功能
+- [X] 基础功能
   - [X] 视频播放修复(avid->long)
   - [X] 视频清晰度选择(目前只能480P)
   - [X] Wbi API 支持
@@ -29,9 +29,9 @@ fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已�
   - [X] 历史记录显示
   - [X] 视频CC字幕
 
-- [ ] 用户
+- [X] 用户
   - [X] 用户主页视频列表
-  - [ ] 用户动态
+  - [X] 用户动态
 
 - [X] 评论
   - [X] 置顶评论显示修复
