@@ -66,6 +66,12 @@ namespace BiliBili.UWP.Pages.User
                     userCenterVM.is_self = mid == ApiHelper.GetUserId();
                     userCenterVM.UserCenterDetail = null;
                     userCenterVM.SubmitVideos.Clear();
+                    //切换用户时同步重置动态状态
+                    _dynItems.Clear();
+                    _dynOffset = "";
+                    _dynHasMore = true;
+                    ls_new_dynamic.ItemsSource = null;
+                    tb_dynEmpty.Visibility = Visibility.Collapsed;
                     await userCenterVM.GetUserDetail();
                 }
             }
@@ -227,6 +233,10 @@ namespace BiliBili.UWP.Pages.User
                     if (!string.IsNullOrEmpty(item.VideoAid))
                         MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), item.VideoAid);
                     break;
+                case "DYNAMIC_TYPE_PGC":
+                    if (item.PgcEpId > 0)
+                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), item.PgcEpId);
+                    break;
                 case "DYNAMIC_TYPE_ARTICLE":
                     if (item.ArticleId > 0)
                         MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticleContentPage),
@@ -239,14 +249,13 @@ namespace BiliBili.UWP.Pages.User
 
         private void ImgGrid_ItemClick(object sender, ItemClickEventArgs e)
         {
-            var vm = (sender as GridView)?.DataContext as SpaceDynItemVM;
+            //Tag绑定了父 SpaceDynItemVM，比依赖DataContext更可靠
+            var vm = (sender as GridView)?.Tag as SpaceDynItemVM;
             if (vm?.ImagesRaw == null || vm.ImagesRaw.Count == 0) return;
             var clickedThumb = e.ClickedItem as string;
-            //缩略图URL去掉后缀还原为原图
             var origUrl = clickedThumb?.Replace("@300w_200h_1e_1c.jpg", "") ?? "";
             int index = Math.Max(0, vm.ImagesRaw.IndexOf(origUrl));
-            var preview = new Controls.ImagePreview(vm.ImagesRaw, index);
-            preview.Show();
+            new Controls.ImagePreview(vm.ImagesRaw, index).Show();
         }
 
         #endregion

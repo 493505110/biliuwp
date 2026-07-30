@@ -92,6 +92,8 @@ namespace BiliBili.UWP.Models
     public class SpaceDynDrawItem
     {
         public string src { get; set; }
+        /// <summary>opus.pics 使用 url 字段，draw.items 使用 src 字段</summary>
+        public string url { get; set; }
         public double width { get; set; }
         public double height { get; set; }
     }
@@ -167,6 +169,8 @@ namespace BiliBili.UWP.Models
         public string VideoDuration { get; set; }
         public string VideoPlay { get; set; }
         public string VideoAid { get; set; }
+        /// <summary>PGC(番剧)类型的ep号，跳转用BanInfoPage</summary>
+        public int PgcEpId { get; set; }
 
         // 图片（最多9张）
         public Visibility ImagesVisible { get; set; } = Visibility.Collapsed;
@@ -302,7 +306,8 @@ namespace BiliBili.UWP.Models
             vm.VideoCover = p.cover != null ? p.cover + "@200w.jpg" : "";
             vm.VideoTitle = p.title ?? "";
             vm.VideoPlay = p.stat?.play ?? "";
-            vm.VideoAid = p.epid > 0 ? "ep" + p.epid : "";
+            vm.PgcEpId = p.epid;
+            //VideoAid 留空，跳转时通过PgcEpId走番剧页
         }
 
         private static void FillDraw(SpaceDynItemVM vm, List<SpaceDynDrawItem> pics)
@@ -312,7 +317,8 @@ namespace BiliBili.UWP.Models
             int max = Math.Min(pics.Count, 9);
             for (int i = 0; i < max; i++)
             {
-                var raw = pics[i].src ?? "";
+                //draw.items 用 src，opus.pics 用 url
+                var raw = pics[i].src ?? pics[i].url ?? "";
                 vm.ImagesRaw.Add(raw);
                 vm.Images.Add(raw + "@300w_200h_1e_1c.jpg");
             }

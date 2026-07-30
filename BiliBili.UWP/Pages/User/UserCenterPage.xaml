@@ -44,13 +44,15 @@
                 <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" Margin="0 0 0 8"
                            Visibility="{x:Bind TextVisible}" MaxLines="6"
                            TextTrimming="CharacterEllipsis"/>
-                <!--图片网格-->
+                <!--图片网格。Tag绑定父VM方便click handler取到原图列表-->
                 <GridView Visibility="{x:Bind ImagesVisible}" ItemsSource="{x:Bind Images}"
+                          Tag="{x:Bind}"
                           SelectionMode="None" IsItemClickEnabled="True" Margin="0 0 0 8"
                           ItemClick="ImgGrid_ItemClick">
                     <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="x:String">
-                            <toolkit:ImageEx Source="{x:Bind}" IsCacheEnabled="True"
+                        <!--用Binding而非x:Bind，让string通过类型转换器自动装载-->
+                        <DataTemplate>
+                            <toolkit:ImageEx Source="{Binding}" IsCacheEnabled="True"
                                              Width="96" Height="96" Stretch="UniformToFill"/>
                         </DataTemplate>
                     </GridView.ItemTemplate>
