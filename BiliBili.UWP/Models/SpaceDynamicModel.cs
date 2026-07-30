@@ -262,9 +262,9 @@ namespace BiliBili.UWP.Models
         public int LikeCount { get; set; }
         public int CommentCount { get; set; }
         public int ForwardCount { get; set; }
-        public string LikeStr => LikeCount > 0 ? LikeCount.ToString() : "点赞";
-        public string CommentStr => CommentCount > 0 ? CommentCount.ToString() : "评论";
-        public string ForwardStr => ForwardCount > 0 ? ForwardCount.ToString() : "转发";
+        public string LikeStr => LikeCount.ToString();
+        public string CommentStr => CommentCount.ToString();
+        public string ForwardStr => ForwardCount.ToString();
 
         public event PropertyChangedEventHandler PropertyChanged;
 
