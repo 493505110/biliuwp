@@ -188,14 +188,14 @@ namespace BiliBili.UWP.Models
         public string text { get; set; }
     }
 
-    /// <summary>转发列表行 ViewModel，供 ls_repost x:Bind 绑定</summary>
+    /// <summary>转发列表行 ViewModel，供 ls_repost x:Bind 绑定。
+    /// 只展示转发人，不展示 desc.text（那是整条转发链的拼接文本）</summary>
     public class SpaceDynForwardItemVM
     {
         public string FaceThumb { get; set; }
         public string Name { get; set; }
         public long Mid { get; set; }
         public string PubTime { get; set; }
-        public string Text { get; set; }
 
         public static SpaceDynForwardItemVM From(SpaceDynForwardItem item)
         {
@@ -205,8 +205,7 @@ namespace BiliBili.UWP.Models
                 FaceThumb = string.IsNullOrEmpty(face) ? "" : face + "@36w_36h.jpg",
                 Name = item.user?.name ?? "",
                 Mid = item.user?.mid ?? 0,
-                PubTime = item.pub_time ?? "",
-                Text = item.desc?.text ?? ""
+                PubTime = item.pub_time ?? ""
             };
         }
     }

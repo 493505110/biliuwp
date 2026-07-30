@@ -120,7 +120,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="auto"/>
                     <RowDefinition Height="auto"/>
-                    <RowDefinition Height="auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="auto"/>
@@ -134,12 +133,10 @@
                         </Ellipse.Fill>
                     </Ellipse>
                 </HyperlinkButton>
-                <TextBlock Grid.Column="1" Margin="8 0" Text="{x:Bind Name}"/>
+                <TextBlock Grid.Column="1" Margin="8 0" VerticalAlignment="Bottom"
+                           Text="{x:Bind Name}"/>
                 <TextBlock Grid.Column="1" Grid.Row="1" FontSize="12" Foreground="Gray"
-                           Margin="8 0" Text="{x:Bind PubTime}"/>
-                <TextBlock Grid.Row="2" Grid.Column="1" Margin="8 4 0 0"
-                           Text="{x:Bind Text}" TextWrapping="Wrap" MaxLines="5"
-                           TextTrimming="CharacterEllipsis" FontSize="13"/>
+                           Margin="8 0" VerticalAlignment="Top" Text="{x:Bind PubTime}"/>
             </Grid>
         </DataTemplate>
     </Page.Resources>
