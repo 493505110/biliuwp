@@ -1,5 +1,7 @@
 ﻿using BiliBili.UWP.Views;
 using BiliBili.UWP.Models;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Pages.FindMore;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
