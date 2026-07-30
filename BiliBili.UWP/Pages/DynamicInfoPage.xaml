@@ -182,17 +182,15 @@
                        Background="{ThemeResource Bili-List-Background}" Margin="0 8">
                     <PivotItem Margin="0">
                         <PivotItem.Header>
-                            <TextBlock x:Name="txt_ForwardHeader" FontSize="16">转发</TextBlock>
+                            <TextBlock FontSize="16">转发</TextBlock>
                         </PivotItem.Header>
                         <Grid>
                             <StackPanel>
                                 <ListView x:Name="ls_repost"
-                                          BorderThickness="0 1 0 0" BorderBrush="#33808080"
                                           SelectionMode="None" IsItemClickEnabled="False"
                                           ScrollViewer.VerticalScrollMode="Disabled"
                                           ScrollViewer.VerticalScrollBarVisibility="Hidden"
-                                          ItemTemplate="{StaticResource ForwardItemTemplate}"
-                                          ItemContainerStyle="{StaticResource ListViewItemStretchStyle}">
+                                          ItemTemplate="{StaticResource ForwardItemTemplate}">
                                     <ListView.ItemContainerStyle>
                                         <Style TargetType="ListViewItem">
                                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>

@@ -173,10 +173,6 @@ namespace BiliBili.UWP.Pages
                 _forwardHasMore = data.has_more;
                 _forwardOffset = data.offset ?? "";
 
-                // 更新转发标签上的数字
-                if (data.total > 0)
-                    txt_ForwardHeader.Text = $"转发 {data.total}";
-
                 btn_LoadMoreRepost.Visibility = _forwardHasMore ? Visibility.Visible : Visibility.Collapsed;
             }
             catch (Exception ex)
@@ -223,7 +219,7 @@ namespace BiliBili.UWP.Pages
                 url += "&sign=" + ApiHelper.GetSign(url);
 
                 string body = $"dynamic_id={_dynIdStr}&uid={ApiHelper.GetUserId()}&csrf=&csrf_token=";
-                var re = await Helper.WebClientClass.PostResultsUtf8(new Uri(url), body);
+                var re = await WebClientClass.PostResultsUtf8(new Uri(url), body);
                 var obj = Newtonsoft.Json.Linq.JObject.Parse(re);
                 if (obj["code"].ToObject<int>() == 0)
                 {
