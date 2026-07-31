@@ -171,8 +171,8 @@ namespace BiliBili.UWP.Models
     public class episodesModel
     {
         public int id { get; set; }
-        public int aid { get; set; }
-        public int cid { get; set; }
+        public long aid { get; set; }
+        public long cid { get; set; }
         public int ep_id { get; set; }
      
         public int page { get; set; }
@@ -196,8 +196,8 @@ namespace BiliBili.UWP.Models
         }
 
 
-        private int _danmaku;
-        public int danmaku
+        private long _danmaku;
+        public long danmaku
         {
             get
             {

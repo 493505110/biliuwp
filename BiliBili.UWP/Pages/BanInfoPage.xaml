@@ -160,7 +160,7 @@
                                         <TextBlock Text="{Binding Path=new_ep.desc}" Grid.Column="1" Grid.Row="1" FontSize="14" VerticalAlignment="Center" Foreground="#FF555555"/>
                                         <StackPanel Orientation="Horizontal" Height="16" Grid.Row="2" VerticalAlignment="Center" Margin="0,5">
                                             <TextBlock Text="地区：" FontSize="14" VerticalAlignment="Center" Foreground="#FF898989"/>
-                                            <TextBlock Text="{Binding Path=detail_media.area_str}" FontSize="14" VerticalAlignment="Center" Foreground="#FF555555"/>
+                                            <TextBlock Text="{Binding Path=area_str}" FontSize="14" VerticalAlignment="Center" Foreground="#FF555555"/>
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" Grid.Row="3" Height="16" VerticalAlignment="Center" Margin="0,5">
                                             <TextBlock Text="评分：" FontSize="14" VerticalAlignment="Center" Foreground="#FF898989"/>
@@ -322,13 +322,13 @@
                                 <Grid  BorderBrush="#4C808080" Padding="10" Margin="0 10 0 0" Background="{ThemeResource Bili-List-Background}">
                                     <StackPanel>
                                         <TextBlock>CV</TextBlock>
-                                        <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="14" MaxLines="3"  Tapped="TextBlock_Tapped" TextTrimming="CharacterEllipsis" Text="{Binding Path=detail_media.actor}"></TextBlock>
+                                        <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="14" MaxLines="3"  Tapped="TextBlock_Tapped" TextTrimming="CharacterEllipsis" Text="{Binding Path=actors}"></TextBlock>
                                     </StackPanel>
                                 </Grid>
                                 <Grid  BorderBrush="#4C808080" Padding="10" Margin="0 10 0 0" Background="{ThemeResource Bili-List-Background}">
                                     <StackPanel>
                                         <TextBlock>STAFF</TextBlock>
-                                        <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="14" MaxLines="3" Tapped="TextBlock_Tapped" TextTrimming="CharacterEllipsis" Text="{Binding Path=detail_media.staff}"></TextBlock>
+                                        <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="14" MaxLines="3" Tapped="TextBlock_Tapped" TextTrimming="CharacterEllipsis" Text="{Binding Path=staff}"></TextBlock>
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>

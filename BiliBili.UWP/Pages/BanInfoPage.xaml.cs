@@ -36,6 +36,8 @@ using System.Threading.Tasks;
 using BiliBili.UWP.Modules;
 using Windows.UI.Popups;
 using BiliBili.UWP.Pages.User;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.Season;
 
 
 // “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
@@ -116,93 +118,74 @@ namespace BiliBili.UWP.Pages
             {
 
                 pr_Load.Visibility = Visibility.Visible;
-                string uri = string.Format("https://api.bilibili.com/pgc/view/app/season?access_key={0}&appkey={1}&build=5341000&platform=android&season_id={2}&ts={3}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _banId, ApiHelper.GetTimeSpan);
-                uri += "&sign=" + ApiHelper.GetSign(uri);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(uri));
+                var seasonApi = new SeasonInfoAPI();
+                var response = await seasonApi.Detail(_banId).Request();
+                if (!response.status)
+                {
+                    Utils.ShowMessageToast(response.message, 3000);
+                    return;
+                }
 
+                string results = response.results;
                 BangumiDataModel model = JsonConvert.DeserializeObject<BangumiDataModel>(results);
 
-                // string results = await WebClientClass.GetResults(new Uri(uri));
-
-
-                if (model.code == 0 || model.code == -404)
+                if (model == null)
                 {
-                    Dictionary<string, string> header = new Dictionary<string, string>();
-                    header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36");
-                    if (model.code == -404)
+                    Utils.ShowMessageToast("番剧信息解析失败", 3000);
+                    return;
+                }
+
+                if (model.code != 0 || model.result == null)
+                {
+                    var fallbackModel = await GetFallbackSeasonInfo(seasonApi);
+                    if (fallbackModel == null)
                     {
-                        string eresults = await WebClientClass.GetResultsUTF8Encode(new Uri("https://www.biliplus.com/api/bangumi?season=" + _banId), header);
-                        //eresults = eresults.Replace("ep_id", "episode_id");
-                        //eresults = eresults.Replace("cid", "danmaku");
-                        //eresults = eresults.Replace("aid", "av_id");
-                        model = JsonConvert.DeserializeObject<BangumiDataModel>(eresults);
-
-                        if (model.code != 0)
-                        {
-                            Utils.ShowMessageToast(model.message, 3000);
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        if (model.result.rights.area_limit == 1 || (results.Contains("僅") && results.Contains("地區") && (model.result.episodes == null || model.result.episodes.Count == 0)))
-                        {
-                            //results = await WebClientClass.GetResultsUTF8Encode(new Uri("http://bangumi.bilibili.com/jsonp/seasoninfo/"+ _banId + ".ver?callback=seasonListCallback&jsonp=jsonp&_="));
-
-                            //results = results.Replace("seasonListCallback(", "");
-                            //results = results.Remove(results.Length-2,2);
-                            string eresults = await WebClientClass.GetResultsUTF8Encode(new Uri("https://www.biliplus.com/api/bangumi?season=" + _banId), header);
-                            //eresults = eresults.Replace("ep_id", "episode_id");
-                            //eresults = eresults.Replace("cid", "danmaku");
-                            //eresults = eresults.Replace("aid", "av_id");
-                            eresults = eresults.Replace("index_title", "long_title");
-                            eresults = eresults.Replace("index", "title");
-
-                            List<episodesModel> ep = JsonConvert.DeserializeObject<List<episodesModel>>(JObject.Parse(eresults)["result"]["episodes"].ToString());
-                            model.result.episodes = ep;
-                        }
+                        Utils.ShowMessageToast(string.IsNullOrEmpty(model.message) ? "番剧信息为空" : model.message, 3000);
+                        return;
                     }
 
+                    model = fallbackModel;
+                }
+                else if (model.result.episodes == null || model.result.episodes.Count == 0)
+                {
+                    var fallbackModel = await GetFallbackSeasonInfo(seasonApi);
+                    if (fallbackModel != null && fallbackModel.result.episodes != null
+                        && fallbackModel.result.episodes.Count != 0)
+                    {
+                        model.result.episodes = fallbackModel.result.episodes;
+                        if (fallbackModel.result.section != null && fallbackModel.result.section.Count != 0)
+                        {
+                            model.result.section = fallbackModel.result.section;
+                        }
+                    }
+                }
+
+                await PopulateAuthenticatedUserStatus(seasonApi, model);
+
+                if (model.code == 0)
+                {
                     if (model.result.new_ep == null && model.result.newest_ep != null)
                     {
                         model.result.new_ep = model.result.newest_ep;
                     }
 
-                    int i = 0;
-                    //model.result.pv_episodes = model.result.episodes.Where(x => x.section_type != 0).ToList();
-                    //model.result.pv_episodes.ForEach(x => {
-                    //    x.orderindex = i; i++;
-                    //    if (x.index==null)
-                    //    {
-                    //        x.index = x.title;
-                    //    }
-                    //    if (x.index_title==null)
-                    //    {
-                    //        x.index_title = x.long_title;
-                    //    }
-                    //});
+                    model.result.season_type = model.result.season_type == 0 ? model.result.type : model.result.season_type;
+                    PrepareEpisodes(model.result.episodes, model.result.season_type);
+                    if (model.result.section != null)
+                    {
+                        foreach (var section in model.result.section)
+                        {
+                            PrepareEpisodes(section.episodes, model.result.season_type);
+                        }
+                    }
 
                     if (model.result.episodes != null)
                     {
-                        model.result.episodes.ForEach(x =>
-                        {
-                            x.season_type = (model.result.season_type == 0) ? model.result.type : model.result.season_type;
-                            x.orderindex = i;
-                            i++;
-                            if (x.index == null)
-                            {
-                                x.index = x.title;
-                            }
-                            if (x.index_title == null)
-                            {
-                                x.index_title = x.long_title;
-                            }
-                            if ((x.episode_id == null || x.episode_id == "") && x.id != 0)
-                            {
-                                x.episode_id = x.id.ToString();
-                            }
-                        });
                         model.result.episodes = model.result.episodes.OrderByDescending(x => x.orderindex).ToList();
+
+                        this.DataContext = model.result;
+                        gv_Play.ItemsSource = model.result.episodes;
+
                         //设置下载清晰度
                         if (model.result.episodes.Count != 0)
                         {
@@ -216,16 +199,11 @@ namespace BiliBili.UWP.Pages
                         }
 
                     }
-
-
-
-                    model.result.detail_media = await GetDetail(model.result.media_id.ToString());
-                    model.result.evaluate = model.result.detail_media.evaluate;
-
-                    this.DataContext = model.result;
-
-
-                    gv_Play.ItemsSource = model.result.episodes;
+                    else
+                    {
+                        this.DataContext = model.result;
+                        gv_Play.ItemsSource = null;
+                    }
 
                     // pvSection.ItemsSource= model.result.pv_episodes;
                     if (model.result.section != null && model.result.section.Count != 0)
@@ -332,7 +310,7 @@ namespace BiliBili.UWP.Pages
                             HyperlinkButton btn = new HyperlinkButton();
                             btn.DataContext = item;
                             btn.Margin = new Thickness(0, 0, 10, 0);
-                            btn.Content = item.name;
+                            btn.Content = item;
                             btn.Foreground = App.Current.Resources["Bili-ForeColor"] as SolidColorBrush;
                             btn.Click += Btn_Click1; ;
                             WrapPanel_tag.Children.Add(btn);
@@ -410,30 +388,86 @@ namespace BiliBili.UWP.Pages
             }
         }
 
-
-        private async Task<BangumiDetailModel> GetDetail(string mediaId)
+        private async Task<BangumiDataModel> GetFallbackSeasonInfo(SeasonInfoAPI seasonApi)
         {
             try
             {
-                string url = string.Format("https://bangumi.bilibili.com/media/api/detail?appkey={0}&build=5250000&media_id={1}&platform=android&ts={2}", ApiHelper.AndroidKey.Appkey, mediaId, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                BangumiDetailModel bangumiDetailModel = JsonConvert.DeserializeObject<BangumiDetailModel>(results);
-                if (bangumiDetailModel.code == 0)
+                var response = await seasonApi.FallbackDetail(_banId).Request();
+                if (!response.status)
                 {
-                    return bangumiDetailModel.result;
-                }
-                else
-                {
-                    Utils.ShowMessageToast(bangumiDetailModel.message);
-                    return new BangumiDetailModel();
+                    return null;
                 }
 
+                var model = JsonConvert.DeserializeObject<BangumiDataModel>(response.results);
+                if (model == null || model.code != 0 || model.result == null)
+                {
+                    return null;
+                }
+
+                return model;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Utils.ShowMessageToast("无法加载内容");
-                return new BangumiDetailModel();
+                LogHelper.WriteLog("番剧备用信息加载失败", LogType.ERROR, ex);
+                return null;
+            }
+        }
+
+        private async Task PopulateAuthenticatedUserStatus(SeasonInfoAPI seasonApi, BangumiDataModel model)
+        {
+            // Web 详情使用 Cookie；冷启动只有 access_key 时改用 APP 接口补齐用户状态。
+            if (!ApiHelper.IsLogin() || model == null || model.result == null
+                || (model.result.user_status != null && model.result.user_status.login != 0))
+            {
+                return;
+            }
+
+            try
+            {
+                var response = await seasonApi.AppDetail(_banId).Request();
+                if (!response.status)
+                {
+                    return;
+                }
+
+                var statusModel = await response.GetResult<BangumiUserStatusResult>();
+                if (statusModel != null && statusModel.success && statusModel.result != null
+                    && statusModel.result.user_status != null)
+                {
+                    statusModel.result.user_status.login = 1;
+                    model.result.user_status = statusModel.result.user_status;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("番剧用户状态加载失败", LogType.ERROR, ex);
+            }
+        }
+
+        private static void PrepareEpisodes(List<episodesModel> episodes, int seasonType)
+        {
+            if (episodes == null)
+            {
+                return;
+            }
+
+            int orderIndex = 0;
+            foreach (var episode in episodes)
+            {
+                episode.season_type = seasonType;
+                episode.orderindex = orderIndex++;
+                if (string.IsNullOrEmpty(episode.index))
+                {
+                    episode.index = episode.title;
+                }
+                if (string.IsNullOrEmpty(episode.index_title))
+                {
+                    episode.index_title = episode.long_title;
+                }
+                if (string.IsNullOrEmpty(episode.episode_id) && episode.id != 0)
+                {
+                    episode.episode_id = episode.id.ToString();
+                }
             }
         }
 
@@ -1316,52 +1350,6 @@ namespace BiliBili.UWP.Pages
 
 
 
-    public class BangumiDetailModel
-    {
-        public int code { get; set; }
-        public string message { get; set; }
-        public BangumiDetailModel result { get; set; }
-        public string actor { get; set; }
-        public string alias { get; set; }
-        public string cover { get; set; }
-        public string evaluate { get; set; }
-
-        public int media_id { get; set; }
-        public string origin_name { get; set; }
-        public string staff { get; set; }
-
-        public List<BangumiDetailModel> area { get; set; }
-        public string area_str
-        {
-            get
-            {
-                if (area == null || area.Count == 0)
-                {
-                    return "未知地区";
-                }
-                else
-                {
-                    return area[0].name;
-                }
-            }
-        }
-
-        public List<BangumiDetailModel> style { get; set; }
-        public int id { get; set; }
-        public string name { get; set; }
-        public int type_id { get; set; }
-        public string type_name { get; set; }
-
-        public BangumiDetailModel publish { get; set; }
-        public int is_finish { get; set; }
-        public int is_multi { get; set; }
-        public int is_started { get; set; }
-        public string pub_date { get; set; }
-        public string pub_date_show { get; set; }
-
-    }
-
-
     public class BangumiDataModel
     {
         public int code { get; set; }
@@ -1372,6 +1360,8 @@ namespace BiliBili.UWP.Pages
 
         public object rank { get; set; }
         public string cover { get; set; }
+        public string actors { get; set; }
+        public string staff { get; set; }
         public string evaluate { get; set; }
         public string link { get; set; }
         public int media_id { get; set; }
@@ -1379,6 +1369,7 @@ namespace BiliBili.UWP.Pages
         public int season_status { get; set; }
         public int season_type { get; set; }
         public int type { get; set; } = 1;
+        public int season_id { get; set; }
         public string season_title { get; set; }
         public string share_url { get; set; }
         public string square_cover { get; set; }
@@ -1398,20 +1389,31 @@ namespace BiliBili.UWP.Pages
 
         public string detail { get; set; }
 
-        public BangumiDetailModel detail_media { get; set; }
         public BangumiPaymentModel payment { get; set; }
 
-        public List<BangumiStyleModel> styles { get; set; }
+        public List<string> styles { get; set; }
+
+        public List<BangumiAreaModel> areas { get; set; }
+        public string area_str
+        {
+            get
+            {
+                if (areas == null || areas.Count == 0)
+                {
+                    return "未知地区";
+                }
+                return string.Join("、", areas.Where(x => !string.IsNullOrEmpty(x.name)).Select(x => x.name));
+            }
+        }
 
         public List<BangumiSectionModel> section { get; set; }
 
     }
 
-    public class BangumiStyleModel
+    public class BangumiAreaModel
     {
         public int id { get; set; }
         public string name { get; set; }
-        public string url { get; set; }
     }
 
     public class BangumiPaymentModel
@@ -1443,6 +1445,7 @@ namespace BiliBili.UWP.Pages
     public class Bangumiuser_statusModel
     {
         public int follow { get; set; }
+        public int login { get; set; }
         public int is_vip { get; set; }
         public int pay { get; set; }
         public int pay_pack_paid { get; set; }
@@ -1452,11 +1455,17 @@ namespace BiliBili.UWP.Pages
         public string last_ep_index { get; set; }
         public int last_time { get; set; }
     }
+
+    public class BangumiUserStatusResult
+    {
+        public Bangumiuser_statusModel user_status { get; set; }
+    }
+
     public class BangumistatModel
     {
-        public int danmakus { get; set; }
-        public int favorites { get; set; }
-        public int views { get; set; }
+        public long danmakus { get; set; }
+        public long favorites { get; set; }
+        public long views { get; set; }
 
         public string PlayCount
         {
@@ -1509,6 +1518,7 @@ namespace BiliBili.UWP.Pages
         public string desc { get; set; }
         public int id { get; set; }
         public string index { get; set; }
+        public string title { get; set; }
         public int is_new { get; set; }
     }
     public class BangumiratingModel

@@ -293,6 +293,7 @@
     <Compile Include="Api\PlayerAPI.cs" />
     <Compile Include="Api\RankAPI.cs" />
     <Compile Include="Api\SearchAPI.cs" />
+    <Compile Include="Api\Season\SeasonInfoAPI.cs" />
     <Compile Include="Api\Season\SeasonIndexAPI.cs" />
     <Compile Include="Api\User\DynamicAPI.cs" />
     <Compile Include="Api\User\FollowAPI.cs" />
