@@ -54,6 +54,7 @@ namespace BiliBili.UWP.Pages
                 _forwardHasMore = false;
                 btn_LoadMoreRepost.Visibility = Visibility.Collapsed;
                 noRepost.Visibility = Visibility.Collapsed;
+                btn_ShowComment.IsEnabled = false;
                 comment.ClearComment();
                 LoadDynamic(id);
             }
@@ -126,6 +127,7 @@ namespace BiliBili.UWP.Pages
                 conmmentSortMode = ConmmentSortMode.Hot,
                 oid = commentIdStr
             });
+            btn_ShowComment.IsEnabled = true;
         }
 
         #region 转发列表
@@ -265,7 +267,7 @@ namespace BiliBili.UWP.Pages
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(UserCenterPage), mid);
         }
 
-        private void dynamic_OpenComment(object sender, EventArgs e)
+        private void dynamic_OpenComment(object sender, RoutedEventArgs e)
         {
             comment.ShowCommentBox();
         }

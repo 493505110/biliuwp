@@ -16,9 +16,7 @@
         </Style>
         <!--动态卡片模板（与 UserCenterPage 共享同一套布局）-->
         <DataTemplate x:Key="DynItemTemplate" x:DataType="dynModels:SpaceDynItemVM">
-            <StackPanel Padding="12 10 12 10"
-                        BorderBrush="{ThemeResource Bili-BorderColor}"
-                        BorderThickness="0 0 0 1">
+            <StackPanel Padding="12 10 12 10">
                 <!--作者行-->
                 <Grid Margin="0 0 0 8">
                     <Grid.ColumnDefinitions>
@@ -176,7 +174,7 @@
                           ItemContainerStyle="{StaticResource ListViewItemStretchStyle}"/>
 
                 <Pivot x:Name="pivot" SelectionChanged="pivot_SelectionChanged"
-                       Background="{ThemeResource Bili-List-Background}" Margin="0 8">
+                       Background="{ThemeResource Bili-Background}" Margin="0 8">
                     <PivotItem Margin="0">
                         <PivotItem.Header>
                             <TextBlock FontSize="16">转发</TextBlock>
@@ -220,5 +218,9 @@
         </ScrollViewer>
         <ProgressBar x:Name="pr_Load" Grid.Row="1" VerticalAlignment="Top"
                      Background="#00000000" IsIndeterminate="True" Visibility="Collapsed"/>
+        <Button x:Name="btn_ShowComment" Grid.Row="2" Margin="4"
+                Click="dynamic_OpenComment" IsEnabled="False"
+                Background="{ThemeResource Bili-ForeColor}" Foreground="White"
+                HorizontalAlignment="Stretch">我要评论</Button>
     </Grid>
 </Page>

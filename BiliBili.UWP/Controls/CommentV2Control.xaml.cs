@@ -146,23 +146,9 @@ namespace BiliBili.UWP.Controls
         public bool _loading = false;
         LoadCommentInfo _loadCommentInfo;
 
-        /// <summary>
-        /// 加载评论
-        /// </summary>
-        public void LoadComment()
+        private void SetCommentType(CommentMode commentMode)
         {
-            GetScollViewer();
-            scrollViewer?.ChangeView(null, 0, null);
-
-            //if (loadCommentInfo.conmmentSortMode!= ConmmentSortMode.All)
-            //{
-            //    hot.Visibility = Visibility.Collapsed;
-            //}
-            //else
-            //{
-            //    hot.Visibility = Visibility.Visible;
-            //}
-            switch (_loadCommentInfo.commentMode)
+            switch (commentMode)
             {
                 case CommentMode.Dynamic:
                     _type = 17;
@@ -182,9 +168,26 @@ namespace BiliBili.UWP.Controls
                 case CommentMode.MusicSong:
                     _type = 14;
                     break;
-                default:
-                    break;
             }
+        }
+
+        /// <summary>
+        /// 加载评论
+        /// </summary>
+        public void LoadComment()
+        {
+            GetScollViewer();
+            scrollViewer?.ChangeView(null, 0, null);
+
+            //if (loadCommentInfo.conmmentSortMode!= ConmmentSortMode.All)
+            //{
+            //    hot.Visibility = Visibility.Collapsed;
+            //}
+            //else
+            //{
+            //    hot.Visibility = Visibility.Visible;
+            //}
+            SetCommentType(_loadCommentInfo.commentMode);
 
             if (_loadCommentInfo.conmmentSortMode == ConmmentSortMode.Hot)
             {
@@ -210,29 +213,7 @@ namespace BiliBili.UWP.Controls
             GetScollViewer();
             scrollViewer?.ChangeView(null, 0, null);
 
-            switch (loadCommentInfo.commentMode)
-            {
-                case CommentMode.Dynamic:
-                    _type = 17;
-                    break;
-                case CommentMode.Photo:
-                    _type = 11;
-                    break;
-                case CommentMode.MiniVideo:
-                    _type = 5;
-                    break;
-                case CommentMode.Video:
-                    _type = 1;
-                    break;
-                case CommentMode.MusicMenu:
-                    _type = 19;
-                    break;
-                case CommentMode.MusicSong:
-                    _type = 14;
-                    break;
-                default:
-                    break;
-            }
+            SetCommentType(loadCommentInfo.commentMode);
             if (loadCommentInfo.conmmentSortMode == ConmmentSortMode.All)
             {
                 loadCommentInfo.conmmentSortMode = ConmmentSortMode.Hot;
@@ -263,6 +244,7 @@ namespace BiliBili.UWP.Controls
         {
             GetScollViewer();
             _loadCommentInfo = loadCommentInfo;
+            SetCommentType(loadCommentInfo.commentMode);
         }
 
         private async void GetComment()

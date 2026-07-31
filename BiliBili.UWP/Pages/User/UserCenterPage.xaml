@@ -65,7 +65,7 @@
                 </GridView>
                 <!--视频卡片-->
                 <Border Visibility="{x:Bind VideoVisible}" Margin="0 0 0 8"
-                        Background="{ThemeResource SystemControlBackgroundAltHighBrush}" CornerRadius="4">
+                        Background="{ThemeResource Bili-List-Background}" CornerRadius="4">
                     <Grid Height="72">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="108"/>
