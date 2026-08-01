@@ -360,7 +360,7 @@ namespace BiliBili.UWP.Pages.Music
 
         public ObservableCollection<MusicSearchSongModel> result { get; set; }
 
-        public int id { get; set; }
+        public long id { get; set; }
         private string _title;
         public string title
         {
@@ -500,7 +500,7 @@ namespace BiliBili.UWP.Pages.Music
 
         public ObservableCollection<MusicSearchUserModel> result { get; set; }
 
-        public int id { get; set; }
+        public long id { get; set; }
 
         private string _uname;
         public string uname

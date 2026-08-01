@@ -144,7 +144,18 @@ namespace BiliBili.UWP
                 RegionModel model = JsonConvert.DeserializeObject<RegionModel>(results);
                 if (model.code==0)
                 {
-                    model.data.RemoveAll(x =>(x.name == "会员购" || x.name == "游戏中心")|| x.logo==""||x.name=="漫画" || x.name.Contains("赛事") || x.name.Contains("课堂"));
+                    var activityCenter = model.data.FirstOrDefault(x => x.name == "活动中心");
+                    if (activityCenter != null)
+                    {
+                        activityCenter.uri = "https://www.bilibili.com/blackboard/era/reward-activity-list-page.html";
+                    }
+
+                    model.data.RemoveAll(x => (x.name == "会员购" || x.name == "游戏中心")
+                        || x.logo == ""
+                        || x.name == "漫画"
+                        || x.name.Contains("赛事")
+                        || x.name.Contains("课堂")
+                        || x.name == "公开课");
                 
                     regions = model.data;
 

@@ -89,7 +89,7 @@ namespace BiliBili.UWP.Modules.Season
                     var data = results.GetJObject();
                     if (data["code"].ToInt32() == 0)
                     {
-                        var items = JsonConvert.DeserializeObject<ObservableCollection<SeasonIndexConditionFilterModel>>(data["result"]["filter"].ToString());
+                        var items = JsonConvert.DeserializeObject<ObservableCollection<SeasonIndexConditionFilterModel>>(data["data"]["filter"].ToString());
                         foreach (var item in items)
                         {
                             if (item.id == "style_id")
@@ -100,7 +100,7 @@ namespace BiliBili.UWP.Modules.Season
                             {
                                 item.current = item.value.FirstOrDefault(x => x.id == Parameter.area);
                             }
-                            else if (item.id == "pub_date")
+                            else if (item.id == "release_date" || item.id == "year")
                             {
                                 item.current = item.value.FirstOrDefault(x => x.id == Parameter.year);
                             }
@@ -178,7 +178,7 @@ namespace BiliBili.UWP.Modules.Season
                     var data = results.GetJObject();
                     if (data["code"].ToInt32() == 0)
                     {
-                        var items = JsonConvert.DeserializeObject<ObservableCollection<SeasonIndexResultItemModel>>(data["result"]["data"].ToString());
+                        var items = JsonConvert.DeserializeObject<ObservableCollection<SeasonIndexResultItemModel>>(data["data"]["list"].ToString());
                         if (Page == 1)
                         {
                             Result = items;
@@ -242,6 +242,7 @@ namespace BiliBili.UWP.Modules.Season
 
     public class SeasonIndexConditionFilterModel : IModules
     {
+        [JsonProperty("field")]
         public string id { get; set; }
         public string name { get; set; }
 
@@ -251,10 +252,12 @@ namespace BiliBili.UWP.Modules.Season
             get { return _current; }
             set { _current = value; }
         }
+        [JsonProperty("values")]
         public List<SeasonIndexConditionFilterItemModel> value { get; set; }
     }
     public class SeasonIndexConditionFilterItemModel
     {
+        [JsonProperty("keyword")]
         public string id { get; set; }
         public string name { get; set; }
 
@@ -278,36 +281,14 @@ namespace BiliBili.UWP.Modules.Season
         public int is_finish { get; set; }
         public string link { get; set; }
         public int media_id { get; set; }
-        public SeasonIndexResultItemOrderModel order { get; set; }
-    }
-    public class SeasonIndexResultItemOrderModel
-    {
-        public string follow { get; set; }
-        public string play { get; set; }
+        public string order { get; set; }
+        public string order_type { get; set; }
         public string score { get; set; }
-        public long pub_date { get; set; }
-        public long pub_real_time { get; set; }
-        public long renewal_time { get; set; }
-        public string type { get; set; }
-        public string bottom_text
-        {
-            get
-            {
-                if (type == "follow")
-                {
-                    return follow;
-                }
-                else
-                {
-                    return Utils.HandelTimestamp(renewal_time.ToString()) + "更新";
-                }
-            }
-        }
         public bool show_score
         {
             get
             {
-                return type == "score";
+                return order_type == "4" && !string.IsNullOrEmpty(score);
             }
         }
     }

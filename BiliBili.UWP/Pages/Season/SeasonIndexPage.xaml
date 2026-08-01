@@ -82,8 +82,8 @@
                                     </LinearGradientBrush>
                                 </Grid.Background>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock FontSize="12" Foreground="White" Text="{x:Bind Path=order.bottom_text}" Visibility="{x:Bind Path=order.show_score,Converter={StaticResource display}}"></TextBlock>
-                                    <TextBlock FontSize="14" Foreground="Orange" FontWeight="Bold" Text="{x:Bind Path=order.score}" Visibility="{x:Bind Path=order.show_score}"></TextBlock>
+                                    <TextBlock FontSize="12" Foreground="White" Text="{x:Bind Path=order}" Visibility="{x:Bind Path=show_score,Converter={StaticResource display}}"></TextBlock>
+                                    <TextBlock FontSize="14" Foreground="Orange" FontWeight="Bold" Text="{x:Bind Path=score}" Visibility="{x:Bind Path=show_score}"></TextBlock>
                                 </StackPanel>
                             </Grid>
                             <Border Visibility="{Binding show_badge}" VerticalAlignment="Top" Background="#FFFB9E60" HorizontalAlignment="Right" Margin="4" Padding="8 4" CornerRadius="2">

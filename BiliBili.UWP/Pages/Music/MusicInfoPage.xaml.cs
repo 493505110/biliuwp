@@ -492,11 +492,11 @@ namespace BiliBili.UWP.Pages
         public List<MusicHomeSongModel> list { get; set; }
 
 
-        public int id { get; set; }
-        public int up_mid { get; set; }
+        public long id { get; set; }
+        public long up_mid { get; set; }
         public string title { get; set; }
         public int duration { get; set; }
-        public int mid { get; set; }
+        public long mid { get; set; }
         public string cover_url { get; set; }
         public string intro { get; set; }
         public string  ctime_str { get; set; }

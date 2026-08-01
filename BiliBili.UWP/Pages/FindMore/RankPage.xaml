@@ -29,7 +29,6 @@
             <TextBlock Grid.Column="1" Foreground="White" VerticalAlignment="Center">排行榜</TextBlock>
             <StackPanel Grid.Column="2" Margin="8 0" VerticalAlignment="Center" Orientation="Horizontal">
                 <ComboBox Margin="8 0 0 0" x:Name="cbType" ItemsSource="{x:Bind Path=rankVM.TypeFilter,Mode=OneWay}" DisplayMemberPath="name" SelectedItem="{x:Bind Path=rankVM.SelectTypeFilter,Mode=TwoWay}"></ComboBox>
-                <ComboBox Margin="8 0 0 0"  x:Name="cbDays" ItemsSource="{x:Bind Path=rankVM.DayFilter,Mode=OneWay}" DisplayMemberPath="name" SelectedItem="{x:Bind Path=rankVM.SelectDayFilter,Mode=TwoWay}"></ComboBox>
             </StackPanel>
         </Grid>
         <Pivot Grid.Row="1" ItemsSource="{x:Bind Path=rankVM.RegionItems,Mode=OneWay}" SelectedItem="{x:Bind Path=rankVM.Current,Mode=TwoWay}" x:Name="pivot" SelectionChanged="pivot_SelectionChanged">
@@ -79,8 +78,6 @@
                                         <TextBlock Foreground="Gray" Margin="0 2 0 0">观看:<Run Text="{x:Bind Path=play,Converter={StaticResource numberToStringConvert}}"/> 弹幕:<Run Text="{x:Bind Path=video_review,Converter={StaticResource numberToStringConvert}}"/></TextBlock>
 
                                         <TextBlock Margin="0 2 0 0" Foreground="Gray" VerticalAlignment="Center" >UP:<Run Text="{x:Bind Path=author}"/></TextBlock>
-
-                                        <TextBlock Foreground="Gray" Margin="0 2 0 0">综合评分 <Run Text="{x:Bind Path=pts}"/></TextBlock>
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>

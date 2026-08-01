@@ -89,18 +89,29 @@ namespace BiliBili.UWP.Pages
             await Task.Delay(200);
             if (e.NavigationMode == NavigationMode.New)
             {
-                pivot.ItemsSource = null;
-                GetSetting();
-                pr_Laod.Visibility = Visibility.Visible;
-                if ((e.Parameter as object[])[0] is Parts)
+                try
                 {
-                    await LoadPart((Parts)(e.Parameter as object[])[0]);
+                    pivot.ItemsSource = null;
+                    GetSetting();
+                    pr_Laod.Visibility = Visibility.Visible;
+                    if ((e.Parameter as object[])[0] is Parts)
+                    {
+                        await LoadPart((Parts)(e.Parameter as object[])[0]);
+                    }
+                    else
+                    {
+                        await LoadPart((RegionModel)(e.Parameter as object[])[0]);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    await LoadPart((RegionModel)(e.Parameter as object[])[0]);
+                    Helper.LogHelper.WriteLog("分区页面加载失败", Helper.LogType.ERROR, ex);
+                    Utils.ShowMessageToast("分区加载失败，请稍后重试");
                 }
-                pr_Laod.Visibility = Visibility.Collapsed;
+                finally
+                {
+                    pr_Laod.Visibility = Visibility.Collapsed;
+                }
             }
         }
         private void GetSetting()
@@ -1671,7 +1682,7 @@ namespace BiliBili.UWP.Pages
                 HanderText = "首页",
                 isHome = true,
                 Banner = await GetBanner(Part_Id),
-                DTs = await GetTuiJianDT(Part_Id),
+                DTs = await GetRegionHomeVideos(parts),
                 leftVisibility = Visibility.Visible,
                 rightVisibility = Visibility.Visible,
                 grid_c_left = new GridLength(1, GridUnitType.Star),
@@ -1679,13 +1690,7 @@ namespace BiliBili.UWP.Pages
                 grid_c_center = new GridLength(0, GridUnitType.Auto)
             };
 
-            if (p0.Banner.Count != 0)
-            {
-                p0.homeBanner = p0.Banner[0];
-                p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-            }
+            InitializeBannerState(p0);
             l.Add(p0);
 
 
@@ -1716,6 +1721,30 @@ namespace BiliBili.UWP.Pages
             pivot.ItemsSource = l;
             UpdateBannerState();
 
+        }
+
+        private static void InitializeBannerState(PartModel part)
+        {
+            if (part.Banner == null || part.Banner.Count == 0)
+            {
+                return;
+            }
+
+            if (part.Banner.Count == 1)
+            {
+                part.leftVisibility = Visibility.Collapsed;
+                part.rightVisibility = Visibility.Collapsed;
+                part.grid_c_left = new GridLength(0);
+                part.grid_c_right = new GridLength(0);
+                part.grid_c_center = new GridLength(1, GridUnitType.Star);
+            }
+
+            part.homeBanner = part.Banner[0];
+            if (part.Banner.Count > 1)
+            {
+                part.leftBanner = part.Banner[part.Banner.Count - 1];
+                part.rightBanner = part.Banner[1];
+            }
         }
 
         private async Task<ObservableCollection<TagsModel>> GetTags(int id)
@@ -1925,6 +1954,53 @@ namespace BiliBili.UWP.Pages
         private async Task<List<DHModel>> GetTuiJianDT(int Id)
         {
             List<DHModel> videos = (await GetVideos(Id, PartOrderBy.senddate.ToString(), 1, "")).ToList();
+            if (isInitialPartLoad)
+            {
+                deferChildLoads = true;
+            }
+            return videos;
+        }
+
+        private async Task<List<DHModel>> GetRegionHomeVideos(RegionModel region)
+        {
+            List<DHModel> videos = (await GetVideos(region.tid, PartOrderBy.senddate.ToString(), 1, "")).ToList();
+            if (videos.Count != 0 || region.children == null || region.children.Count == 0)
+            {
+                if (isInitialPartLoad)
+                {
+                    deferChildLoads = true;
+                }
+                return videos;
+            }
+
+            var childLoads = region.children
+                .Select(x => GetVideos(x.tid, PartOrderBy.senddate.ToString(), 1, ""))
+                .ToArray();
+            var childVideos = await Task.WhenAll(childLoads);
+            var addedAids = new HashSet<string>();
+            int maxCount = childVideos.Max(x => x.Count);
+
+            for (int index = 0; index < maxCount && videos.Count < 20; index++)
+            {
+                foreach (var childList in childVideos)
+                {
+                    if (index >= childList.Count)
+                    {
+                        continue;
+                    }
+
+                    var video = childList[index];
+                    if (addedAids.Add(video.aid))
+                    {
+                        videos.Add(video);
+                    }
+                    if (videos.Count == 20)
+                    {
+                        break;
+                    }
+                }
+            }
+
             if (isInitialPartLoad)
             {
                 deferChildLoads = true;

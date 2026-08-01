@@ -272,7 +272,7 @@ namespace BiliBili.UWP.Pages.Music
         public int code { get; set; }
         public string msg { get; set; }
         public MusicianInfoModel data { get; set; }
-        public int mid { get; set; }
+        public long mid { get; set; }
         public string uName { get; set; }
         public string avater { get; set; }
         public int playingCounts { get; set; }

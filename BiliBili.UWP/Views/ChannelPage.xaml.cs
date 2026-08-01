@@ -91,17 +91,12 @@ namespace BiliBili.UWP.Views
             }
             if (item.name.Contains("排行榜"))
             {
-                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(RankPage));
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(RankPage), item.name.Contains("原创") ? 2 : 1);
                 return;
             }
             if (item.name == "专题中心")
             {
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(TopicPage));
-                return;
-            }
-            if (item.name == "活动中心")
-            {
-                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ActivityPage));
                 return;
             }
             if (item.uri != null && item.uri.Contains("https://"))

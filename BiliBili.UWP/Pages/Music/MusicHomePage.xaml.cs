@@ -47,6 +47,37 @@ namespace BiliBili.UWP.Pages.Music
             LoadMusicHome();
 
         }
+
+        private void home_flipView_Loaded(object sender, RoutedEventArgs e)
+        {
+            home_flipView.ApplyTemplate();
+            var nextButton = FindDescendantByName(home_flipView, "NextButtonHorizontal") as Button;
+            if (nextButton != null)
+            {
+                nextButton.Margin = new Thickness(0, 0, 40, 0);
+            }
+        }
+
+        private static FrameworkElement FindDescendantByName(DependencyObject parent, string name)
+        {
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is FrameworkElement element && element.Name == name)
+                {
+                    return element;
+                }
+
+                var descendant = FindDescendantByName(child, name);
+                if (descendant != null)
+                {
+                    return descendant;
+                }
+            }
+
+            return null;
+        }
+
         private async void LoadMusicHome()
         {
             try
@@ -71,8 +102,9 @@ namespace BiliBili.UWP.Pages.Music
                 }
 
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Helper.LogHelper.WriteLog("加载音频首页失败", Helper.LogType.ERROR, ex);
                 Utils.ShowMessageToast("加载音频首页失败");
             }
             finally
@@ -472,7 +504,7 @@ namespace BiliBili.UWP.Pages.Music
     }
     public class MusicHomeSongModel
     {
-        public int id { get; set; }
+        public long id { get; set; }
 
         public string title { get; set; }
 
@@ -515,7 +547,7 @@ namespace BiliBili.UWP.Pages.Music
                 return comment_num.ToString();
             }
         }
-        public int cid { get; set; }
+        public long cid { get; set; }
 
 
     }

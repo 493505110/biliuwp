@@ -36,18 +36,6 @@ namespace BiliBili.UWP.Pages
             NavigationCacheMode = NavigationCacheMode.Enabled;
             rankVM = new RankVM();
             cbType.SelectionChanged += CbType_SelectionChanged;
-            cbDays.SelectionChanged += CbDays_SelectionChanged;
-        }
-
-        private async void CbDays_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (cbDays.SelectedItem == null || pivot.SelectedItem == null)
-                return;
-            foreach (var item in rankVM.RegionItems)
-            {
-                item.Items = null;
-            }
-            await rankVM.LoadRankDetail(pivot.SelectedItem as RankRegionModel);
         }
 
         private async void CbType_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -64,10 +52,24 @@ namespace BiliBili.UWP.Pages
         protected  override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-            //if (e.NavigationMode == NavigationMode.New)
-            //{
-                
-            //}
+            if (e.NavigationMode != NavigationMode.New)
+            {
+                return;
+            }
+
+            var parameters = e.Parameter as object[];
+            if (parameters == null || parameters.Length == 0 || !(parameters[0] is int))
+            {
+                return;
+            }
+
+            int type = (int)parameters[0];
+            var filter = rankVM.TypeFilter.FirstOrDefault(x => x.id == type);
+            if (filter != null)
+            {
+                rankVM.SelectTypeFilter = filter;
+                cbType.SelectedItem = filter;
+            }
         }
         protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
         {

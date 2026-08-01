@@ -61,11 +61,11 @@
     </Page.Resources>
     <Grid >
         <pr:PullToRefreshBox RefreshInvoked="PullToRefreshBox_RefreshInvoked">
-            <ScrollViewer x:Name="sv"   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="sv" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <Border x:Name="ViewBox_num" Background="Gray" Width="100"></Border>
-                    <Viewbox MaxWidth="960"  Grid.Column="1" >
-                        <FlipView  x:Name="home_flipView" ItemsSource="{Binding Path=banner.bannerList}" Height="280" Width="960" Grid.Column="1"   VerticalAlignment="Top" >
+                    <Viewbox MaxWidth="960" Grid.Column="1">
+                        <FlipView x:Name="home_flipView" Loaded="home_flipView_Loaded" ItemsSource="{Binding Path=banner.bannerList}" Height="280" Width="960" Grid.Column="1" VerticalAlignment="Top">
                             <FlipView.ItemTemplate>
                                 <DataTemplate>
                                     <HyperlinkButton Padding="0"  Click="HyperlinkButton_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">

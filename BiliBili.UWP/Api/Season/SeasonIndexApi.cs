@@ -15,14 +15,12 @@ namespace BiliBili.UWP.Api.Season
         /// <returns></returns>
         public ApiModel Condition(int season_type)
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = $"https://bangumi.bilibili.com/media/api/search/v2/condition",
-                parameter = ApiUtils.MustParameter(ApiHelper.AndroidKey, false) + $"&season_type={season_type}"
+                baseUrl = "https://api.bilibili.com/pgc/season/index/condition",
+                parameter = $"season_type={season_type}&type=1"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiHelper.AndroidKey);
-            return api;
         }
 
         /// <summary>
@@ -35,14 +33,12 @@ namespace BiliBili.UWP.Api.Season
         /// <returns></returns>
         public ApiModel Result(int page, int season_type, string condition, int pagesize = 24)
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = $"https://bangumi.bilibili.com/media/api/search/result",
-                parameter = ApiUtils.MustParameter(ApiHelper.AndroidKey, false) + condition + $"&page={page}&pagesize={pagesize}&season_type={season_type}"
+                baseUrl = "https://api.bilibili.com/pgc/season/index/result",
+                parameter = $"season_type={season_type}&type=1&st={season_type}{condition}&page={page}&pagesize={pagesize}"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiHelper.AndroidKey);
-            return api;
         }
 
     }

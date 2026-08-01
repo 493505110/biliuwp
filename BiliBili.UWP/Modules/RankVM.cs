@@ -1,10 +1,8 @@
 ﻿using BiliBili.UWP.Api;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace BiliBili.UWP.Modules
@@ -29,30 +27,6 @@ namespace BiliBili.UWP.Modules
                 }
             };
             SelectTypeFilter = TypeFilter[0];
-
-            DayFilter = new List<RankFilterItem>() { 
-                new RankFilterItem()
-                {
-                    id=1,
-                    name="日排行"
-                },
-                new RankFilterItem()
-                {
-                    id=3,
-                    name="3日排行"
-                },
-                new RankFilterItem()
-                {
-                    id=7,
-                    name="周排行"
-                },
-                new RankFilterItem()
-                {
-                    id=30,
-                    name="月排行"
-                }
-            };
-            SelectDayFilter = DayFilter[0];
 
             List<RankRegionModel> regions = new List<RankRegionModel>() { 
                 new RankRegionModel()
@@ -95,14 +69,6 @@ namespace BiliBili.UWP.Modules
             set { _RegionItems = value; DoPropertyChanged("RegionItems"); }
         }
 
-        private RankFilterItem _SelectDayFilter;
-        public RankFilterItem SelectDayFilter
-        {
-            get { return _SelectDayFilter; }
-            set { _SelectDayFilter = value; }
-        }
-        public List<RankFilterItem> DayFilter { get; set; }
-
         private RankFilterItem _SelectTypeFilter;
         public RankFilterItem SelectTypeFilter
         {
@@ -117,15 +83,35 @@ namespace BiliBili.UWP.Modules
             try
             {
                 Loading = true;
-                var results = await rankAPI.Rank(region.rid, SelectTypeFilter.id, SelectDayFilter.id).Request();
+                var results = await rankAPI.Rank(region.rid, SelectTypeFilter.id).Request();
                 if (results.status)
                 {
                     var data = await results.GetJson<ApiDataModel<JObject>>();
                     if (data.success)
                     {
-                        var result =  JsonConvert.DeserializeObject<List<RankItemModel>>(data.data["list"].ToString());
+                        var result = new List<RankItemModel>();
+                        foreach (var item in (data.data?["list"] ?? new JArray()).Take(36))
+                        {
+                            string pic = (string)item["pic"];
+                            if (!string.IsNullOrEmpty(pic) && pic.StartsWith("http://"))
+                            {
+                                pic = "https://" + pic.Substring("http://".Length);
+                            }
+
+                            result.Add(new RankItemModel
+                            {
+                                aid = (string)item["aid"],
+                                author = (string)item["owner"]?["name"],
+                                mid = (string)item["owner"]?["mid"],
+                                coins = item["stat"]?["coin"]?.ToInt32() ?? 0,
+                                duration = FormatDuration(item["duration"]?.ToInt32() ?? 0),
+                                pic = pic,
+                                title = (string)item["title"],
+                                video_review = item["stat"]?["danmaku"]?.ToInt32() ?? 0,
+                                play = item["stat"]?["view"]?.ToInt32() ?? 0
+                            });
+                        }
                         int i = 1;
-                        result = result.Take(36).ToList();
                         foreach (var item in result)
                         {
                             item.rank = i;
@@ -153,6 +139,16 @@ namespace BiliBili.UWP.Modules
             {
                 Loading = false;
             }
+        }
+
+        private static string FormatDuration(int seconds)
+        {
+            TimeSpan duration = TimeSpan.FromSeconds(seconds);
+            if (duration.TotalHours >= 1)
+            {
+                return $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}";
+            }
+            return $"{duration.Minutes:D2}:{duration.Seconds:D2}";
         }
     }
     public class RankRegionModel : IModules
