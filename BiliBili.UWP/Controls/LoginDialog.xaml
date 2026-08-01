@@ -9,9 +9,13 @@
     mc:Ignorable="d"
     Title="登录"
     PrimaryButtonText="登录"
+    IsPrimaryButtonEnabled="False"
     SecondaryButtonText="取消"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">1260</x:Double>
+    </ContentDialog.Resources>
     <Grid>
         <StackPanel x:Name="pwdLogin" Visibility="Collapsed">
             <Grid>

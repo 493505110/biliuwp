@@ -358,7 +358,8 @@ namespace BiliBili.UWP.Controls
             qrLogin.Visibility = Visibility.Collapsed;
             webView.Visibility = Visibility.Visible;
             IsPrimaryButtonEnabled = false;
-            webView.Width = 480;
+            //为弹窗内容边距留出空间，窄窗口下仍保持在可视区域内。
+            webView.Width = Math.Max(0, Math.Min(1200, Window.Current.Bounds.Width - 96));
             webView.Height = 600;
             //用B站自己的登录页，人机验证由页面自行处理
             webView.Source = new Uri("https://passport.bilibili.com/login");
@@ -465,7 +466,7 @@ namespace BiliBili.UWP.Controls
             pwdLogin.Visibility = Visibility.Collapsed;
             qrLogin.Visibility = Visibility.Visible;
             webView.Visibility = Visibility.Collapsed;
-            IsPrimaryButtonEnabled = true;
+            IsPrimaryButtonEnabled = false;
             Utils.ShowMessageToast(string.IsNullOrEmpty(result.message) ? "登录失败，请重试" : result.message);
             await GetQRAuthInfo();
         }
@@ -477,6 +478,7 @@ namespace BiliBili.UWP.Controls
             pwdLogin.Visibility = Visibility.Collapsed;
             qrLogin.Visibility = Visibility.Visible;
             webView.Visibility = Visibility.Collapsed;
+            IsPrimaryButtonEnabled = false;
             await GetQRAuthInfo();
         }
         bool qr_loading = false;
