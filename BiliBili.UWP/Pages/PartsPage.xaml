@@ -20,7 +20,7 @@
         </Style>
         <DataTemplate x:Name="HomeItemTemplate">
             <Border Width="{Binding ElementName=ViewBox_num,Path=Width}">
-                <Grid >
+                <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition ></RowDefinition>
                         <RowDefinition Height="48"></RowDefinition>
@@ -242,8 +242,8 @@
                             <ScrollViewer x:Name="ScrollingHost" AutomationProperties.AccessibilityView="Raw" BringIntoViewOnFocusChange="{TemplateBinding ScrollViewer.BringIntoViewOnFocusChange}" HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}" HorizontalSnapPointsType="MandatorySingle" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" IsTabStop="False" IsHorizontalRailEnabled="{TemplateBinding ScrollViewer.IsHorizontalRailEnabled}" IsHorizontalScrollChainingEnabled="{TemplateBinding ScrollViewer.IsHorizontalScrollChainingEnabled}" IsVerticalScrollChainingEnabled="{TemplateBinding ScrollViewer.IsVerticalScrollChainingEnabled}" IsVerticalRailEnabled="{TemplateBinding ScrollViewer.IsVerticalRailEnabled}" IsDeferredScrollingEnabled="{TemplateBinding ScrollViewer.IsDeferredScrollingEnabled}" Padding="{TemplateBinding Padding}" TabNavigation="{TemplateBinding TabNavigation}" VerticalSnapPointsType="MandatorySingle" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}" ZoomMode="Disabled">
                                 <ItemsPresenter />
                             </ScrollViewer>
-                            <Button x:Name="PreviousButtonHorizontal"  HorizontalAlignment="Left" Height="220" IsTabStop="False" Template="{StaticResource HorizontalPreviousTemplate}" UseSystemFocusVisuals="False" VerticalAlignment="Center" Width="1"/>
-                            <Button x:Name="NextButtonHorizontal"  HorizontalAlignment="Right" Height="220" IsTabStop="False" Template="{StaticResource HorizontalNextTemplate}" UseSystemFocusVisuals="False" VerticalAlignment="Center" Width="1"/>
+                            <Button x:Name="PreviousButtonHorizontal" AutomationProperties.Name="上一张横幅" HorizontalAlignment="Left" Height="64" IsTabStop="False" Template="{StaticResource HorizontalPreviousTemplate}" ToolTipService.ToolTip="上一张横幅" UseSystemFocusVisuals="False" VerticalAlignment="Center" Width="40"/>
+                            <Button x:Name="NextButtonHorizontal" AutomationProperties.Name="下一张横幅" HorizontalAlignment="Right" Height="64" IsTabStop="False" Template="{StaticResource HorizontalNextTemplate}" ToolTipService.ToolTip="下一张横幅" UseSystemFocusVisuals="False" VerticalAlignment="Center" Width="40"/>
                             <Button x:Name="PreviousButtonVertical"  HorizontalAlignment="Center" Height="20" IsTabStop="False" Template="{StaticResource VerticalPreviousTemplate}" UseSystemFocusVisuals="False" VerticalAlignment="Top" Width="1"/>
                             <Button x:Name="NextButtonVertical"  HorizontalAlignment="Center" Height="20" IsTabStop="False" Template="{StaticResource VerticalNextTemplate}" UseSystemFocusVisuals="False" VerticalAlignment="Bottom" Width="1"/>
                         </Grid>
@@ -258,6 +258,7 @@
                 <ScrollViewer x:Name="sv_LZ"    HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" ViewChanged="sv_LZ_ViewChanged" >
                     <StackPanel>
                         <GridView x:Name="LZ_List" ItemsSource="{Binding VideoList}" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" SelectionMode="None" ItemClick="LZ_List_ItemClick" ItemTemplate="{StaticResource RankItem}" IsItemClickEnabled="True" ItemContainerStyle="{StaticResource ListViewItemStyle}"></GridView>
+                        <TextBlock HorizontalAlignment="Center" Margin="12" Foreground="Gray" Text="暂无可显示的视频" Visibility="{Binding VideoEmptyVisibility}" />
                         <Button x:Name="btn_LoadMore" Click="btn_LoadMore_Click" HorizontalAlignment="Center" Margin="5" FontSize="14" Foreground="Gray" Background="#00000000" >加载更多</Button>
                     </StackPanel>
 
@@ -286,7 +287,7 @@
 
             <ScrollViewer x:Name="sv"  VerticalScrollBarVisibility="Auto" >
                 <StackPanel>
-                    <Grid >
+                    <Grid Visibility="{Binding BannerVisibility}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition x:Name="grid_c_left" Width="{Binding Path=grid_c_left,Mode=TwoWay}"/>
                             <ColumnDefinition x:Name="grid_c_center" Width="{Binding Path=grid_c_center,Mode=TwoWay}" />
@@ -312,7 +313,7 @@
                             </FlipView>
                         </Grid>
                         <Viewbox MaxWidth="640"  Grid.Column="1">
-                            <FlipView  x:Name="home_flipView"  SelectedItem="{Binding Path=homeBanner,Mode=TwoWay}" ItemsSource="{Binding Banner}" Height="200" Width="640" Grid.Column="1"   SelectionChanged="home_flipView_SelectionChanged"   Style="{StaticResource FlipViewStyle1}" VerticalAlignment="Top" >
+                            <FlipView  x:Name="home_flipView"  SelectedItem="{Binding Path=homeBanner,Mode=TwoWay}" ItemsSource="{Binding Banner}" Height="200" Width="640" Grid.Column="1" Loaded="home_flipView_Loaded" Unloaded="home_flipView_Unloaded" SelectionChanged="home_flipView_SelectionChanged" Style="{StaticResource FlipViewStyle1}" VerticalAlignment="Top" >
                                 <FlipView.ItemTemplate>
                                     <DataTemplate>
                                         <Grid>
@@ -375,6 +376,7 @@
 
                     <GridView x:Name="GridView_DT" ItemsSource="{Binding DTs}" HorizontalAlignment="Center" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" HorizontalContentAlignment="Center" ItemClick="GridView_DT_ItemClick" ItemTemplate="{StaticResource HomeItemTemplate}" IsItemClickEnabled="True"   SelectionMode="None" ItemContainerStyle="{StaticResource GridViewItemStyle}" >
                     </GridView>
+                    <TextBlock HorizontalAlignment="Center" Margin="12" Foreground="Gray" Text="暂无可显示的视频" Visibility="{Binding DTEmptyVisibility}" />
                     <!--</ScrollViewer>-->
                 </StackPanel>
             </ScrollViewer>

@@ -63,8 +63,18 @@ namespace BiliBili.UWP.Pages
             TestClass.d1 = this.Resources["HomeTemplate"] as DataTemplate;
             TestClass.d2 = this.Resources["ItemsTemplate"] as DataTemplate;
             this.NavigationCacheMode = NavigationCacheMode.Required;
+            bannerTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(5)
+            };
+            bannerTimer.Tick += BannerTimer_Tick;
         }
+        readonly DispatcherTimer bannerTimer;
+        FlipView bannerFlipView;
         int Part_Id = 1;
+        bool isInitialPartLoad;
+        bool deferChildLoads;
+        bool isLoadingPart;
         private void btn_back_Click(object sender, RoutedEventArgs e)
         {
             if (this.Frame.CanGoBack)
@@ -101,7 +111,8 @@ namespace BiliBili.UWP.Pages
         string defu_Order = "senddate";
         private async Task LoadPart(Parts parts)
         {
-           
+            isInitialPartLoad = true;
+            deferChildLoads = false;
             com_bar.Visibility = Visibility.Collapsed;
             List<PartModel> l = new List<PartModel>();
             // defu_Order = "default";
@@ -1636,6 +1647,8 @@ namespace BiliBili.UWP.Pages
                     break;
             }
 
+            isInitialPartLoad = false;
+            deferChildLoads = false;
             pivot.ItemsSource = l;
             UpdateBannerState();
           
@@ -1643,7 +1656,8 @@ namespace BiliBili.UWP.Pages
 
         private async Task LoadPart(RegionModel parts)
         {
-
+            isInitialPartLoad = true;
+            deferChildLoads = false;
             com_bar.Visibility = Visibility.Collapsed;
             List<PartModel> l = new List<PartModel>();
             // defu_Order = "default";
@@ -1697,6 +1711,8 @@ namespace BiliBili.UWP.Pages
 
             }
 
+            isInitialPartLoad = false;
+            deferChildLoads = false;
             pivot.ItemsSource = l;
             UpdateBannerState();
 
@@ -1704,23 +1720,49 @@ namespace BiliBili.UWP.Pages
 
         private async Task<ObservableCollection<TagsModel>> GetTags(int id)
         {
-            ObservableCollection<TagsModel> list = new ObservableCollection<TagsModel>();
-            try
+            ObservableCollection<TagsModel> list = new ObservableCollection<TagsModel>
             {
-                string zh_result = await WebClientClass.GetResults(new Uri("http://api.bilibili.com/x/tag/hots?rid=" + id + "&type=0&jsonp=json?rnd=" + new Random().Next(1, 9999)));
-                var zh = JsonConvert.DeserializeObject<TagsModel>(zh_result);
-                list = JsonConvert.DeserializeObject<ObservableCollection<TagsModel>>(zh.data.ToString())[0].tags;
-                list.Insert(0, new TagsModel() { tag_name = "全部" });
+                new TagsModel() { tag_name = "全部" }
+            };
+            if (deferChildLoads)
+            {
                 return list;
             }
-            catch (Exception)
+
+            try
             {
+                string zh_result = await WebClientClass.GetResults(new Uri("https://api.bilibili.com/x/tag/hots?rid=" + id + "&type=0"));
+                var zh = JsonConvert.DeserializeObject<TagsModel>(zh_result);
+                var groups = JsonConvert.DeserializeObject<ObservableCollection<TagsModel>>(zh.data.ToString());
+                if (groups != null && groups.Count != 0 && groups[0].tags != null)
+                {
+                    list = groups[0].tags;
+                    list.Insert(0, new TagsModel() { tag_name = "全部" });
+                }
+                return list;
+            }
+            catch (Exception ex)
+            {
+                Helper.LogHelper.WriteLog("分区标签加载失败", Helper.LogType.ERROR, ex);
                 return list;
             }
         }
-        private async Task<ObservableCollection<DHModel>> GetVideos(int id, string orderBy, int Num, string tag)
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            bannerTimer.Stop();
+            bannerFlipView = null;
+            base.OnNavigatedFrom(e);
+        }
+
+        private async Task<ObservableCollection<DHModel>> GetVideos(int id, string orderBy, int Num, string tag, int tagId = 0)
         {
             ObservableCollection<DHModel> list = new ObservableCollection<DHModel>();
+            if (deferChildLoads)
+            {
+                return list;
+            }
+
             try
             {
                 if (Num!=1)
@@ -1728,41 +1770,36 @@ namespace BiliBili.UWP.Pages
                     pr_Laod.Visibility = Visibility.Visible;
                 }
               
-                #region
-                string uri = "";
-                uri = string.Format("https://app.bilibili.com/x/v2/region/show/child/list?appkey={0}&build={1}&channel=bili&order={4}&platform=android&pn={2}&ps=20&rid={3}",
-                    ApiHelper.AndroidKey.Appkey,ApiHelper.build, Num, id, orderBy);
-                if (tag.Length != 0 && tag != "全部")
+                if (tagId != 0)
                 {
-                    uri += "&tag_name=" + Uri.EscapeDataString(tag);
+                    string tagUri = $"https://api.bilibili.com/x/web-interface/dynamic/tag?rid={id}&tag_id={tagId}&pn={Num}&ps=20";
+                    JObject tagged = JObject.Parse(await WebClientClass.GetResults(new Uri(tagUri)));
+                    AddArchiveItems(list, tagged["data"]?["archives"]);
+                    return list;
                 }
-                uri += "&sign=" + ApiHelper.GetSign(uri);
-                #endregion
-                string results = await WebClientClass.GetResults(new Uri(uri));
-                JObject jObject = JObject.Parse(results);
-               
 
-                //DHModel model = JsonConvert.DeserializeObject<DHModel>(results);
-                //JObject json = JObject.Parse(model.list.ToString());
-                List<DHModel> ReList = new List<DHModel>();
-                //LZ_NewList.Items.Clear();
-                foreach (var item in jObject["data"])
+                if (orderBy == PartOrderBy.senddate.ToString())
                 {
-                    list.Add(new DHModel
+                    string latestUri = $"https://api.bilibili.com/x/web-interface/newlist?rid={id}&pn={Num}&ps=20&type=0";
+                    JObject latest = JObject.Parse(await WebClientClass.GetResults(new Uri(latestUri)));
+                    AddArchiveItems(list, latest["data"]?["archives"]);
+                    if (list.Count != 0)
                     {
-                        aid = (string)item["uri"],
-                        title = (string)item["title"],
-                        pic = (string)item["cover"] + "@200w.jpg",
-                        author = (string)item["name"],
-                        play = (string)item["play"],
-                        video_review = (string)item["danmaku"],
-                    });
+                        return list;
+                    }
                 }
-               
+
+                string rankOrder = GetRankOrder(orderBy);
+                string timeTo = DateTime.Now.ToString("yyyyMMdd");
+                string timeFrom = DateTime.Now.AddDays(-30).ToString("yyyyMMdd");
+                string rankUri = $"https://api.bilibili.com/x/web-interface/newlist_rank?main_ver=v3&search_type=video&view_type=hot_rank&copy_right=-1&new_web_tag=1&order={rankOrder}&cate_id={id}&page={Num}&pagesize=20&time_from={timeFrom}&time_to={timeTo}";
+                JObject ranked = JObject.Parse(await WebClientClass.GetResults(new Uri(rankUri)));
+                AddArchiveItems(list, ranked["data"]?["result"]);
                 return list;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Helper.LogHelper.WriteLog("分区视频加载失败", Helper.LogType.ERROR, ex);
                 return list;
             }
             finally
@@ -1774,39 +1811,125 @@ namespace BiliBili.UWP.Pages
                 //pr_Laod.Visibility = Visibility.Collapsed;
             }
         }
+
+        private static string GetRankOrder(string orderBy)
+        {
+            switch (orderBy)
+            {
+                case "danmaku":
+                    return "dm";
+                case "reply":
+                    return "scores";
+                case "favorite":
+                    return "stow";
+                default:
+                    return "click";
+            }
+        }
+
+        private static void AddArchiveItems(ICollection<DHModel> target, JToken items)
+        {
+            if (items == null)
+            {
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                string pic = (string)item["pic"];
+                if (!string.IsNullOrEmpty(pic) && pic.StartsWith("//"))
+                {
+                    pic = "https:" + pic;
+                }
+
+                target.Add(new DHModel
+                {
+                    aid = (string)(item["aid"] ?? item["id"]),
+                    title = (string)item["title"],
+                    pic = string.IsNullOrEmpty(pic) ? pic : pic + "@200w.jpg",
+                    author = (string)(item["owner"]?["name"] ?? item["author"]),
+                    play = (string)(item["stat"]?["view"] ?? item["play"]),
+                    video_review = (string)(item["stat"]?["danmaku"] ?? item["video_review"])
+                });
+            }
+        }
+
         private async Task<List<DHModel>> GetBanner(int Id)
         {
             List<DHModel> BannerModel = new List<DHModel>();
             try
             {
+                int regionId = GetV2RegionId(Id);
+                if (regionId == 0)
+                {
+                    return BannerModel;
+                }
 
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri("http://app.bilibili.com/api/region2/" + Id + ".json"));
-                DHModel model = JsonConvert.DeserializeObject<DHModel>(results);
-                DHModel model2 = JsonConvert.DeserializeObject<DHModel>(model.result.ToString());
-                BannerModel = JsonConvert.DeserializeObject<List<DHModel>>(model2.banners.ToString());
+                string results = await WebClientClass.GetResults(new Uri("https://api.bilibili.com/x/web-show/region/banner?region_id=" + regionId));
+                JObject data = JObject.Parse(results);
+                JToken banners = data["data"]?["region_banner_list"];
+                if (banners == null)
+                {
+                    return BannerModel;
+                }
+
+                foreach (var banner in banners)
+                {
+                    BannerModel.Add(new DHModel
+                    {
+                        aid = "0",
+                        img = (string)banner["image"],
+                        title = (string)banner["title"],
+                        link = (string)banner["url"]
+                    });
+                }
                 return BannerModel;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Helper.LogHelper.WriteLog("分区横幅加载失败", Helper.LogType.ERROR, ex);
                 return BannerModel;
             }
         }
+
+        private static int GetV2RegionId(int regionId)
+        {
+            switch (regionId)
+            {
+                case 1:
+                case 167:
+                    return 1005;
+                case 3:
+                    return 1003;
+                case 4:
+                    return 1008;
+                case 5:
+                case 165:
+                    return 1002;
+                case 11:
+                case 23:
+                    return 1001;
+                case 36:
+                    return 1012;
+                case 119:
+                    return 1007;
+                case 129:
+                    return 1004;
+                case 155:
+                    return 1014;
+                default:
+                    return 0;
+            }
+        }
+
         private async Task<List<DHModel>> GetTuiJianDT(int Id)
         {
-            List<DHModel> DTModel = new List<DHModel>();
-            try
+            List<DHModel> videos = (await GetVideos(Id, PartOrderBy.senddate.ToString(), 1, "")).ToList();
+            if (isInitialPartLoad)
             {
-
-                string results = await WebClientClass.GetResults(new Uri("http://www.bilibili.com/index/ding/" + Id + ".json?rnd=" + new Random().Next(1, 9999)));
-                DHModel model = JsonConvert.DeserializeObject<DHModel>(results);
-                DTModel = JsonConvert.DeserializeObject<List<DHModel>>(model.list.ToString());
-                return DTModel;
+                deferChildLoads = true;
             }
-            catch (Exception)
-            {
-                return DTModel;
-            }
-
+            return videos;
         }
 
 
@@ -1911,7 +2034,7 @@ namespace BiliBili.UWP.Pages
                     isLoading = true;
                     var m = (sender as ScrollViewer).DataContext as PartModel;
                     m.PageNum++;
-                    foreach (var item in await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, m.SelectTag.tag_name))
+                    foreach (var item in await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, m.SelectTag?.tag_name ?? "", m.SelectTag?.tag_id ?? 0))
                     {
                         m.VideoList.Add(item);
                     }
@@ -1925,20 +2048,25 @@ namespace BiliBili.UWP.Pages
 
         private async void grid_tag_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-
-            (pivot.SelectedItem as PartModel).PageNum = 1;
-            if ((pivot.SelectedItem as PartModel).VideoList!=null)
+            if (isLoadingPart)
             {
-                (pivot.SelectedItem as PartModel).VideoList.Clear();
+                return;
             }
-           
-            var m = pivot.SelectedItem as PartModel;
-            m.SelectTag = (sender as GridView).SelectedItem as TagsModel;
-            m.VideoList = await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, ((sender as GridView).SelectedItem as TagsModel).tag_name);
 
+            var selectedTag = (sender as GridView).SelectedItem as TagsModel;
+            var m = pivot.SelectedItem as PartModel;
+            if (selectedTag == null || m == null)
+            {
+                return;
+            }
+
+            m.PageNum = 1;
+            m.VideoList?.Clear();
+            m.SelectTag = selectedTag;
+            m.VideoList = await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, selectedTag.tag_name, selectedTag.tag_id);
         }
 
-        private void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (pivot.Items.Count == 0)
             {
@@ -1952,6 +2080,25 @@ namespace BiliBili.UWP.Pages
             else
             {
                 com_bar.Visibility = Visibility.Visible;
+
+                var selectedPart = pivot.SelectedItem as PartModel;
+                if (selectedPart != null && !selectedPart.IsLoaded && !isLoadingPart)
+                {
+                    isLoadingPart = true;
+                    pr_Laod.Visibility = Visibility.Visible;
+                    try
+                    {
+                        selectedPart.TagsList = await GetTags(selectedPart.PartId);
+                        selectedPart.SelectTag = selectedPart.TagsList.FirstOrDefault();
+                        selectedPart.VideoList = await GetVideos(selectedPart.PartId, selectedPart.orderBy.ToString(), 1, "");
+                        selectedPart.IsLoaded = true;
+                    }
+                    finally
+                    {
+                        pr_Laod.Visibility = Visibility.Collapsed;
+                        isLoadingPart = false;
+                    }
+                }
             }
             btn_Type.IsChecked = false;
             
@@ -1998,7 +2145,7 @@ namespace BiliBili.UWP.Pages
             (pivot.SelectedItem as PartModel).PageNum = 1;
             (pivot.SelectedItem as PartModel).VideoList.Clear();
             var m = pivot.SelectedItem as PartModel;
-            m.VideoList = await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, m.SelectTag.tag_name);
+            m.VideoList = await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, m.SelectTag?.tag_name ?? "", m.SelectTag?.tag_id ?? 0);
         }
 
         private void btn_New_Click(object sender, RoutedEventArgs e)
@@ -2053,7 +2200,48 @@ namespace BiliBili.UWP.Pages
 
         private void home_flipView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            UpdateBannerTimer(sender as FlipView);
+        }
 
+        private void home_flipView_Loaded(object sender, RoutedEventArgs e)
+        {
+            UpdateBannerTimer(sender as FlipView);
+        }
+
+        private void home_flipView_Unloaded(object sender, RoutedEventArgs e)
+        {
+            if (ReferenceEquals(bannerFlipView, sender))
+            {
+                bannerTimer.Stop();
+                bannerFlipView = null;
+            }
+        }
+
+        private void UpdateBannerTimer(FlipView flipView)
+        {
+            bannerFlipView = flipView;
+            if (bannerFlipView?.Items.Count > 1)
+            {
+                if (!bannerTimer.IsEnabled)
+                {
+                    bannerTimer.Start();
+                }
+            }
+            else
+            {
+                bannerTimer.Stop();
+            }
+        }
+
+        private void BannerTimer_Tick(object sender, object e)
+        {
+            if (bannerFlipView == null || bannerFlipView.Items.Count <= 1)
+            {
+                return;
+            }
+
+            int nextIndex = bannerFlipView.SelectedIndex + 1;
+            bannerFlipView.SelectedIndex = nextIndex >= bannerFlipView.Items.Count ? 0 : nextIndex;
         }
 
         private void btn_Banner_Ban_Click(object sender, RoutedEventArgs e)
@@ -2117,7 +2305,7 @@ namespace BiliBili.UWP.Pages
                 isLoading = true;
                 var m = (sender as Button).DataContext as PartModel;
                 m.PageNum++;
-                foreach (var item in await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, m.SelectTag.tag_name))
+                foreach (var item in await GetVideos(m.PartId, m.orderBy.ToString(), m.PageNum, m.SelectTag?.tag_name ?? "", m.SelectTag?.tag_id ?? 0))
                 {
                     m.VideoList.Add(item);
                 }
@@ -2164,20 +2352,44 @@ namespace BiliBili.UWP.Pages
         public ObservableCollection<DHModel> VideoList
         {
             get { return _VideoList; }
-            set { _VideoList = value; RaisePropertyChanged("VideoList"); }
+            set
+            {
+                _VideoList = value;
+                RaisePropertyChanged("VideoList");
+                RaisePropertyChanged("VideoEmptyVisibility");
+            }
         }
+        public Visibility VideoEmptyVisibility => VideoList == null || VideoList.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         private List<DHModel> _Banner;
         public List<DHModel> Banner
         {
             get { return _Banner; }
-            set { _Banner = value;RaisePropertyChanged("Banner"); }
+            set
+            {
+                _Banner = value;
+                RaisePropertyChanged("Banner");
+                RaisePropertyChanged("BannerVisibility");
+            }
         }
+        public Visibility BannerVisibility => Banner != null && Banner.Count != 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         private List<DHModel> _DTs;
         public List<DHModel> DTs
         {
             get { return _DTs; }
-            set { _DTs = value; RaisePropertyChanged("DTs"); }
+            set
+            {
+                _DTs = value;
+                RaisePropertyChanged("DTs");
+                RaisePropertyChanged("DTEmptyVisibility");
+            }
         }
+        public Visibility DTEmptyVisibility => DTs == null || DTs.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         private DHModel _homeBanner;
         public DHModel homeBanner
         {
@@ -2292,6 +2504,7 @@ namespace BiliBili.UWP.Pages
         public int PartId { get; set; }
         public int PageNum { get; set; }
         public PartOrderBy orderBy { get; set; }
+        public bool IsLoaded { get; set; }
 
         private TagsModel _SelectTag;
         public TagsModel SelectTag
