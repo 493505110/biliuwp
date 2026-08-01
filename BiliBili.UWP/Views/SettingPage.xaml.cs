@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Helper;
 using BiliBili.UWP.Modules;
 using BiliBili.UWP.Pages;
+using Microsoft.Web.WebView2.Core;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -700,8 +701,9 @@ namespace BiliBili.UWP.Views
             try
             {
                 await cacheWebView.EnsureCoreWebView2Async();
-                await cacheWebView.CoreWebView2.Profile.ClearBrowsingDataAsync();
-                await new MessageDialog("清除完成,为了能正常使用，请重新登录").ShowAsync();
+                await cacheWebView.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                    CoreWebView2BrowsingDataKinds.DiskCache);
+                await new MessageDialog("缓存清除完成").ShowAsync();
             }
             catch (Exception ex)
             {
