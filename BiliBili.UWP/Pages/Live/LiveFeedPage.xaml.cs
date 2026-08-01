@@ -72,9 +72,11 @@ namespace BiliBili.UWP.Pages
             _loading = true;
             _loadend = false;
             list_Live.ItemsSource = null;
-            list_UnLive.ItemsSource = null;
+            list_UnLive.ItemsSource = new ObservableCollection<NotLivingModel>();
+            btn_LoadMore.Visibility = Visibility.Visible;
             await LoadLive();
-            LoadUnLive();
+            _loading = false;
+            await LoadUnLive();
         }
 
         /// <summary>
@@ -98,41 +100,57 @@ namespace BiliBili.UWP.Pages
         /// <summary>
         /// 加载未在直播
         /// </summary>
-        private async void LoadUnLive()
+        private async Task LoadUnLive()
         {
+            if (_loading || _loadend)
+            {
+                return;
+            }
+
             pr_Load.Visibility = Visibility.Visible;
             _loading = true;
-            var data = await liveCenter.GetUnLiveList(_page);
-            if (data.success)
+            try
             {
-                if (data.data == null || data.data.Count == 0)
+                while (!_loadend)
                 {
-                    _loadend = true;
-                    Utils.ShowMessageToast("加载完了");
-                    return;
-                }
-                if (list_UnLive.ItemsSource == null)
-                {
-                    list_UnLive.ItemsSource = data.data;
-                }
-                else
-                {
-                    var ls = (list_UnLive.ItemsSource as ObservableCollection<NotLivingModel>);
-                    foreach (var item in data.data)
+                    var data = await liveCenter.GetUnLiveList(_page);
+                    if (!data.success)
                     {
-                        ls.Add(item);
+                        Utils.ShowMessageToast(data.message);
+                        return;
+                    }
+
+                    var pageData = data.data;
+                    var items = pageData?.items;
+                    var list = list_UnLive.ItemsSource as ObservableCollection<NotLivingModel>;
+                    if (items != null && list != null)
+                    {
+                        foreach (var item in items)
+                        {
+                            list.Add(item);
+                        }
+                    }
+
+                    _page++;
+                    _loadend = pageData == null || !pageData.has_more;
+                    btn_LoadMore.Visibility = _loadend ? Visibility.Collapsed : Visibility.Visible;
+
+                    if (items != null && items.Count > 0)
+                    {
+                        break;
+                    }
+
+                    if (_loadend)
+                    {
+                        Utils.ShowMessageToast("加载完了");
                     }
                 }
-
-                _page++;
             }
-            else
+            finally
             {
-                Utils.ShowMessageToast(data.message);
+                pr_Load.Visibility = Visibility.Collapsed;
+                _loading = false;
             }
-            pr_Load.Visibility = Visibility.Collapsed;
-            _loading = false;
-           
         }
 
 
@@ -142,7 +160,7 @@ namespace BiliBili.UWP.Pages
             {
                 if (!_loading && !_loadend)
                 {
-                    LoadUnLive();
+                    _ = LoadUnLive();
                 }
             }
         }
@@ -168,7 +186,7 @@ namespace BiliBili.UWP.Pages
         {
             if (!_loading && !_loadend)
             {
-                LoadUnLive();
+                _ = LoadUnLive();
             }
         }
 

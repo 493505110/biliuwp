@@ -128,47 +128,65 @@ namespace BiliBili.UWP.Modules
         /// 读取关注的未在直播列表
         /// </summary>
         /// <returns></returns>
-        public async Task<ReturnModel<ObservableCollection<NotLivingModel>>> GetUnLiveList(int page)
+        public async Task<ReturnModel<NotLivingPageModel>> GetUnLiveList(int page)
         {
+            const int pageSize = 10;
             try
             {
-                var response = await LiveRoomAPI.GetFollowing(page, 10).Request();
+                var response = await LiveRoomAPI.GetFollowing(page, pageSize).Request();
                 var root = response.GetJObject();
                 if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
                     var m = new ObservableCollection<NotLivingModel>();
-                    var list = root["data"]?["list"] as Newtonsoft.Json.Linq.JArray;
+                    var responseData = root["data"];
+                    var list = responseData?["list"] as Newtonsoft.Json.Linq.JArray;
                     if (list != null)
                     {
                         foreach (var item in list.Where(x => (x.Value<int?>("live_status") ?? 0) != 1))
                         {
                             m.Add(new NotLivingModel
                             {
-                                live_desc = item.Value<string>("text_small") ?? "最近",
+                                live_desc = item.Value<string>("live_desc") ?? "最近",
+                                fans_desc = item.Value<string>("text_small") ?? string.Empty,
                                 roomid = item.Value<int?>("roomid") ?? 0,
                                 uid = item.Value<long?>("uid") ?? 0,
                                 uname = item.Value<string>("uname") ?? string.Empty,
                                 face = item.Value<string>("face") ?? string.Empty,
+                                attentions = item.Value<int?>("fans_num") ?? item.Value<int?>("attentions") ?? 0,
                                 live_status = item.Value<int?>("live_status") ?? 0,
                                 broadcast_type = item.Value<int?>("broadcast_type") ?? 0,
                                 area_name = item.Value<string>("area_name") ?? string.Empty,
-                                area_v2_id = item.Value<int?>("area_id") ?? 0,
-                                area_v2_name = item.Value<string>("area_name_v2") ?? string.Empty,
-                                area_v2_parent_id = item.Value<int?>("parent_area_id") ?? 0,
+                                area_v2_id = item.Value<int?>("area_v2_id") ?? item.Value<int?>("area_id") ?? 0,
+                                area_v2_name = item.Value<string>("area_v2_name") ?? item.Value<string>("area_name_v2") ?? string.Empty,
+                                area_v2_parent_id = item.Value<int?>("area_v2_parent_id") ?? item.Value<int?>("parent_area_id") ?? 0,
+                                area_v2_parent_name = item.Value<string>("area_v2_parent_name") ?? string.Empty,
                                 link = "https://live.bilibili.com/" + (item.Value<int?>("roomid") ?? 0)
                             });
                         }
                     }
-                    return new ReturnModel<ObservableCollection<NotLivingModel>>()
+
+                    var totalPage = responseData?.Value<int?>("total_page");
+                    var hasMoreToken = responseData?["has_more"];
+                    var hasMore = hasMoreToken != null
+                        ? hasMoreToken.Value<bool>()
+                        : totalPage.HasValue
+                            ? page < totalPage.Value
+                            : list != null && list.Count == pageSize;
+
+                    return new ReturnModel<NotLivingPageModel>()
                     {
                         success = true,
                         message = "",
-                        data = m
+                        data = new NotLivingPageModel
+                        {
+                            items = m,
+                            has_more = hasMore
+                        }
                     };
                 }
                 else
                 {
-                    return new ReturnModel<ObservableCollection<NotLivingModel>>()
+                    return new ReturnModel<NotLivingPageModel>()
                     {
                         success = false,
                         message = root?["message"]?.ToString() ?? response.message
@@ -179,15 +197,23 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<ObservableCollection<NotLivingModel>>(ex);
+                return HandelError<NotLivingPageModel>(ex);
             }
         }
 
     }
     namespace LiveCenterModels
     {
+        public class NotLivingPageModel
+        {
+            public ObservableCollection<NotLivingModel> items { get; set; }
+            public bool has_more { get; set; }
+        }
+
         public class UserInfoMedalModel
         {
+            private static readonly Windows.UI.Color DefaultColor = Windows.UI.Color.FromArgb(255, 153, 153, 153);
+
             /// <summary>
             /// 暴漫
             /// </summary>
@@ -205,7 +231,13 @@ namespace BiliBili.UWP.Modules
             /// </summary>
             public string medal_color { get; set; }
 
-            public SolidColorBrush m_color { get { return new SolidColorBrush(Utils.ToColor(color)); } }
+            public SolidColorBrush m_color
+            {
+                get
+                {
+                    return new SolidColorBrush(string.IsNullOrWhiteSpace(color) ? DefaultColor : Utils.ToColor(color));
+                }
+            }
         }
 
         public class UserInfoWearTitleModel
@@ -231,6 +263,8 @@ namespace BiliBili.UWP.Modules
 
         public class LiveUserInfoModel
         {
+            private static readonly Windows.UI.Color DefaultLevelColor = Windows.UI.Color.FromArgb(255, 153, 153, 153);
+
             public string uname { get; set; }
             public string face { get; set; }
             /// <summary>
@@ -275,7 +309,13 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// User_level_color
             /// </summary>
-            public SolidColorBrush level_color { get { return new SolidColorBrush(Utils.ToColor(user_level_color)); } }
+            public SolidColorBrush level_color
+            {
+                get
+                {
+                    return new SolidColorBrush(string.IsNullOrWhiteSpace(user_level_color) ? DefaultLevelColor : Utils.ToColor(user_level_color));
+                }
+            }
             /// <summary>
             /// Room_id
             /// </summary>
@@ -464,6 +504,7 @@ namespace BiliBili.UWP.Modules
             /// Attentions
             /// </summary>
             public int attentions { get; set; }
+            public string fans_desc { get; set; }
             /// <summary>
             /// 电子竞技
             /// </summary>
@@ -490,7 +531,7 @@ namespace BiliBili.UWP.Modules
             public string link { get; set; }
             public string FansNum
             {
-                get { return attentions.ToW(); }
+                get { return string.IsNullOrWhiteSpace(fans_desc) ? attentions.ToW() : fans_desc; }
             }
 
             public Visibility rounding

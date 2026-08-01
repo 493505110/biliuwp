@@ -19,16 +19,16 @@ namespace BiliBili.UWP.Api.Live
             };
         }
 
-        public ApiModel History(int pn=1,int ps=20)
+        public ApiModel History(long max = 0, long viewAt = 0, string business = "", int pageSize = 20)
         {
-            ApiModel api = new ApiModel()
+            var cursorBusiness = string.IsNullOrEmpty(business) ? string.Empty : $"&business={business}";
+            return new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = $"https://app.bilibili.com/x/v2/history/liveList",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidKey, true)+ $"&actionKey=appkey&pn={pn}&ps={ps}"
+                baseUrl = "https://api.bilibili.com/x/web-interface/history/cursor",
+                parameter = $"max={max}&view_at={viewAt}&type=live&ps={pageSize}{cursorBusiness}",
+                headers = LiveRoomAPI.GetWebHeaders()
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidKey);
-            return api;
         }
 
        

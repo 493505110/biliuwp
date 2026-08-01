@@ -6,13 +6,19 @@ using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using BiliBili.UWP.Api;
-using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BiliBili.UWP.Modules.Live
 {
     public class LiveWatchHistoryVM:IModules
     {
+        private const int PageSize = 20;
         readonly Api.Live.LiveCenterAPI liveCenterAPI;
+        private long _max;
+        private long _viewAt;
+        private string _business = string.Empty;
+        private bool _firstPage = true;
+
         public LiveWatchHistoryVM()
         {
             liveCenterAPI = new Api.Live.LiveCenterAPI();
@@ -20,7 +26,6 @@ namespace BiliBili.UWP.Modules.Live
             RefreshCommand = new RelayCommand(Refresh);
             LoadMoreCommand = new RelayCommand(LoadMore);
         }
-        public int Page{ get; set; }
         public ICommand RefreshCommand { get; private set; }
         public ICommand LoadMoreCommand { get; private set; }
         public ObservableCollection<LiveWatchHistoryItemModel> Historys { get; set; }
@@ -45,34 +50,61 @@ namespace BiliBili.UWP.Modules.Live
             {
                 Loading = true;
                 ShowLoadMore = false;
-                var result = await liveCenterAPI.History(Page).Request();
+                var result = await liveCenterAPI.History(_max, _viewAt, _business, PageSize).Request();
                 if (result.status)
                 {
-                    var data =await result.GetData<ObservableCollection<LiveWatchHistoryItemModel>>();
-                    if (data.code==0)
+                    var root = result.GetJObject();
+                    if (root != null && root.Value<int?>("code") == 0)
                     {
-                        
-                        if (data.data!=null&&data.data.Count!=0)
+                        var data = root["data"];
+                        var list = data?["list"] as JArray;
+                        var cursor = data?["cursor"];
+                        var nextMax = cursor?.Value<long?>("max") ?? 0;
+                        var nextViewAt = cursor?.Value<long?>("view_at") ?? 0;
+                        var nextBusiness = cursor?.Value<string>("business") ?? string.Empty;
+                        var cursorAdvanced = nextMax != _max || nextViewAt != _viewAt || nextBusiness != _business;
+
+                        if (_firstPage)
                         {
-                            if (Page == 1)
-                            {
-                                Historys = data.data;
-                            }
-                            else
-                            {
-                                foreach (var item in data.data)
-                                {
-                                    Historys.Add(item);
-                                }
-                            }
-                            Page++;
-                            ShowLoadMore = true;
+                            Historys.Clear();
                         }
 
+                        var itemCount = 0;
+                        if (list != null)
+                        {
+                            foreach (var item in list)
+                            {
+                                var history = item["history"];
+                                var roomId = history?.Value<long?>("oid") ?? 0;
+                                var uri = item.Value<string>("uri");
+                                if (string.IsNullOrWhiteSpace(uri) && roomId > 0)
+                                {
+                                    uri = "https://live.bilibili.com/" + roomId;
+                                }
+
+                                Historys.Add(new LiveWatchHistoryItemModel
+                                {
+                                    cover = item.Value<string>("cover") ?? string.Empty,
+                                    title = item.Value<string>("title") ?? item.Value<string>("show_title") ?? string.Empty,
+                                    tag_name = item.Value<string>("tag_name") ?? string.Empty,
+                                    name = item.Value<string>("author_name") ?? item.Value<string>("name") ?? string.Empty,
+                                    live_status = item.Value<int?>("live_status") ?? 0,
+                                    view_at = item.Value<long?>("view_at") ?? 0,
+                                    uri = uri ?? string.Empty
+                                });
+                                itemCount++;
+                            }
+                        }
+
+                        _max = nextMax;
+                        _viewAt = nextViewAt;
+                        _business = nextBusiness;
+                        _firstPage = false;
+                        ShowLoadMore = itemCount == PageSize && cursorAdvanced;
                     }
                     else
                     {
-                        Utils.ShowMessageToast(data.message);
+                        Utils.ShowMessageToast(root?["message"]?.ToString() ?? "读取观看历史失败");
                     }
                 }
                 else
@@ -98,7 +130,10 @@ namespace BiliBili.UWP.Modules.Live
             {
                 return;
             }
-            Page = 1;
+            _max = 0;
+            _viewAt = 0;
+            _business = string.Empty;
+            _firstPage = true;
             await GetHistorys();
         }
         public async void LoadMore()
