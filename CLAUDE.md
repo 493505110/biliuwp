@@ -79,6 +79,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `CommentV2Control` 评论区外层 `ScrollViewer` 在切换视频时不会自动复位。`ClearComment()` 需先 `GetScollViewer()` 再 `ChangeView(null, 0, null)`；`LoadComment()` 的两个重载也都要在 `GetScollViewer()` 之后复位（`VideoViewPage.LoadVideo()` 实际调的是带参重载）
 - 包标识 `5421.501019FA0C51B`，发布者 `CN=zhou2008`，当前版本 `3.12.0.0`（发版时记得同步 `Package.appxmanifest`）
 
+## Git 提交约定
+
+- 提交标题参考近期提交风格，使用明确、偏技术性的中文短句；涉及多个技术面的改动应在正文中使用 `- ` 分点说明。
+- 创建或修订提交时使用当前 Git 配置的 GPG 密钥签名（`git commit -S` / `git commit --amend -S`），不要默认使用 `--no-gpg-sign` 绕过签名。签名需要 PIN 时，等待用户完成交互。
+- Codex 参与改动或整理提交时，在提交正文末尾追加 `Co-Authored-By: Codex <noreply@openai.com>`。
+- 提交完成后使用 `git log -1 --show-signature` 校验签名，并确认 `Co-Authored-By` 尾注存在后再报告成功。
+
 ## 当前进度
 
 `README.md` 里的 TODO 列表是这个 fork 的实际工作清单（已修复的 API 变更、待做的登录、直播弹幕、番剧信息等）。带删除线的条目是明确放弃的方向（频道、话题、音频），不要主动去做。
