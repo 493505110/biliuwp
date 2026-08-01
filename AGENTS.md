@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# AGENTS.md
 
 哔哩哔哩第三方 UWP 客户端。Fork 自 xiaoyaocz/biliuwp（原项目已停止维护）。
 
