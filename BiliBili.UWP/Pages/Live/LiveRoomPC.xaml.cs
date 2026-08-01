@@ -106,7 +106,7 @@ namespace BiliBili.UWP.Pages.Live
         //房间号
         int roomId = 0;
         //UPID
-        int uId = 0;
+        long uId = 0;
         //直播播放地址列表
         List<Durl> durls;
         //房间状态
@@ -189,8 +189,10 @@ namespace BiliBili.UWP.Pages.Live
                 roomId = roomInfo.data.room_id;
                 uId = roomInfo.data.uid;
                 liveStatus = (LiveStatus)roomInfo.data.live_status;
+                danmu_list.Clear();
 
                 this.DataContext = roomInfo.data;
+                txt_online.Text = roomInfo.data.online.ToW();
                 //加载我的信息
                 LoadMyInfo();
                 //加载礼物
@@ -198,11 +200,13 @@ namespace BiliBili.UWP.Pages.Live
                 //加载我的礼物
                 LoadMyGifts();
 
-                //读取最近10条弹幕
-                LoadLastMsg();
-
                 //开始接收弹幕
-                _biliLiveDanmu.Start(roomId, Convert.ToInt64(ApiHelper.GetUserId()));
+                long userId = 0;
+                long.TryParse(ApiHelper.GetUserId(), out userId);
+                _biliLiveDanmu.Start(roomId, userId);
+
+                //读取最近10条弹幕
+                await LoadLastMsg();
 
                 //判断状态
                 grid_isStop.Visibility = Visibility.Collapsed;
@@ -261,7 +265,7 @@ namespace BiliBili.UWP.Pages.Live
         {
             if (ApiHelper.IsLogin())
             {
-                var mygifts = await liveRoom.GetMyGifts();
+                var mygifts = await liveRoom.GetMyGifts(roomId);
                 if (mygifts.success)
                 {
                     gridview_myGifts.ItemsSource = mygifts.data;
@@ -388,9 +392,9 @@ namespace BiliBili.UWP.Pages.Live
         {
             pr_RankLoad.Visibility = Visibility.Visible;
             var m = cb_rank_cate.SelectedItem as RankActivityModel;
-            if (m.desc == "七日榜")
+            if (m.desc == "贡献榜")
             {
-                var data = await liveRoom.GetGiftTop(roomId);
+                var data = await liveRoom.GetGiftTop(roomId, uId);
                 if (data.success)
                 {
                     list_Rank.ItemsSource = data.data;
@@ -401,9 +405,9 @@ namespace BiliBili.UWP.Pages.Live
                 }
 
             }
-            else if (m.desc == "粉丝榜")
+            else if (m.desc == "粉丝团")
             {
-                var data = await liveRoom.GetMedalRankList(roomId);
+                var data = await liveRoom.GetMedalRankList(uId);
                 if (data.success)
                 {
                     list_Rank.ItemsSource = data.data;
@@ -433,7 +437,7 @@ namespace BiliBili.UWP.Pages.Live
         private async void LoadGuardRank()
         {
             noGuardRank.Visibility = Visibility.Collapsed;
-            var data = await liveRoom.GetGuardRank(uId);
+            var data = await liveRoom.GetGuardRank(roomId, uId);
             if (data.success)
             {
                 list_Guard.ItemsSource = data.data;
@@ -615,30 +619,56 @@ namespace BiliBili.UWP.Pages.Live
         /// <summary>
         /// 读取最近10条弹幕
         /// </summary>
-        private void LoadLastMsg()
+        private async Task LoadLastMsg()
         {
-            //var last = await liveRoom.GetLastLiveMsg(roomId);
-            //if (last.success)
-            //{
-            //    foreach (var m in last.data)
-            //    {
-            //        if (m.medalColor != null && m.medalColor != "")
-            //        {
-            //            m.ul_color = new SolidColorBrush(Utils.ToColor(m.ulColor));
-            //        }
-            //        else
-            //        {
-            //            m.ul_color = new SolidColorBrush(Colors.Gray);
-            //        }
-            //        if (m.medalColor != null && m.medalColor != "")
-            //        {
-            //            m.medal_color = new SolidColorBrush(Utils.ToColor(m.medalColor));
-            //        }
+            var last = await liveRoom.GetLastLiveMsg(roomId);
+            if (!last.success || last.data == null)
+            {
+                return;
+            }
 
-            //        list.Items.Add(m);
-            //    }
-            //}
+            var contentColor = SettingHelper.Get_Theme() == "Dark" ? Colors.White : Colors.Black;
+            foreach (var item in last.data)
+            {
+                danmu_list.Add(new DanmuMsgModel
+                {
+                    text = item.text ?? string.Empty,
+                    username = (item.nickname ?? string.Empty) + ":",
+                    ul = item.ul,
+                    ulColor = item.ulColor,
+                    ul_color = GetChatColor(item.ulColor, Colors.Gray),
+                    user_title = item.user_title,
+                    medal_name = item.medal_name,
+                    medal_lv = item.medal_lv,
+                    medalColor = item.medalColor,
+                    medal_color = GetChatColor(item.medalColor, Colors.Gray),
+                    isAdmin = item.isAdmin,
+                    isVip = item.isVip,
+                    isBigVip = item.isBigVip,
+                    hasMedal = item.hasMedal,
+                    hasTitle = item.hasTitle,
+                    hasUL = string.IsNullOrEmpty(item.ul) ? Visibility.Collapsed : Visibility.Visible,
+                    uname_color = new SolidColorBrush(Colors.Gray),
+                    content_color = new SolidColorBrush(contentColor)
+                });
+            }
+        }
 
+        private SolidColorBrush GetChatColor(string value, Color fallback)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return new SolidColorBrush(fallback);
+            }
+
+            try
+            {
+                return new SolidColorBrush(Utils.ToColor(value));
+            }
+            catch
+            {
+                return new SolidColorBrush(fallback);
+            }
         }
         /// <summary>
         /// 弹幕事件
@@ -661,23 +691,17 @@ namespace BiliBili.UWP.Pages.Live
                         {
 
                             var m = value.value as DanmuMsgModel;
+                            if (m == null)
+                            {
+                                return;
+                            }
                             m.uname_color = new SolidColorBrush(Colors.Gray);
                             if (openDanmu)
                             {
                                 danmu.AddLiveDanmu(m.text, false, Colors.White);
                             }
-                            if (m.medalColor != null && m.medalColor != "")
-                            {
-                                m.ul_color = new SolidColorBrush(Utils.ToColor(m.ulColor));
-                            }
-                            else
-                            {
-                                m.ul_color = new SolidColorBrush(Colors.Gray);
-                            }
-                            if (m.medalColor != null && m.medalColor != "")
-                            {
-                                m.medal_color = new SolidColorBrush(Utils.ToColor(m.medalColor));
-                            }
+                            m.ul_color = GetChatColor(m.ulColor, Colors.Gray);
+                            m.medal_color = GetChatColor(m.medalColor, Colors.Gray);
                             m.content_color = (SettingHelper.Get_Theme() == "Dark") ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black);
                             danmu_list.Add(m);
 
@@ -765,10 +789,9 @@ namespace BiliBili.UWP.Pages.Live
 
                 await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                 {
-                    if (danmu_list.Count > slider_Clear.Value)
+                    while (danmu_list.Count > slider_Clear.Value)
                     {
-                        danmu_list.Clear();
-                        GC.Collect();
+                        danmu_list.RemoveAt(0);
                     }
                 });
 
@@ -1497,7 +1520,7 @@ namespace BiliBili.UWP.Pages.Live
                     uint w, h = 0;
                     media.MediaPlayer.size(0, out w, out h);
                     Debug_Data.Visibility = Visibility.Visible;
-                    txt_VideoData.Text = $"地址:{media.Source}\r\n硬件加速:{media.HardwareAcceleration}\r\n分辨率:{ w}*{ h}\r\n当前清晰度:{(cb_quality.SelectedItem as quality_description_item).desc}({(cb_quality.SelectedItem as quality_description_item).qn})";
+                    txt_VideoData.Text = $"地址:\r\n{media.Source}\r\n硬件加速:{media.HardwareAcceleration}\r\n分辨率:{w}*{h}\r\n当前清晰度:{(cb_quality.SelectedItem as quality_description_item).desc}({(cb_quality.SelectedItem as quality_description_item).qn})";
                 }
                 else
                 {
@@ -1623,6 +1646,12 @@ namespace BiliBili.UWP.Pages.Live
         private void gridview_myGifts_ItemClick(object sender, ItemClickEventArgs e)
         {
             var data = e.ClickedItem as LiveMyGiftsModel;
+            if (data == null)
+            {
+                return;
+            }
+            txt_BuyGiftName.Text = data.gift_name ?? string.Empty;
+            txt_BuyGiftPrice.Text = string.Empty;
             cd_BuyGiftNum.DataContext = data;
             txt_BuyGiftNum.Text = "1";
             needType.Visibility = Visibility.Collapsed;
@@ -1644,6 +1673,12 @@ namespace BiliBili.UWP.Pages.Live
                 }
             }
             var data = e.ClickedItem as AllGiftsModel;
+            if (data == null)
+            {
+                return;
+            }
+            txt_BuyGiftName.Text = data.name ?? string.Empty;
+            txt_BuyGiftPrice.Text = data.price.ToString();
             rb_Gold.Visibility = Visibility.Visible;
             rb_Slider.Visibility = Visibility.Collapsed;
             rb_Gold.IsChecked = true;

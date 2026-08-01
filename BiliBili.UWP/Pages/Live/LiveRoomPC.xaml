@@ -58,7 +58,7 @@
                             <TextBlock FontSize="16">赠送道具</TextBlock>
                         </PivotItem.Header>
                         <Grid>
-                            <GridView x:Name="gridview_Gifts" HorizontalAlignment="Center" ItemsSource="{Binding roomgifts}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="gridview_Gifts_ItemClick">
+                            <GridView x:Name="gridview_Gifts" HorizontalAlignment="Center" SelectionMode="None" IsItemClickEnabled="True" ItemClick="gridview_Gifts_ItemClick">
                                 <GridView.ItemTemplate>
                                     <DataTemplate>
                                         <Grid>
@@ -245,7 +245,7 @@
                                 <ImageBrush Stretch="UniformToFill" ImageSource="{Binding Path=UserInfo.face}"/>
                             </Ellipse.Fill>
                         </Ellipse>
-                        <Image Width="56"  Height="56" Source="{Binding Path=new_pendants.mobile_frame.value}"></Image>
+                        <Image Width="56" Height="56" Source="{Binding Path=new_pendants.mobile_frame.image_url}"></Image>
                     </Grid>
 
                 </HyperlinkButton>
@@ -489,15 +489,17 @@
             </Pivot>
         </Grid>
         <ProgressRing x:Name="pr_Loading" Width="56" Height="56" IsActive="True"></ProgressRing>
-        <Border x:Name="Debug_Data" Padding="12" Visibility="Collapsed" Width="200" VerticalAlignment="Center" Background="#4C000000">
-            <TextBlock x:Name="txt_VideoData" TextWrapping="Wrap" Foreground="White" IsTextSelectionEnabled="True"></TextBlock>
+        <Border x:Name="Debug_Data" Padding="12" Margin="32" Visibility="Collapsed" MaxWidth="720" MaxHeight="420" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#99000000">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+                <TextBlock x:Name="txt_VideoData" TextWrapping="Wrap" Foreground="White" IsTextSelectionEnabled="True"></TextBlock>
+            </ScrollViewer>
         </Border>
         <Grid x:Name="cd_BuyGiftNum" Grid.RowSpan="3" Visibility="Collapsed" Grid.ColumnSpan="2" Width="200" VerticalAlignment="Center" Background="White">
             <StackPanel Margin="10">
-                <TextBlock><Run Text="{Binding name}"></Run> 赠送数量</TextBlock>
+                <TextBlock><Run x:Name="txt_BuyGiftName"></Run> 赠送数量</TextBlock>
                 <TextBox x:Name="txt_BuyGiftNum" TextChanged="txt_BuyGiftNum_TextChanged"  Margin="0 10" BorderThickness="1" Text="1"></TextBox>
                 <StackPanel x:Name="needType">
-                    <TextBlock >价格:<Run Text="{Binding price}"></Run></TextBlock>
+                    <TextBlock>价格:<Run x:Name="txt_BuyGiftPrice"></Run></TextBlock>
                     <TextBlock>赠送类型</TextBlock>
                     <RadioButton  x:Name="rb_Slider">银瓜子</RadioButton>
                     <RadioButton  x:Name="rb_Gold">金瓜子</RadioButton>

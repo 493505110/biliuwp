@@ -28,10 +28,6 @@ namespace BiliBili.UWP.Modules
 
         public virtual async void HandelLiveUrl(string url)
         {
-            if (await MessageCenter.HandelUrl(url))
-            {
-                return;
-            }
             if (url.Contains("app/all-live"))
             {
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(LiveAllPage));
@@ -45,8 +41,8 @@ namespace BiliBili.UWP.Modules
                 {
                     name = Regex.Match(url + "&", "parent_area_name=(.*?)&", RegexOptions.Singleline).Groups[1].Value;
                 }
+                name = Uri.UnescapeDataString(name);
                 
-                //http://live.bilibili.com/app/area?parent_area_id=5&parent_area_name=%E7%94%B5%E5%8F%B0&area_id=0&area_name=
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(LivePartInfoPage),new object[] {
                     Regex.Match(url, @"parent_area_id=(\d+)").Groups[1].Value,
                     Regex.Match(url, @"&area_id=(\d+)").Groups[1].Value,
@@ -57,6 +53,11 @@ namespace BiliBili.UWP.Modules
             if (url.Contains("app/mytag"))
             {
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(LivePartPage));
+                return;
+            }
+
+            if (await MessageCenter.HandelUrl(url))
+            {
                 return;
             }
 

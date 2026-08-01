@@ -42,7 +42,6 @@ namespace BiliBili.UWP.Views
 
                 return;
             }
-            //http://live.bilibili.com/AppBanner/index?id=460
             //string ban2 = Regex.Match(((sender as HyperlinkButton).DataContext as HomeLiveModel).link+"/", @"id=(.*?)/").Groups[1].Value;
             //if (ban2.Length != 0)
             //{
@@ -71,66 +70,11 @@ namespace BiliBili.UWP.Views
             }
         }
         public bool isLoaded = false;
-        public async void GetLiveInfo()
+        public void GetLiveInfo()
         {
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-
-                //gridview_SJ.ItemsSource=null;
-                //gridview_DJ.Items.Clear();
-                //gridview_FY.Items.Clear();
-                //gridview_HH.Items.Clear();
-                //gridview_JJ.Items.Clear();
-
-                ////gridview_SH.Items.Clear();
-                //gridview_WL.Items.Clear();
-                //gridview_YZ.Items.Clear();
-                //gridview_CW.Items.Clear();
-                string url = string.Format("http://live.bilibili.com/AppNewIndex/common?_device=android&platform=android&scale=xxhdpi");
-                string results = await WebClientClass.GetResults_Live(new Uri(url));
-                HomeLiveModel model = JsonConvert.DeserializeObject<HomeLiveModel>(results);
-                if (model.code == 0)
-                {
-
-                    home_flipView.ItemsSource = model.data.banner;
-
-                    model.data.partitions = model.data.partitions.OrderBy(x => x.partition.id).ToList();
-
-                    this.DataContext = model.data;
-
-                    //foreach (HomeLiveModel item in partModel)
-                    //{
-                    //    HomeLiveModel partitionModel = JsonConvert.DeserializeObject<HomeLiveModel>(item.partition.ToString());
-                    //    List<HomeLiveModel> livesModel = JsonConvert.DeserializeObject<List<HomeLiveModel>>(item.lives.ToString());
-                    //}
-                    isLoaded = true;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("读取直播失败" + model.message, 3000);
-                    isLoaded = false;
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867 || ex.HResult == -2147012889)
-                {
-                    Utils.ShowMessageToast("无法连接服务器，请检查你的网络连接", 3000);
-                }
-                else
-                {
-
-                    Utils.ShowMessageToast("读取直播失败" + ex.Message, 3000);
-                }
-
-                //ErrorEvent("读取直播失败" + ex.Message);
-                isLoaded = false;
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-            }
+            isLoaded = false;
+            pr_Load.Visibility = Visibility.Collapsed;
+            MessageCenter.SendNavigateTo(NavigateMode.Home, typeof(LiveV2Page));
         }
 
         private void gridview_Hot_ItemClick(object sender, ItemClickEventArgs e)

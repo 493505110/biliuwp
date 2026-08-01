@@ -44,6 +44,7 @@ namespace BiliBili.UWP.Pages
                 area_id = (e.Parameter as object[])[1].ToInt32();
                 top_txt_Header.Text = (e.Parameter as object[])[2].ToString();
                 _page = 1;
+                _HasMore = true;
                 await GetData();
             }
         }
@@ -59,11 +60,12 @@ namespace BiliBili.UWP.Pages
         }
         int _page = 1;
         bool _Loading = true;
+        bool _HasMore = true;
         private async Task GetData()
         {
             _Loading = true;
             pr_Load.Visibility = Visibility.Visible;
-            var sort = "online";
+            var sort = string.Empty;
             if (grid_tag.SelectedItem != null)
             {
                 sort = (grid_tag.SelectedItem as new_tags).sort_type;
@@ -71,7 +73,8 @@ namespace BiliBili.UWP.Pages
             var data = await liveArea.GetRoomList(area_id, parent_area_id, _page, sort);
             if (data.success)
             {
-                if (_page==1)
+                _HasMore = data.data.has_more != 0 && data.data.list.Count != 0;
+                if (_page == 1 || gv.ItemsSource == null)
                 {
                     gv.ItemsSource = data.data.list;
                     if (grid_tag.ItemsSource==null)
@@ -85,7 +88,7 @@ namespace BiliBili.UWP.Pages
                     var list = gv.ItemsSource as ObservableCollection<RoomListItem>;
                     foreach (var item in data.data.list)
                     {
-                        list.Add(item);
+                        list?.Add(item);
                     }
                 }
             }
@@ -100,7 +103,7 @@ namespace BiliBili.UWP.Pages
         {
             if (sv.VerticalOffset >= sv.ScrollableHeight - 200)
             {
-                if (!_Loading)
+                if (!_Loading && _HasMore)
                 {
                     _page++;
                     await GetData();
@@ -110,7 +113,7 @@ namespace BiliBili.UWP.Pages
 
         private async void btn_LoadMore_Click(object sender, RoutedEventArgs e)
         {
-            if (!_Loading)
+            if (!_Loading && _HasMore)
             {
                 _page++;
                 await GetData();
@@ -127,6 +130,7 @@ namespace BiliBili.UWP.Pages
             if (!_Loading)
             {
                 _page = 1;
+                _HasMore = true;
                 await GetData();
             }
         }
@@ -148,6 +152,7 @@ namespace BiliBili.UWP.Pages
                 return;
             }
             _page = 1;
+            _HasMore = true;
             await GetData();
         }
 

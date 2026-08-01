@@ -290,6 +290,7 @@
     <Compile Include="Api\Home\HotAPI.cs" />
     <Compile Include="Api\Home\RecommendAPI.cs" />
     <Compile Include="Api\Live\LiveCenterAPI.cs" />
+    <Compile Include="Api\Live\LiveRoomAPI.cs" />
     <Compile Include="Api\PlayerAPI.cs" />
     <Compile Include="Api\RankAPI.cs" />
     <Compile Include="Api\SearchAPI.cs" />

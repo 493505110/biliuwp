@@ -28,6 +28,7 @@ using Windows.Media.Core;
 using Windows.UI.Core;
 using Windows.ApplicationModel.DataTransfer;
 using BiliBili.UWP.Helper;
+using BiliBili.UWP.Api;
 using static BiliBili.UWP.Helper.BiliLiveDanmu;
 using Windows.UI.ViewManagement;
 using Windows.Graphics.Display;
@@ -286,7 +287,7 @@ namespace BiliBili.UWP.Pages
             DataRequest request = args.Request;
             request.Data.Properties.Title = txt_title.Text;
             request.Data.Properties.Description = txt_title.Text;
-            request.Data.SetWebLink(new Uri("http://live.bilibili.com/" + _roomid));
+            request.Data.SetWebLink(new Uri("https://live.bilibili.com/" + _roomid));
 
         }
 
@@ -384,9 +385,6 @@ namespace BiliBili.UWP.Pages
                 }
 
 
-                //string url = string.Format("http://live.bilibili.com/appUser/getTitle?access_key={0}&appkey={1}&build=433000&platform=wp&scale=xxhdpi", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey);
-                //url += "&sign=" + ApiHelper.GetSign(url);
-                //string results = await WebClientClass.GetResults(new Uri(url));
             }
 
 
@@ -420,16 +418,31 @@ namespace BiliBili.UWP.Pages
                 ROUND = false;
                 pr_Load.Visibility = Visibility.Visible;
                 cd.Visibility = Visibility.Collapsed;
-                string url = string.Format("http://live.bilibili.com/AppRoom/index?_device=android&access_key={0}&appkey={1}&build=434000&buld=434000&jumpFrom=24000&mobi_app=android&platform=android&room_id={2}&scale=xxhdpi", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _roomid);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                LiveInfoModel m = JsonConvert.DeserializeObject<LiveInfoModel>(results);
-                if (m.code == 0)
+                var roomResult = await liveRoom.GetRoomInfo(Convert.ToInt32(_roomid));
+                if (roomResult.success)
                 {
-                    _roomid = m.data.room_id;
+                    var room = roomResult.data;
+                    var anchor = room.UserInfo ?? new LiveUpModel();
+                    var m = new LiveInfoModel
+                    {
+                        room_id = room.room_id.ToString(),
+                        title = room.title,
+                        mid = room.uid.ToString(),
+                        uname = anchor.uname,
+                        face = anchor.face,
+                        online = room.online,
+                        status = room.live_status == 1 ? "LIVE" : room.live_status == 2 ? "ROUND" : "PREPARING",
+                        is_attention = anchor.relation_status == 1 ? 1 : 0,
+                        meta = new LiveInfoModel { description = room.description ?? string.Empty },
+                        typeid = room.area_id,
+                        cover = string.IsNullOrEmpty(room.user_cover) ? room.keyframe : room.user_cover,
+                        master_level = anchor.level.ToString(),
+                        master_level_color = anchor.level_color
+                    };
+                    _roomid = m.room_id;
 
-                    this.DataContext = m.data;
-                    if (m.data.is_attention == 1)
+                    this.DataContext = m;
+                    if (m.is_attention == 1)
                     {
                         txt_guanzhu.Text = "已关注";
                     }
@@ -437,14 +450,19 @@ namespace BiliBili.UWP.Pages
                     {
                         txt_guanzhu.Text = "关注";
                     }
-                    txt_ul.Foreground = GetColor(m.data.master_level_color);
+                    txt_ul.Foreground = GetColor(m.master_level_color);
                     string b = @"<head><style>p{font-family:""微软雅黑"";}</style></head>";
-                    web.NavigateToString(b + m.data.meta.description);
+                    web.NavigateToString(b + m.meta.description);
                     grid_Error.Visibility = Visibility.Collapsed;
-                    txt_online.Text = m.data.online.ToString();
+                    txt_online.Text = m.online.ToString();
 
+                    var gifts = await liveRoom.GetRoomGifts(room.room_id, room.area_id, room.parent_area_id);
+                    if (gifts.success)
+                    {
+                        gridview_Gifts.ItemsSource = gifts.data;
+                    }
 
-                    if (m.data.status == "LIVE")
+                    if (m.status == "LIVE")
                     {
                         GetPlayUrl();
                         GetComment();
@@ -452,7 +470,7 @@ namespace BiliBili.UWP.Pages
                     }
                     else
                     {
-                        if (m.data.status == "ROUND")
+                        if (m.status == "ROUND")
                         {
                             txt_room.Text += "(轮播中)";
                             ROUND = true;
@@ -463,7 +481,7 @@ namespace BiliBili.UWP.Pages
                         else
                         {
                             grid_Error.Visibility = Visibility.Visible;
-                            txt_ErrorInfo.Text = m.data.prepare ?? "主播正在换女装";
+                            txt_ErrorInfo.Text = "主播暂未开播";
                             GetComment();
                         }
 
@@ -473,7 +491,7 @@ namespace BiliBili.UWP.Pages
                 }
                 else
                 {
-                    Utils.ShowMessageToast(m.message, 3000);
+                    Utils.ShowMessageToast(roomResult.message, 3000);
                 }
             }
             catch (Exception ex)
@@ -528,7 +546,7 @@ namespace BiliBili.UWP.Pages
         }
         private async void GetMyGifts()
         {
-            var m = await liveRoom.GetAllGifts();
+            var m = await liveRoom.GetMyGifts(Convert.ToInt32(_roomid));
             if (m.success)
             {
                 gridview_myGifts.ItemsSource = m.data;
@@ -545,54 +563,39 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-                //sc.ChangeView(null, sc.ExtentHeight, null);
-                //http://live.bilibili.com/AppRoom/msg?_device=android&_hwid=68fc5d795c256cd1&appkey=c1b107428d337928&build=414000&platform=android&room_id=23058&sign=4bf8088300d9f4c90b62264c4a87585d
-
-                string url = string.Format("http://live.bilibili.com/AppRoom/msg?_device=wp&appkey={0}&build=5250000&access_key={1}&platform=android&room_id={2}&ts={3}", ApiHelper.AndroidKey.Appkey, ApiHelper.access_key, _roomid, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                Model models = JsonConvert.DeserializeObject<Model>(results);
-                if (models.code == 0)
+                var result = await liveRoom.GetLastLiveMsg(Convert.ToInt32(_roomid));
+                if (result.success)
                 {
-                    Model data = JsonConvert.DeserializeObject<Model>(models.data.ToString());
-                    List<Model> model = JsonConvert.DeserializeObject<List<Model>>(data.room.ToString());
-                    foreach (var item in model)
+                    foreach (var item in result.data)
                     {
                         if (!loaded.Contains(item.nickname + item.timeline + item.text))
                         {
                             Run r_vip = new Run() { Foreground = new SolidColorBrush(Colors.Orange) };
-
                             Run r_lv = new Run();
                             Run r_medal = new Run();
                             Run r_name = new Run() { Foreground = new SolidColorBrush(Colors.Gray) };
 
-
-                            //string vip = string.Empty;
                             if (item.vip == 1)
                             {
                                 if (item.svip == 1)
                                 {
-
                                     r_vip.Text = "年费老爷 ";
-                                    //vip += "[大爷]";
                                 }
                                 else
                                 {
                                     r_vip.Text = "老爷 ";
-                                    //vip += "[爷]";
                                 }
                             }
 
-                            if (item.medal != null && item.medal.Length != 0)
+                            if (!string.IsNullOrEmpty(item.medal_name))
                             {
-                                r_medal.Text = item.medal[1] + item.medal[0].ToString() + " ";
-                                r_medal.Foreground = GetColor(item.medal[3].ToString());
-                                //vip += "[" + item.medal[1] + item.medal[0] + "]";
+                                r_medal.Text = item.medal_name + item.medal_lv + " ";
+                                r_medal.Foreground = GetColor(item.medalColor);
                             }
-                            if (item.user_level != null && item.user_level.Length != 0)
+                            if (!string.IsNullOrEmpty(item.ul))
                             {
-                                r_lv.Text = "UL" + item.user_level[0] + " ";
-                                r_lv.Foreground = GetColor(item.user_level[2].ToString());
+                                r_lv.Text = item.ul + " ";
+                                r_lv.Foreground = GetColor(item.ulColor);
                             }
 
                             r_name.Text = item.nickname + ":";
@@ -603,15 +606,9 @@ namespace BiliBili.UWP.Pages
                             tx.Inlines.Add(r_lv);
                             tx.Inlines.Add(r_name);
                             tx.Inlines.Add(new Run() { Text = item.text });
-                            // tx.Text+=item.text;
 
                             AddComment(tx, false);
                             loaded.Add(item.nickname + item.timeline + item.text);
-                            //if (LoadDanmu && !DanDis_Dis(item.text))
-                            //{
-                            //    danmu.AddGunDanmu(new Controls.MyDanmaku.DanMuModel() { DanText = item.text, DanSize = "25", _DanColor = "16777215" }, false);
-                            //}
-
                         }
                     }
                 }
@@ -721,52 +718,23 @@ namespace BiliBili.UWP.Pages
                 mediaElement.HardwareAcceleration = SettingHelper.Get_ForceVideo();
                 pr_Load.Visibility = Visibility.Visible;
                 string cid = _roomid;
-
-                //string html = await WebClientClass.GetResults(new Uri("https://api.live.bilibili.com/room/v1/Room/room_init?id=" + cid));
-                //JObject jObject = JObject.Parse(html);
-                //cid = jObject["data"]["room_id"].ToString();
-
-                string url = string.Format("https://api.live.bilibili.com/room/v1/Room/playUrl?cid={0}&quality={1}&platform=pc", cid, qn);
-                //url += "&sign=" + ApiHelper.GetSign(url);
-
-                // string results = await wc.GetResults(new Uri("http://live.bilibili.com/api/playurl?platform=h5&cid=" + rommID + "&rnd=" + new Random().Next(1, 9999)));
-                string results = await WebClientClass.GetResults(new Uri(url));
-
-
-
-
-                JObject obj = JObject.Parse(results);
-
-
-                List<LiveQualityModel> liveQualityModels = new List<LiveQualityModel>();
-                foreach (var item in obj["data"]["accept_quality"])
+                var playResult = await liveRoom.GetRoomPlayurl(Convert.ToInt32(cid), qn);
+                if (!playResult.success)
                 {
-                    string name = item.ToString();
-                    switch (name)
-                    {
-                        case "4":
-                            name = "原画";
-                            break;
-                        case "3":
-                            name = "高清";
-                            break;
-                        default:
-                            break;
-                    }
-                    liveQualityModels.Add(new LiveQualityModel() { name = name, qn = item.ToInt32() });
+                    Utils.ShowMessageToast(playResult.message, 3000);
+                    return;
                 }
+                var liveQualityModels = playResult.data.quality_description
+                    .Select(x => new LiveQualityModel { name = x.desc, qn = x.qn })
+                    .ToList();
                 cb_Quality.ItemsSource = liveQualityModels;
 
-                cb_Quality.SelectedIndex = liveQualityModels.IndexOf(liveQualityModels.Find(x => x.qn == obj["data"]["current_quality"].ToInt32()));
+                cb_Quality.SelectedIndex = liveQualityModels.FindIndex(x => x.qn == playResult.data.current_qn);
+                nowQn = playResult.data.current_qn.ToString();
 
-                nowQn = obj["data"]["current_quality"].ToString();
-
-
-                LivePlayUrlModel urls = JsonConvert.DeserializeObject<LivePlayUrlModel>(obj["data"].ToString());
-
-                if (urls.durl != null && urls.durl.Count != 0)
+                if (playResult.data.durl != null && playResult.data.durl.Count != 0)
                 {
-                    if (urls.accept_quality.Count != 2)
+                    if (liveQualityModels.Count <= 1)
                     {
                         cb_Quality.Visibility = Visibility.Collapsed;
                     }
@@ -776,7 +744,7 @@ namespace BiliBili.UWP.Pages
                     }
                     List<LiveUrlListModel> ls = new List<LiveUrlListModel>();
                     int i = 0;
-                    foreach (var item in urls.durl)
+                    foreach (var item in playResult.data.durl)
                     {
                         i++;
                         ls.Add(new LiveUrlListModel()
@@ -786,16 +754,8 @@ namespace BiliBili.UWP.Pages
                         });
 
                     }
-                    ls.Add(new LiveUrlListModel() { name = "H5源", url = await GetH5PlayUrl(cid) });
                     cb_Source.ItemsSource = ls;
-                    if (SettingHelper.Get_UseH5())
-                    {
-                        cb_Source.SelectedIndex = ls.Count - 1;
-                    }
-                    else
-                    {
-                        cb_Source.SelectedIndex = 0;
-                    }
+                    cb_Source.SelectedIndex = 0;
                 }
 
                 // string playUrl = Regex.Match(results, "<url>(.*?)</url>").Groups[1].Value;
@@ -846,14 +806,15 @@ namespace BiliBili.UWP.Pages
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
-                pr_Load.Visibility = Visibility.Visible;
-                string url = string.Format("http://live.bilibili.com/live/getRoundPlayVideo?_device=android&access_key={0}&appkey={1}&build=433000&mobi_app=android&platform=android&room_id={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _roomid);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                JObject obj = JObject.Parse(results);
-                string result2 = await WebClientClass.GetResults(new Uri(obj["data"]["play_url"].ToString()));
-                JObject obj2 = JObject.Parse(result2);
-                mediaElement.Source = obj2["durl"][0]["url"].ToString();
+                var result = await liveRoom.GetRoundPlayurl(Convert.ToInt32(_roomid));
+                if (result.success && result.data.data.durl.Count > 0)
+                {
+                    mediaElement.Source = result.data.data.durl[0].url;
+                }
+                else
+                {
+                    Utils.ShowMessageToast(result.message, 2000);
+                }
 
 
             }
@@ -867,25 +828,6 @@ namespace BiliBili.UWP.Pages
             }
         }
 
-
-        private async Task<string> GetH5PlayUrl(string roomid)
-        {
-            try
-            {
-
-                string results = await WebClientClass.GetResults(new Uri("http://live.bilibili.com/api/playurl?platform=h5&cid=" + roomid + "&rnd=" + new Random().Next(1, 9999)));
-                // string results = await wc.GetResults(new Uri(url));
-                JObject json = JObject.Parse(results);
-                return (string)json["data"];
-                //mediaElement.Source = new Uri((string)json["data"]);
-            }
-            catch (Exception)
-            {
-                return "";
-                // Utils.ShowMessageToast("读取地址失败", 3000);
-            }
-
-        }
 
         private void btn_Refresh_Click(object sender, RoutedEventArgs e)
         {
@@ -902,24 +844,16 @@ namespace BiliBili.UWP.Pages
             if (!ApiHelper.IsLogin())
             {
                 Utils.ShowMessageToast("请先登录！", 2000);
+                return;
             }
             try
             {
 
-                string url;
-                if (txt_guanzhu.Text == "关注")
-                {
-                    url = string.Format("https://account.bilibili.com/api/friend/attention/add?access_key={0}&appkey={1}&build=433000&mid={2}&platform=wp", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, (Video_UP.DataContext as LiveInfoModel).mid);
-                }
-                else
-                {
-                    url = string.Format("https://account.bilibili.com/api/friend/attention/del?access_key={0}&appkey={1}&build=433000&mid={2}&platform=wp", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, (Video_UP.DataContext as LiveInfoModel).mid);
-                }
-
-                url += "sign=" + ApiHelper.GetSign(url);
-                string result = await WebClientClass.GetResults(new Uri(url));
-                JObject json = JObject.Parse(result);
-                if ((int)json["code"] == 0)
+                var info = Video_UP.DataContext as LiveInfoModel;
+                var mode = txt_guanzhu.Text == "关注" ? "1" : "2";
+                var response = await new VideoAPI().Attention(info.mid, mode).Request();
+                var json = response.GetJObject();
+                if (response.status && json != null && json.Value<int?>("code") == 0)
                 {
                     if (txt_guanzhu.Text == "关注")
                     {
@@ -932,7 +866,7 @@ namespace BiliBili.UWP.Pages
                 }
                 else
                 {
-                    Utils.ShowMessageToast("关注失败" + json["msg"], 2000);
+                    Utils.ShowMessageToast("关注失败" + (json?["message"]?.ToString() ?? response.message), 2000);
                 }
 
             }
@@ -1084,18 +1018,23 @@ namespace BiliBili.UWP.Pages
                 pr_Load.Visibility = Visibility.Visible;
                 list_Gift_Top.Items.Clear();
 
-                string url = string.Format("http://live.bilibili.com/AppRoom/getGiftTop?_device=wp&appkey={0}&build=5250000&access_key={1}&platform=android&room_id={2}&ts={3}", ApiHelper.AndroidKey.Appkey, ApiHelper.access_key, room_id, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                LiveRankModel model = JsonConvert.DeserializeObject<LiveRankModel>(results);
-                if (model.code == 0)
+                var anchor = Video_UP.DataContext as LiveInfoModel;
+                long anchorUid;
+                long.TryParse(anchor?.mid, out anchorUid);
+                var result = await liveRoom.GetGiftTop(Convert.ToInt32(room_id), anchorUid);
+                if (result.success)
                 {
-                    //可以查看个人排名
-                    LiveRankModel info = JsonConvert.DeserializeObject<LiveRankModel>(model.data.ToString());
-                    List<LiveRankModel> rank = JsonConvert.DeserializeObject<List<LiveRankModel>>(info.list.ToString());
                     int i = 0;
-                    foreach (var item in rank)
+                    foreach (var source in result.data)
                     {
+                        var item = new LiveRankModel
+                        {
+                            uid = source.uid.ToString(),
+                            uname = source.uname,
+                            rank = source.rank,
+                            score = source.score.ToString(),
+                            coin = source.score.ToString()
+                        };
                         switch (i)
                         {
                             case 0:
@@ -1119,7 +1058,7 @@ namespace BiliBili.UWP.Pages
                 else
                 {
                     //grid_Error.Visibility = Visibility.Visible;
-                    Utils.ShowMessageToast(model.message, 2000);
+                    Utils.ShowMessageToast(result.message, 2000);
                 }
             }
             catch (Exception ex)
@@ -1137,18 +1076,24 @@ namespace BiliBili.UWP.Pages
             try
             {
                 list_Fans_Top.Items.Clear();
-                string url = string.Format("http://live.bilibili.com/AppRoom/medalRankList?_device=wp&appkey={0}&build=5250000&access_key={1}&platform=android&room_id={2}&ts={3}", ApiHelper.AndroidKey.Appkey, ApiHelper.access_key, room_id, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                LiveRankModel model = JsonConvert.DeserializeObject<LiveRankModel>(results);
-                if (model.code == 0)
+                var anchor = Video_UP.DataContext as LiveInfoModel;
+                long anchorUid;
+                long.TryParse(anchor?.mid, out anchorUid);
+                var result = await liveRoom.GetMedalRankList(anchorUid);
+                if (result.success)
                 {
-                    //可以查看个人排名
-                    LiveRankModel info = JsonConvert.DeserializeObject<LiveRankModel>(model.data.ToString());
-                    List<LiveRankModel> rank = JsonConvert.DeserializeObject<List<LiveRankModel>>(info.list.ToString());
                     int i = 0;
-                    foreach (var item in rank)
+                    foreach (var source in result.data)
                     {
+                        var item = new LiveRankModel
+                        {
+                            uid = source.uid.ToString(),
+                            uname = source.uname,
+                            medal_name = source.medal_name,
+                            level = source.level,
+                            color = source.color,
+                            rank = source.rank
+                        };
                         switch (i)
                         {
                             case 0:
@@ -1172,7 +1117,7 @@ namespace BiliBili.UWP.Pages
                 else
                 {
                     //grid_Error.Visibility = Visibility.Visible;
-                    Utils.ShowMessageToast(model.message, 2000);
+                    Utils.ShowMessageToast(result.message, 2000);
                 }
             }
             catch (Exception ex)
@@ -1210,12 +1155,8 @@ namespace BiliBili.UWP.Pages
             try
             {
                 btn_SendComment.IsEnabled = false;
-                DateTime timeStamp = new DateTime(1970, 1, 1); //得到1970年的时间戳
-                long time = (DateTime.UtcNow.Ticks - timeStamp.Ticks) / 10000000;
-                string sendText = string.Format("color=16777215&fontsize=25&mode=1&msg={0}&rnd={1}&roomid={2}", txt_Comment.Text, time, _roomid);
-                string result = await WebClientClass.PostResults(new Uri("http://live.bilibili.com/msg/send"), sendText);
-                JObject jb = JObject.Parse(result);
-                if ((int)jb["code"] == 0)
+                var send = await liveRoom.SendDanmu(txt_Comment.Text, Convert.ToInt32(_roomid));
+                if (send.success)
                 {
                     //AddComment(new TextBlock() { Text= "已发送：" + txt_Comment.Text }, true);
                     //if (LoadDanmu)
@@ -1227,7 +1168,7 @@ namespace BiliBili.UWP.Pages
                 }
                 else
                 {
-                    Utils.ShowMessageToast("弹幕发送失败 " + jb["msg"].ToString(), 2000);
+                    Utils.ShowMessageToast("弹幕发送失败 " + send.message, 2000);
 
                 }
 
@@ -1244,7 +1185,7 @@ namespace BiliBili.UWP.Pages
 
         private void btn_ShareUrl_Click(object sender, RoutedEventArgs e)
         {
-            Utils.SetClipboard(string.Format("http://live.bilibili.com/{0}", _roomid));
+            Utils.SetClipboard(string.Format("https://live.bilibili.com/{0}", _roomid));
             Utils.ShowMessageToast("已将内容复制到剪切板", 3000);
         }
 
@@ -1297,8 +1238,8 @@ namespace BiliBili.UWP.Pages
 
         private void gridview_Gifts_ItemClick(object sender, ItemClickEventArgs e)
         {
-            var info = e.ClickedItem as LiveInfoModel;
-            if (info.coin_type.silver != null && info.coin_type.silver.Length != 0)
+            var info = e.ClickedItem as AllGiftsModel;
+            if (string.Equals(info.coin_type, "silver", StringComparison.OrdinalIgnoreCase))
             {
                 rb_Slider.Visibility = Visibility.Visible;
                 rb_Slider.IsChecked = true;
@@ -1335,19 +1276,16 @@ namespace BiliBili.UWP.Pages
                 // return;
                 pr_Load.Visibility = Visibility.Visible;
 
-                string url = string.Format("http://live.bilibili.com/AppBag/send?access_key={0}&appkey={1}&build=522000&mobi_app=android&platform=android", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string par = string.Format("giftId={0}&num={1}&ruid={2}&roomid={3}&timestamp={4}&bag_id={5}&rnd={6}&", giftId, Num, (Video_UP.DataContext as LiveInfoModel).mid, _roomid, ApiHelper.GetTimeSpan_2, bag_id, "5772223" + new Random().Next(10, 99));
-                string results = await WebClientClass.PostResults(new Uri(url), par);
-                JObject m = JObject.Parse(results);
-                if ((int)m["code"] == 0)
+                var info = Video_UP.DataContext as LiveInfoModel;
+                var result = await liveRoom.SendMyGift(ApiHelper.GetUserId(), info.mid, Convert.ToInt32(giftId), Num, Convert.ToInt32(bag_id), Convert.ToInt32(_roomid));
+                if (result.success)
                 {
                     Utils.ShowMessageToast("操作成功", 3000);
                     GetMyGifts();
                 }
                 else
                 {
-                    Utils.ShowMessageToast(m["message"].ToString(), 3000);
+                    Utils.ShowMessageToast(result.message, 3000);
                 }
             }
             catch (Exception ex)
@@ -1423,7 +1361,7 @@ namespace BiliBili.UWP.Pages
         {
             cd_BuyGiftNum.Visibility = Visibility.Collapsed;
         }
-        private async void SendBuyGift(string giftid, int num)
+        private async void SendBuyGift(string giftid, int num, int price)
         {
             try
             {
@@ -1443,19 +1381,16 @@ namespace BiliBili.UWP.Pages
                     type = "gold";
                 }
 
-                string url = string.Format("http://live.bilibili.com/mobile/sendGift?{0}coinType={1}&giftId={2}&num={3}&rnd={4}&roomid={5}&ruid={6}&appkey={7}",
-                    "", type, giftid, num, new Random().Next(10000, 99999) + new Random().Next(10000, 99999), _roomid, (Video_UP.DataContext as LiveInfoModel).mid, ApiHelper.AndroidKey.Appkey);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                JObject m = JObject.Parse(results);
-                if ((int)m["code"] == 0)
+                var liveInfo = Video_UP.DataContext as LiveInfoModel;
+                var result = await liveRoom.SendGift(ApiHelper.GetUserId(), liveInfo.mid, Convert.ToInt32(giftid), num, Convert.ToInt32(_roomid), type, price);
+                if (result.success)
                 {
                     Utils.ShowMessageToast("操作成功", 3000);
 
                 }
                 else
                 {
-                    Utils.ShowMessageToast(m["message"].ToString(), 3000);
+                    Utils.ShowMessageToast(result.message, 3000);
                 }
             }
             catch (Exception ex)
@@ -1487,8 +1422,8 @@ namespace BiliBili.UWP.Pages
                 Utils.ShowMessageToast("错误的数量", 3000);
                 return;
             }
-            var info = (sender as Button).DataContext as LiveInfoModel;
-            SendBuyGift(info.id, onum);
+            var info = (sender as Button).DataContext as AllGiftsModel;
+            SendBuyGift(info.id.ToString(), onum, info.price);
 
         }
 
@@ -1503,19 +1438,16 @@ namespace BiliBili.UWP.Pages
                 }
                 pr_Load.Visibility = Visibility.Visible;
 
-                string url = string.Format("http://api.live.bilibili.com/user/getuserinfo?ts={0}", ApiHelper.GetTimeSpan_2);
-                //url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                LiveCenterModel1 m = JsonConvert.DeserializeObject<LiveCenterModel1>(results);
-                if (m.code == "0")
+                var result = await new LiveCenter().GetUserInfo();
+                if (result.success)
                 {
-                    txt_gold.Text = m.data.gold.ToString();
-                    txt_silver.Text = m.data.silver.ToString();
+                    txt_gold.Text = result.data.gold.ToString();
+                    txt_silver.Text = result.data.silver.ToString();
 
                 }
                 else
                 {
-                    Utils.ShowMessageToast(m.message, 3000);
+                    Utils.ShowMessageToast(result.message, 3000);
                 }
 
             }

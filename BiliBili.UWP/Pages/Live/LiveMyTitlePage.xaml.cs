@@ -49,47 +49,10 @@ namespace BiliBili.UWP.Pages
         }
         private async void LoadData()
         {
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-
-                string url = $"https://api.live.bilibili.com/appUser/myTitleList?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&scale=hdpi&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                LiveTitleModel m = JsonConvert.DeserializeObject<LiveTitleModel>(results);
-                if (m.code == 0)
-                {
-                    if (m.data.list.Count==0)
-                    {
-                        NoDT.Visibility = Visibility.Visible;
-                    }
-                    else
-                    {
-                        NoDT.Visibility = Visibility.Collapsed;
-                    }
-                    list.ItemsSource = m.data.list;
-                }
-                else
-                {
-                    Utils.ShowMessageToast(m.message, 3000);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867)
-                {
-                    Utils.ShowMessageToast("检查你的网络连接！", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("发生错误\r\n" + ex.Message, 3000);
-                }
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-
-            }
+            pr_Load.Visibility = Visibility.Collapsed;
+            list.ItemsSource = null;
+            NoDT.Visibility = Visibility.Visible;
+            await new Windows.UI.Popups.MessageDialog("直播头衔功能已下线").ShowAsync();
         }
 
         private void Button_Click(object sender, RoutedEventArgs e)
@@ -105,78 +68,11 @@ namespace BiliBili.UWP.Pages
         }
         private async void Cancel()
         {
-
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-
-                string url = $"http://live.bilibili.com/AppUser/cancelTitle?access_key={ApiHelper.access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&mobi_app=android&platform=android";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                JObject m = JObject.Parse(results);
-                if ((int)m["code"] == 0)
-                {
-                    Utils.ShowMessageToast("操作成功", 3000);
-                    LoadData();
-                }
-                else
-                {
-                    Utils.ShowMessageToast(m["message"].ToString(), 3000);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867)
-                {
-                    Utils.ShowMessageToast("检查你的网络连接！", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("发生错误\r\n" + ex.Message, 3000);
-                }
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-
-            }
+            await new Windows.UI.Popups.MessageDialog("直播头衔功能已下线").ShowAsync();
         }
         private async void Add(string title)
         {
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-
-                string url = $"http://live.bilibili.com/AppUser/wearTitle?access_key={ApiHelper.access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&platform=android";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.PostResults(new Uri(url), "title=" + title + "&");
-                JObject m = JObject.Parse(results);
-                if ((int)m["code"] == 0)
-                {
-                    Utils.ShowMessageToast("操作成功", 3000);
-                    LoadData();
-                }
-                else
-                {
-                    Utils.ShowMessageToast(m["message"].ToString(), 3000);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867)
-                {
-                    Utils.ShowMessageToast("检查你的网络连接！", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("发生错误\r\n" + ex.Message, 3000);
-                }
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-
-            }
+            await new Windows.UI.Popups.MessageDialog("直播头衔功能已下线").ShowAsync();
         }
 
     }

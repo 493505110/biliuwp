@@ -74,14 +74,12 @@ namespace BiliBili.UWP.Api
 
         public ApiModel LivePlayUrl(string cid, int qn = 0)
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel
             {
                 method = HttpMethod.GET,
-                baseUrl = $"https://api.live.bilibili.com/room/v1/Room/playUrl",
-                parameter = $"cid={cid}&qn={qn}&platform=web"
+                baseUrl = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
+                parameter = $"room_id={cid}&protocol=0,1&format=0,1,2&codec=0&qn={(qn > 0 ? qn : 10000)}&platform=web&ptype=8"
             };
-            //api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidVideoKey);
-            return api;
         }
 
         /// <summary>

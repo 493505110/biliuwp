@@ -1,66 +1,39 @@
-﻿using BiliBili.UWP.Models;
-using Newtonsoft.Json;
+using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
-
-// “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
 
 namespace BiliBili.UWP.Pages
 {
-    /// <summary>
-    /// 可用于自身或导航至 Frame 内部的空白页。
-    /// </summary>
     public sealed partial class LiveAllPage : Page
     {
+        private readonly LiveArea _liveArea = new LiveArea();
+        private int _TJPage = 1;
+        private int _NewPage = 1;
+        private bool _TJLoading;
+        private bool _NewLoading;
+
         public LiveAllPage()
         {
-            this.InitializeComponent();
-            this.NavigationCacheMode = NavigationCacheMode.Required;
+            InitializeComponent();
+            NavigationCacheMode = NavigationCacheMode.Required;
         }
 
-        private void btn_Back_Click(object sender, RoutedEventArgs e)
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (this.Frame.CanGoBack)
-            {
-                this.Frame.GoBack();
-            }
-        }
-        protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
-        {
-            if (e.NavigationMode == NavigationMode.Back)
-            {
-                NavigationCacheMode = NavigationCacheMode.Disabled;
-            }
-            base.OnNavigatingFrom(e);
-        }
-        protected async override void OnNavigatedTo(NavigationEventArgs e)
-        {
-            if (this.Frame.Name == "bg_Frame")
+            if (Frame.Name == "bg_Frame")
             {
                 g.Background = null;
             }
-            if (SettingHelper.Get_RefreshButton() && SettingHelper.IsPc())
-            {
-                b_btn_Refresh.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                b_btn_Refresh.Visibility = Visibility.Collapsed;
-            }
+            b_btn_Refresh.Visibility = SettingHelper.Get_RefreshButton() && SettingHelper.IsPc()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
             if (e.NavigationMode == NavigationMode.New)
             {
                 _TJPage = 1;
@@ -71,232 +44,178 @@ namespace BiliBili.UWP.Pages
                 await GetTJ();
             }
         }
-        int _TJPage = 1;
-        int _NewPage = 1;
-        bool _TJLoading = false;
-        bool _NewLoading = false;
+
+        protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
+        {
+            if (e.NavigationMode == NavigationMode.Back)
+            {
+                NavigationCacheMode = NavigationCacheMode.Disabled;
+            }
+            base.OnNavigatingFrom(e);
+        }
+
         private async Task GetTJ()
         {
+            _TJLoading = true;
+            pr_Load.Visibility = Visibility.Visible;
             try
             {
-                _TJLoading = true;
-                pr_Load.Visibility = Visibility.Visible;
-
-                string url =ApiHelper.GetSignWithUrl($"https://api.live.bilibili.com/room/v3/Area/getRoomList?access_key={ ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&area_id=0&build={ApiHelper.build}&cate_id=0&mobi_app=android&page={_TJPage}&page_size=30&parent_area_id=0&platform=android&qn=0&sort_type=online&tag_version=1&ts={ApiHelper.GetTimeSpan}",ApiHelper.AndroidKey);
-
-                string results = await WebClientClass.GetResults(new Uri(url));
-                var m = results.ToDynamicJObject();
-
-                if (m.code == 0)
+                var result = await _liveArea.GetAllRoomList(_TJPage, false);
+                if (!result.success)
                 {
-
-                    var data = JsonConvert.DeserializeObject<RoomListModel>(m.json["data"].ToString());
-                    if (data.list.Count != 0)
-                    {
-                        if (_TJPage == 1)
-                        {
-                            gv_TJ.ItemsSource = data.list;
-                        }
-                        else
-                        {
-                            foreach (var item in data.list)
-                            {
-                                (gv_TJ.ItemsSource as ObservableCollection<RoomListItem>).Add(item);
-                            }
-                        }
-                        _TJPage++;
-                    }
-                    else
-                    {
-                        Utils.ShowMessageToast("加载完了...", 3000);
-                    }
+                    Utils.ShowMessageToast(result.message, 3000);
+                    return;
                 }
-                else
+                if (result.data.list.Count == 0)
                 {
-                    Utils.ShowMessageToast(m.message, 3000);
+                    Utils.ShowMessageToast("加载完了...", 3000);
+                    return;
                 }
 
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867)
-                {
-                    Utils.ShowMessageToast("检查你的网络连接！", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("发生错误\r\n" + ex.Message, 3000);
-                }
+                SetItems(gv_TJ, result.data.list, _TJPage == 1);
+                _TJPage++;
             }
             finally
             {
                 _TJLoading = false;
                 pr_Load.Visibility = Visibility.Collapsed;
-
             }
         }
-  
 
-        private async void GetNew()
+        private async Task GetNew()
         {
+            _NewLoading = true;
+            pr_Load.Visibility = Visibility.Visible;
             try
             {
-                _NewLoading = true;
-                pr_Load.Visibility = Visibility.Visible;
-
-                string url = ApiHelper.GetSignWithUrl($"https://api.live.bilibili.com/room/v3/Area/getRoomList?access_key={ ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&area_id=0&build={ApiHelper.build}&cate_id=0&mobi_app=android&page={_NewPage}&page_size=30&parent_area_id=0&platform=android&qn=0&sort_type=live_time&tag_version=1&ts={ApiHelper.GetTimeSpan}", ApiHelper.AndroidKey);
-
-                string results = await WebClientClass.GetResults(new Uri(url));
-                var m = results.ToDynamicJObject();
-
-                if (m.code == 0)
+                var result = await _liveArea.GetAllRoomList(_NewPage, true);
+                if (!result.success)
                 {
-
-                    var data = JsonConvert.DeserializeObject<RoomListModel>(m.json["data"].ToString());
-                    if (data.list.Count != 0)
-                    {
-                        if (_NewPage == 1)
-                        {
-                            gv_New.ItemsSource = data.list;
-                        }
-                        else
-                        {
-                            foreach (var item in data.list)
-                            {
-                                (gv_New.ItemsSource as ObservableCollection<RoomListItem>).Add(item);
-                            }
-                        }
-                        _NewPage++;
-                    }
-                    else
-                    {
-                        Utils.ShowMessageToast("加载完了...", 3000);
-                    }
+                    Utils.ShowMessageToast(result.message, 3000);
+                    return;
                 }
-                else
+                if (result.data.list.Count == 0)
                 {
-                    Utils.ShowMessageToast(m.message, 3000);
+                    Utils.ShowMessageToast("加载完了...", 3000);
+                    return;
                 }
 
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867)
-                {
-                    Utils.ShowMessageToast("检查你的网络连接！", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("发生错误\r\n" + ex.Message, 3000);
-                }
+                SetItems(gv_New, result.data.list, _NewPage == 1);
+                _NewPage++;
             }
             finally
             {
                 _NewLoading = false;
                 pr_Load.Visibility = Visibility.Collapsed;
-
             }
         }
-   
+
+        private static void SetItems(GridView grid, ObservableCollection<RoomListItem> items, bool replace)
+        {
+            if (replace || grid.ItemsSource == null)
+            {
+                grid.ItemsSource = items;
+                return;
+            }
+
+            var target = grid.ItemsSource as ObservableCollection<RoomListItem>;
+            if (target == null)
+            {
+                grid.ItemsSource = items;
+                return;
+            }
+            foreach (var item in items)
+            {
+                target.Add(item);
+            }
+        }
+
+        private void btn_Back_Click(object sender, RoutedEventArgs e)
+        {
+            if (Frame.CanGoBack)
+            {
+                Frame.GoBack();
+            }
+        }
+
         private async void sv_TJ_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            if (sv_TJ.VerticalOffset == sv_TJ.ScrollableHeight)
+            if (sv_TJ.VerticalOffset == sv_TJ.ScrollableHeight && !_TJLoading)
             {
-                if (!_TJLoading)
-                {
-                    await GetTJ();
-                }
+                await GetTJ();
             }
         }
 
         private void gv_TJ_ItemClick(object sender, ItemClickEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), (e.ClickedItem as RoomListItem).roomid);
+            MessageCenter.SendNavigateTo(
+                NavigateMode.Play,
+                typeof(LiveRoomPage),
+                (e.ClickedItem as RoomListItem).roomid);
         }
 
-        private void btn_LoadMore_TJ_Click(object sender, RoutedEventArgs e)
+        private async void btn_LoadMore_TJ_Click(object sender, RoutedEventArgs e)
         {
             if (!_TJLoading)
             {
-                GetTJ();
+                await GetTJ();
             }
         }
 
-        private void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (pivot.SelectedIndex==1)
+            if (pivot.SelectedIndex == 1 && gv_New.ItemsSource == null && !_NewLoading)
             {
-                if (gv_New.Items.Count == 0)
-                {
-                    _NewPage = 1;
-                    GetNew();
-                }
+                _NewPage = 1;
+                await GetNew();
             }
-           
         }
 
-        private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            //if (this.ActualWidth <= 500)
-            //{
-            //    bor_Width2.Width = ActualWidth / 2 - 20;
-            //}
-            //else
-            //{
-            //    int i = Convert.ToInt32(ActualWidth / 200);
-            //    bor_Width2.Width = ActualWidth / i - 15;
-            //}
-        }
         protected override Size MeasureOverride(Size availableSize)
         {
-            if (availableSize.Width<= 500)
+            if (availableSize.Width <= 500)
             {
                 bor_Width2.Width = availableSize.Width / 2 - 20;
             }
             else
             {
-                int i = Convert.ToInt32(availableSize.Width / 200);
-                bor_Width2.Width = availableSize.Width / i - 15;
+                var count = Math.Max(1, Convert.ToInt32(availableSize.Width / 200));
+                bor_Width2.Width = availableSize.Width / count - 15;
             }
             return base.MeasureOverride(availableSize);
         }
 
-
-
-        private void sv_New_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+        private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (sv_New.VerticalOffset == sv_New.ScrollableHeight)
+        }
+
+        private async void sv_New_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+        {
+            if (sv_New.VerticalOffset == sv_New.ScrollableHeight && !_NewLoading)
             {
-                if (!_NewLoading)
-                {
-                    GetNew();
-                }
+                await GetNew();
             }
         }
 
-        private void btn_LoadMore_New_Click(object sender, RoutedEventArgs e)
+        private async void btn_LoadMore_New_Click(object sender, RoutedEventArgs e)
         {
             if (!_NewLoading)
             {
-                GetNew();
+                await GetNew();
             }
         }
 
-    
-        private void b_btn_Refresh_Click(object sender, RoutedEventArgs e)
+        private async void b_btn_Refresh_Click(object sender, RoutedEventArgs e)
         {
-            switch (pivot.SelectedIndex)
+            if (pivot.SelectedIndex == 0)
             {
-                case 0:
-                    _TJPage = 1;
-                    GetTJ();
-                    break;
-                case 1:
-                    _NewPage = 1;
-                    GetNew();
-                    break;
-                default:
-                    break;
+                _TJPage = 1;
+                await GetTJ();
+            }
+            else if (pivot.SelectedIndex == 1)
+            {
+                _NewPage = 1;
+                await GetNew();
             }
         }
     }

@@ -273,7 +273,7 @@ namespace BiliBili.UWP.Models
 
 
         public string type { get; set; }
-        public int uid { get; set; }
+        public long uid { get; set; }
         public int short_id { get; set; }
         public string tags { get; set; }
         public int online { get; set; }

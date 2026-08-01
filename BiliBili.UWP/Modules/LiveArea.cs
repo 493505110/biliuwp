@@ -1,10 +1,11 @@
-﻿using BiliBili.UWP.Models;
-using Newtonsoft.Json;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.Live;
+using BiliBili.UWP.Models;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace BiliBili.UWP.Modules
@@ -15,115 +16,137 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                string url = ApiHelper.GetSignWithUrl($"https://api.live.bilibili.com/room/v1/Area/getList?actionKey=appkey&appkey={ ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&&mobi_app=android&need_entrance=1&parent_id=0&platform=android&ts={ApiHelper.GetTimeSpan}", ApiHelper.AndroidKey);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetAreaList().Request();
+                var root = response.GetJObject();
+                if (!response.status || root == null)
                 {
-
-                    var m = JsonConvert.DeserializeObject<List<AreaList>>(model.json["data"].ToString());
-                    var rec = await GetRecAreaList();
-                    if (rec.success)
-                    {
-                        m.Insert(0, new AreaList()
-                        {
-                            id = 0,
-                            name = "推荐",
-                            list = rec.data
-                        });
-                    }
-                    return new ReturnModel<List<AreaList>>()
-                    {
-                        success = true,
-                        data = m
-                    };
+                    return Failure<List<AreaList>>(response.message);
                 }
-                else
+                if (root.Value<int?>("code") != 0)
                 {
-                    return new ReturnModel<List<AreaList>>()
-                    {
-                        success = false,
-                        message = model.message.ToString()
-                    };
+                    return Failure<List<AreaList>>(GetMessage(root));
                 }
 
+                var areas = root["data"]?.ToObject<List<AreaList>>() ?? new List<AreaList>();
+                foreach (var item in areas.SelectMany(x => x.list ?? new List<AreaListItem>()))
+                {
+                    item.pic = ToHttps(item.pic);
+                }
+                return new ReturnModel<List<AreaList>> { success = true, data = areas };
             }
             catch (Exception ex)
             {
-
                 return HandelError<List<AreaList>>(ex);
             }
         }
-        public async Task<ReturnModel<List<AreaListItem>>> GetRecAreaList()
+
+        public async Task<ReturnModel<AreaRoomList>> GetRoomList(
+            int areaId,
+            int parentAreaId,
+            int page,
+            string sortType = "")
         {
             try
             {
-                string url = ApiHelper.GetSignWithUrl($"https://api.live.bilibili.com/room/v1/Area/getRecList?actionKey=appkey&appkey={ ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}", ApiHelper.AndroidKey);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
-                {
-                    var m = JsonConvert.DeserializeObject<List<AreaListItem>>(model.json["data"].ToString());
-                    return new ReturnModel<List<AreaListItem>>()
-                    {
-                        success = true,
-                        data = m
-                    };
-                }
-                else
-                {
-                    return new ReturnModel<List<AreaListItem>>()
-                    {
-                        success = false,
-                        message = model.message.ToString()
-                    };
-                }
-
+                var response = await LiveRoomAPI.GetAreaRooms(parentAreaId, areaId, page, sortType).Request();
+                return ParseRoomList(response);
             }
             catch (Exception ex)
             {
-
-                return HandelError<List<AreaListItem>>(ex);
-            }
-        }
-
-        public async Task<ReturnModel<AreaRoomList>> GetRoomList(int area_id,int parent_area_id, int page,string sort_type= "online")
-        {
-            try
-            {
-                string url = ApiHelper.GetSignWithUrl($"https://api.live.bilibili.com/room/v3/Area/getRoomList?actionKey=appkey&appkey={ ApiHelper.AndroidKey.Appkey}&area_id={area_id}&build={ApiHelper.build}&cate_id=0&mobi_app=android&page={page}&page_size=30&parent_area_id={parent_area_id}&platform=android&qn=0&tag_version=1&sort_type={sort_type}&ts={ApiHelper.GetTimeSpan}", ApiHelper.AndroidKey);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
-                {
-                    var m = JsonConvert.DeserializeObject<AreaRoomList>(model.json["data"].ToString());
-                    return new ReturnModel<AreaRoomList>()
-                    {
-                        success = true,
-                        data = m
-                    };
-                }
-                else
-                {
-                    return new ReturnModel<AreaRoomList>()
-                    {
-                        success = false,
-                        message = model.message.ToString()
-                    };
-                }
-
-            }
-            catch (Exception ex)
-            {
-
                 return HandelError<AreaRoomList>(ex);
             }
         }
 
+        public async Task<ReturnModel<AreaRoomList>> GetAllRoomList(int page, bool latest)
+        {
+            try
+            {
+                var response = await LiveRoomAPI.GetAllRooms(page, latest).Request();
+                return ParseRoomList(response);
+            }
+            catch (Exception ex)
+            {
+                return HandelError<AreaRoomList>(ex);
+            }
+        }
 
+        private static ReturnModel<AreaRoomList> ParseRoomList(HttpResults response)
+        {
+            var root = response.GetJObject();
+            if (!response.status || root == null)
+            {
+                return Failure<AreaRoomList>(response.message);
+            }
+            if (root.Value<int?>("code") != 0)
+            {
+                return Failure<AreaRoomList>(GetMessage(root));
+            }
+
+            var data = root["data"] as JObject;
+            var source = data?["list"] as JArray ?? new JArray();
+            var list = new ObservableCollection<RoomListItem>(source.OfType<JObject>().Select(MapRoom));
+            return new ReturnModel<AreaRoomList>
+            {
+                success = true,
+                data = new AreaRoomList
+                {
+                    count = data?.Value<int?>("count") ?? list.Count,
+                    has_more = data?.Value<int?>("has_more") ?? (list.Count > 0 ? 1 : 0),
+                    list = list,
+                    banner = data?["banner"]?.ToObject<List<AreaRoomListBannerItem>>()
+                        ?? new List<AreaRoomListBannerItem>(),
+                    new_tags = data?["new_tags"]?.ToObject<List<new_tags>>() ?? new List<new_tags>()
+                }
+            };
+        }
+
+        private static RoomListItem MapRoom(JObject item)
+        {
+            return new RoomListItem
+            {
+                roomid = item.Value<int?>("roomid") ?? 0,
+                cover = ToHttps(item.Value<string>("cover")
+                    ?? item.Value<string>("user_cover")
+                    ?? item.Value<string>("system_cover")),
+                face = ToHttps(item.Value<string>("face")),
+                title = item.Value<string>("title") ?? string.Empty,
+                uname = item.Value<string>("uname") ?? string.Empty,
+                online = item.Value<string>("online") ?? "0",
+                area_name = item.Value<string>("area_v2_name")
+                    ?? item.Value<string>("areaName")
+                    ?? item.Value<string>("area_name")
+                    ?? string.Empty,
+                area_id = item.Value<int?>("area_v2_id") ?? item.Value<int?>("area_id") ?? 0,
+                parent_name = item.Value<string>("area_v2_parent_name")
+                    ?? item.Value<string>("parent_name")
+                    ?? string.Empty
+            };
+        }
+
+        private static string GetMessage(JObject root)
+        {
+            return root.Value<string>("message") ?? root.Value<string>("msg") ?? "直播数据请求失败";
+        }
+
+        private static ReturnModel<T> Failure<T>(string message)
+        {
+            return new ReturnModel<T>
+            {
+                success = false,
+                message = string.IsNullOrEmpty(message) ? "直播数据请求失败" : message
+            };
+        }
+
+        private static string ToHttps(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+            {
+                return string.Empty;
+            }
+            return url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                ? "https://" + url.Substring("http://".Length)
+                : url;
+        }
     }
 
     public class AreaList
@@ -132,6 +155,7 @@ namespace BiliBili.UWP.Modules
         public string name { get; set; }
         public List<AreaListItem> list { get; set; }
     }
+
     public class AreaListItem
     {
         public int id { get; set; }
@@ -146,10 +170,12 @@ namespace BiliBili.UWP.Modules
     public class AreaRoomList
     {
         public int count { get; set; }
+        public int has_more { get; set; }
         public ObservableCollection<RoomListItem> list { get; set; }
         public List<AreaRoomListBannerItem> banner { get; set; }
-        public List<new_tags> new_tags{ get; set; }
+        public List<new_tags> new_tags { get; set; }
     }
+
     public class AreaRoomListBannerItem
     {
         public int id { get; set; }
@@ -157,6 +183,7 @@ namespace BiliBili.UWP.Modules
         public string title { get; set; }
         public string link { get; set; }
     }
+
     public class new_tags
     {
         public int id { get; set; }
@@ -164,5 +191,4 @@ namespace BiliBili.UWP.Modules
         public string sort_type { get; set; }
         public string sort { get; set; }
     }
-
 }

@@ -185,7 +185,8 @@ namespace BiliBili.UWP
         public static string GetCookies()
         {
             HttpBaseProtocolFilter hb = new HttpBaseProtocolFilter();
-            HttpCookieCollection cookieCollection = hb.CookieManager.GetCookies(new Uri("http://bilibili.com/"));
+            // 使用 HTTPS 域名，确保带 Secure 标记的 SESSDATA/bili_jct 也会被读取。
+            HttpCookieCollection cookieCollection = hb.CookieManager.GetCookies(new Uri("https://www.bilibili.com/"));
             string cookie = "";
             foreach (HttpCookie item in cookieCollection)
             {

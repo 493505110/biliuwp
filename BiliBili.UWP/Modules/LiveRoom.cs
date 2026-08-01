@@ -1,4 +1,6 @@
 ﻿using BiliBili.UWP.Helper;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.Live;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules.LiveModels;
 using Newtonsoft.Json;
@@ -43,18 +45,8 @@ namespace BiliBili.UWP.Modules
         public static List<TitleItemModel> titleItems;
         public async static Task GetTitleItems()
         {
-            try
-            {
-                var results = await WebClientClass.GetResults(new Uri("https://api.live.bilibili.com/rc/v1/Title/webTitles"));
-                var m = JsonConvert.DeserializeObject<TitleModel>(results);
-                if (m.code == 0)
-                {
-                    titleItems = m.data;
-                }
-            }
-            catch (Exception)
-            {
-            }
+            titleItems = new List<TitleItemModel>();
+            await Task.CompletedTask;
         }
         public ObservableCollection<AllGiftsModel> allGifts { get; set; }
 
@@ -66,36 +58,16 @@ namespace BiliBili.UWP.Modules
         /// <returns></returns>
         public async Task<ReturnModel> GetAllGifts()
         {
-            try
+            await Task.CompletedTask;
+            if (allGifts != null)
             {
-                string url = $"https://api.live.bilibili.com/gift/v3/live/gift_config?actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-
-                if (model.code == 0)
+                return new ReturnModel
                 {
-                    return new ReturnModel()
-                    {
-                        success = true,
-                        message = "",
-                        data = JsonConvert.DeserializeObject<ObservableCollection<AllGiftsModel>>(model.json["data"].ToString()),
-                    };
-                }
-                else
-                {
-                    return new ReturnModel()
-                    {
-                        success = false,
-                        message = model.message
-                    };
-                }
+                    success = true,
+                    data = allGifts
+                };
             }
-            catch (Exception ex)
-            {
-                return HandelError(ex);
-
-            }
+            return new ReturnModel { success = false, message = "请先加载直播间礼物列表" };
         }
         /// <summary>
         /// 读取房间的礼物列表
@@ -108,32 +80,17 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                if (allGifts == null)
-                {
-                    var all = await GetAllGifts();
-                    if (!all.success)
-                    {
-                        return new ReturnModel<ObservableCollection<AllGiftsModel>>()
-                        {
-                            success = false,
-                            message = "无法读取礼物"
-                        };
-                    }
-                    allGifts = all.data;
-                }
-                ObservableCollection<AllGiftsModel> roomGifts = new ObservableCollection<AllGiftsModel>();
-                string url = $"https://api.live.bilibili.com/gift/v3/live/room_gift_list?access_key={ApiHelper.access_key}&actionkey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&area_v2_id={area_v2_id}&area_v2_parent_id={area_v2_parent_id}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&roomid={roomid}&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
+                string url = "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList"
+                    + "?platform=pc&room_id=" + roomid
+                    + "&area_parent_id=" + area_v2_parent_id
+                    + "&area_id=" + area_v2_id;
                 var results = await WebClientClass.GetResults(new Uri(url));
                 var model = results.ToDynamicJObject();
                 if (model.code == 0)
                 {
-                    foreach (var item in model.json["data"]["list"])
-                    {
-                        var id = item["id"].ToInt32();
-                        roomGifts.Add(allGifts.First(x => x.id == id));
-                    }
-                    roomGifts.Add(allGifts.First(x => x.id == 1));
+                    var roomGifts = JsonConvert.DeserializeObject<ObservableCollection<AllGiftsModel>>(
+                        model.json["data"]?["gift_config"]?["base_config"]?["list"]?.ToString() ?? "[]");
+                    allGifts = roomGifts;
                     return new ReturnModel<ObservableCollection<AllGiftsModel>>()
                     {
                         success = true,
@@ -162,7 +119,7 @@ namespace BiliBili.UWP.Modules
         /// 取我的礼物
         /// </summary>
         /// <returns></returns>
-        public async Task<ReturnModel<ObservableCollection<LiveMyGiftsModel>>> GetMyGifts()
+        public async Task<ReturnModel<ObservableCollection<LiveMyGiftsModel>>> GetMyGifts(int roomid = 0)
         {
             try
             {
@@ -176,34 +133,16 @@ namespace BiliBili.UWP.Modules
                     };
                 }
 
-                if (allGifts == null)
+                var response = await LiveRoomAPI.GetGiftBag(roomid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    var all = await GetAllGifts();
-                    if (!all.success)
-                    {
-                        return new ReturnModel<ObservableCollection<LiveMyGiftsModel>>()
-                        {
-                            success = false,
-                            message = "加载我的包裹失败"
-                        };
-                    }
-                    allGifts = all.data;
-                }
-
-                string url = $"https://api.live.bilibili.com/gift/v2/gift/bag_list?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
-                {
-
-                    ObservableCollection<LiveMyGiftsModel> ls = JsonConvert.DeserializeObject<ObservableCollection<LiveMyGiftsModel>>(model.json["data"]["list"].ToString());
+                    var ls = root["data"]?["list"]?.ToObject<ObservableCollection<LiveMyGiftsModel>>()
+                        ?? new ObservableCollection<LiveMyGiftsModel>();
 
                     foreach (var item in ls)
                     {
-                        item.img = allGifts.FirstOrDefault(x => x.id == item.gift_id).img_basic;
+                        item.img = allGifts?.FirstOrDefault(x => x.id == item.gift_id)?.img_basic ?? string.Empty;
                     }
                     return new ReturnModel<ObservableCollection<LiveMyGiftsModel>>()
                     {
@@ -217,7 +156,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<LiveMyGiftsModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -243,15 +182,13 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                string url = $"https://api.live.bilibili.com/room/v1/room/get_info?access_key={ApiHelper.access_key}&actionkey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&from=room&id={roomid}&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetRoomInfo(roomid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-
-                    LiveRoomInfoModel m = JsonConvert.DeserializeObject<LiveRoomInfoModel>(model.json["data"].ToString().Replace("0000-00-00 00:00:00", "1990-01-01 00:00:00"));
-                    m.UserInfo = await GetUpInfo(m.uid);
+                    var json = root["data"]?.ToString().Replace("0000-00-00 00:00:00", "1990-01-01 00:00:00");
+                    LiveRoomInfoModel m = JsonConvert.DeserializeObject<LiveRoomInfoModel>(json ?? "{}");
+                    m.UserInfo = await GetRoomUpInfo(roomid, m);
 
                     m.htmldesc = HtmlToRichText(m.description);
                     return new ReturnModel<LiveRoomInfoModel>()
@@ -266,7 +203,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<LiveRoomInfoModel>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
             }
@@ -277,35 +214,118 @@ namespace BiliBili.UWP.Modules
             }
         }
 
+        private async Task<LiveUpModel> GetRoomUpInfo(int roomid, LiveRoomInfoModel room)
+        {
+            LiveUpModel roomUpInfo = null;
+            try
+            {
+                var response = await LiveRoomAPI.GetRoomInfoByRoom(roomid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
+                {
+                    var data = root["data"];
+                    var roomInfo = data?["room_info"];
+                    if (string.IsNullOrWhiteSpace(room.tags))
+                    {
+                        room.tags = roomInfo?.Value<string>("tags") ?? string.Empty;
+                    }
+                    if (string.IsNullOrWhiteSpace(room.description))
+                    {
+                        room.description = roomInfo?.Value<string>("description") ?? string.Empty;
+                    }
+
+                    var anchorInfo = data?["anchor_info"];
+                    var baseInfo = anchorInfo?["base_info"];
+                    var officialInfo = baseInfo?["official_info"];
+                    var liveInfo = anchorInfo?["live_info"];
+                    var relationInfo = anchorInfo?["relation_info"];
+                    var role = officialInfo?.Value<int?>("role") ?? 0;
+                    var levelColor = liveInfo?.Value<int?>("level_color") ?? 0x999999;
+                    roomUpInfo = new LiveUpModel
+                    {
+                        uid = room.uid,
+                        uname = baseInfo?.Value<string>("uname") ?? string.Empty,
+                        face = baseInfo?.Value<string>("face") ?? string.Empty,
+                        verify_type = role <= 0 ? -1 : role - 1,
+                        desc = officialInfo?.Value<string>("desc")
+                            ?? officialInfo?.Value<string>("title")
+                            ?? string.Empty,
+                        level = liveInfo?.Value<int?>("level") ?? 0,
+                        level_color = "#" + levelColor.ToString("X6"),
+                        room_id = room.room_id,
+                        follow_num = relationInfo?.Value<int?>("follower_num") ?? 0,
+                        relation_status = relationInfo?.Value<int?>("relation_status")
+                            ?? relationInfo?.Value<int?>("attention")
+                            ?? 0,
+                        glory_info = new List<Glory_info>()
+                    };
+                    roomUpInfo.lvColor = CreateColorBrush(levelColor);
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            if (!string.IsNullOrWhiteSpace(roomUpInfo?.uname))
+            {
+                return roomUpInfo;
+            }
+
+            return await GetUpInfo(room.uid) ?? roomUpInfo;
+        }
+
         /// <summary>
         /// 读取直播UP信息
         /// </summary>
         /// <param name="userid"></param>
         /// <returns></returns>
-        public async Task<LiveUpModel> GetUpInfo(int userid)
+        public async Task<LiveUpModel> GetUpInfo(long userid)
         {
             try
             {
-                string url = $"https://api.live.bilibili.com/live_user/v1/card/card_up?access_key={ApiHelper.access_key}&actionkey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}&uid={userid}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetAnchorInfo(userid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    LiveUpModel m = JsonConvert.DeserializeObject<LiveUpModel>(model.json["data"].ToString());
-                    m.lvColor = new SolidColorBrush(Utils.ToColor(m.level_color));
+                    var data = root["data"];
+                    var info = data?["info"];
+                    var official = info?["official_verify"];
+                    var masterLevel = data?["exp"]?["master_level"];
+                    var color = masterLevel?.Value<int?>("color") ?? 0x999999;
+                    var m = new LiveUpModel
+                    {
+                        uid = info?.Value<long?>("uid") ?? userid,
+                        uname = info?.Value<string>("uname") ?? string.Empty,
+                        face = info?.Value<string>("face") ?? string.Empty,
+                        verify_type = official?.Value<int?>("type") ?? -1,
+                        desc = official?.Value<string>("desc") ?? string.Empty,
+                        level = masterLevel?.Value<int?>("level") ?? 0,
+                        level_color = "#" + color.ToString("X6"),
+                        room_id = data?.Value<int?>("room_id") ?? 0,
+                        pendant = data?.Value<string>("pendant") ?? string.Empty,
+                        follow_num = data?.Value<int?>("follower_num") ?? 0,
+                        relation_status = data?.Value<int?>("relation_status") ?? 0,
+                        glory_info = new List<Glory_info>()
+                    };
+                    m.lvColor = CreateColorBrush(color);
                     return m;
                 }
-                else
-                {
-                    return null;
-                }
+                return null;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return null;
 
             }
+        }
+
+        private static SolidColorBrush CreateColorBrush(int rgb)
+        {
+            return new SolidColorBrush(Color.FromArgb(
+                255,
+                (byte)((rgb >> 16) & 0xff),
+                (byte)((rgb >> 8) & 0xff),
+                (byte)(rgb & 0xff)));
         }
 
         /// <summary>
@@ -318,20 +338,57 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                //string url = $"https://api.live.bilibili.com/room/v1/Room/playUrl?access_key={ApiHelper.access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&cid={roomid}&device=android&https_url_req=0&mobi_app=android&platform=android&quality={quality}&ts={ApiHelper.GetTimeSpan}";
-                //url += "&sign=" + ApiHelper.GetSign(url);
-
-                string url = $"https://api.live.bilibili.com/room/v1/Room/playUrl?cid={roomid}&qn={quality}&platform=web";
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetRoomPlayInfo(roomid, quality).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    LivePlayUrlsModel m = JsonConvert.DeserializeObject<LivePlayUrlsModel>(model.json["data"].ToString());
-                    int i = 1;
-                    foreach (var item in m.durl)
+                    var play = root["data"]?["playurl_info"]?["playurl"];
+                    var m = new LivePlayUrlsModel
                     {
-                        item.display = "线路" + i;
-                        i++;
+                        durl = new List<Durl>(),
+                        quality_description = play?["g_qn_desc"]?.ToObject<List<quality_description_item>>() ?? new List<quality_description_item>()
+                    };
+                    int i = 1;
+                    var streams = play?["stream"] as JArray;
+                    if (streams != null)
+                    {
+                        foreach (var stream in streams)
+                        {
+                            var formats = stream["format"] as JArray;
+                            if (formats == null) continue;
+                            foreach (var format in formats)
+                            {
+                                var codecs = format["codec"] as JArray;
+                                if (codecs == null) continue;
+                                foreach (var codec in codecs)
+                                {
+                                    if (!string.Equals(codec.Value<string>("codec_name"), "avc", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        continue;
+                                    }
+                                    m.current_qn = codec.Value<int?>("current_qn") ?? quality;
+                                    var baseUrl = codec.Value<string>("base_url") ?? string.Empty;
+                                    var urlInfos = codec["url_info"] as JArray;
+                                    if (urlInfos == null) continue;
+                                    foreach (var urlInfo in urlInfos)
+                                    {
+                                        m.durl.Add(new Durl
+                                        {
+                                            url = (urlInfo.Value<string>("host") ?? string.Empty) + baseUrl + (urlInfo.Value<string>("extra") ?? string.Empty),
+                                            display = "线路" + i++
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (m.durl.Count == 0)
+                    {
+                        return new ReturnModel<LivePlayUrlsModel>
+                        {
+                            success = false,
+                            message = "未获取到可用的直播流"
+                        };
                     }
                     return new ReturnModel<LivePlayUrlsModel>()
                     {
@@ -345,7 +402,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<LivePlayUrlsModel>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
             }
@@ -359,49 +416,24 @@ namespace BiliBili.UWP.Modules
 
         public async Task<ReturnModel<RoundModel>> GetRoundPlayurl(int roomid)
         {
-            try
+            var play = await GetRoomPlayurl(roomid, 10000);
+            if (!play.success)
             {
-                string url = $"https://api.live.bilibili.com/live/getRoundPlayVideo?room_id={roomid}&&appkey={ApiHelper.AndroidKey.Appkey}type=flv&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                return new ReturnModel<RoundModel>
                 {
-                    RoundModel m = JsonConvert.DeserializeObject<RoundModel>(model.json["data"].ToString());
-                    var results2 = await WebClientClass.GetResults(new Uri(m.play_url));
-                    var play = JsonConvert.DeserializeObject<RoundPlayModel>(results2);
-                    m.data = play;
-                    if (play.durl.Count != 0)
-                    {
-                        return new ReturnModel<RoundModel>()
-                        {
-                            success = true,
-                            data = m
-                        };
-                    }
-                    else
-                    {
-                        return new ReturnModel<RoundModel>()
-                        {
-                            success = false,
-                            message = "读取轮播地址失败"
-                        };
-                    }
-                }
-                else
-                {
-                    return new ReturnModel<RoundModel>()
-                    {
-                        success = false,
-                        message = model.message
-                    };
-                }
+                    success = false,
+                    message = play.message
+                };
             }
-            catch (Exception ex)
+            return new ReturnModel<RoundModel>
             {
-                return HandelError<RoundModel>(ex);
-
-            }
+                success = true,
+                data = new RoundModel
+                {
+                    title = "直播轮播",
+                    data = new RoundPlayModel { durl = play.data.durl }
+                }
+            };
         }
 
         /// <summary>
@@ -412,16 +444,22 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-
-                string url = $"https://live.bilibili.com/AppRoom/msg?_device=android&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&platform=android&room_id={roomid}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetHistory(roomid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    ObservableCollection<LiveMsgModel> ls = JsonConvert.DeserializeObject<ObservableCollection<LiveMsgModel>>(model.json["data"]["room"].ToString());
+                    var messages = new JArray();
+                    var admin = root["data"]?["admin"] as JArray;
+                    var room = root["data"]?["room"] as JArray;
+                    if (admin != null)
+                    {
+                        foreach (var item in admin) messages.Add(item);
+                    }
+                    if (room != null)
+                    {
+                        foreach (var item in room) messages.Add(item);
+                    }
+                    var ls = messages.ToObject<ObservableCollection<LiveMsgModel>>() ?? new ObservableCollection<LiveMsgModel>();
 
                     foreach (var v in ls)
                     {
@@ -441,15 +479,15 @@ namespace BiliBili.UWP.Modules
 
                         if (v.medal != null && v.medal.Count != 0)
                         {
-                            v.medal_name = v.medal[1].ToString();
-                            v.medal_lv = v.medal[0].ToString();
-                            v.medalColor = v.medal[4].ToString();
+                            v.medal_name = v.medal.Count > 1 ? v.medal[1] : string.Empty;
+                            v.medal_lv = v.medal[0];
+                            v.medalColor = v.medal.Count > 4 ? v.medal[4] : string.Empty;
                             v.hasMedal = Visibility.Visible;
                         }
                         if (v.user_level != null && v.user_level.Count != 0)
                         {
                             v.ul = "UL" + v.user_level[0].ToString();
-                            v.ulColor = v.user_level[2].ToString();
+                            v.ulColor = v.user_level.Count > 2 ? v.user_level[2] : string.Empty;
                         }
                         if (v.user_title != null && v.user_title.Length != 0)
                         {
@@ -472,7 +510,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<LiveMsgModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -511,13 +549,25 @@ namespace BiliBili.UWP.Modules
                     }
                 }
 
-                string sendText = $"cid={roomid}&mid={ApiHelper.GetUserId()}&msg={text}&rnd={ApiHelper.GetTimeSpan}&mode=1&pool=0&type=json&color=16777215&fontsize=25&playTime=0.0";
+                var csrf = LiveRoomAPI.GetCookieValue("bili_jct");
+                if (string.IsNullOrEmpty(csrf))
+                {
+                    return new ReturnModel
+                    {
+                        success = false,
+                        message = "登录 Cookie 已失效，请重新登录"
+                    };
+                }
 
-                var url = $"https://api.live.bilibili.com/api/sendmsg?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string result = await WebClientClass.PostResults(new Uri(url), sendText);
-                JObject jb = JObject.Parse(result);
-                if ((int)jb["code"] == 0)
+                string sendText = "roomid=" + roomid
+                    + "&msg=" + Uri.EscapeDataString(text)
+                    + "&rnd=" + ApiHelper.GetTimeSpan
+                    + "&fontsize=25&color=16777215&mode=1&bubble=0"
+                    + "&csrf=" + Uri.EscapeDataString(csrf)
+                    + "&csrf_token=" + Uri.EscapeDataString(csrf);
+                var response = await ApiRequest.Post(LiveRoomAPI.SendDanmuUrl, sendText, LiveRoomAPI.GetWebHeaders());
+                var jb = response.GetJObject();
+                if (response.status && jb != null && jb.Value<int?>("code") == 0)
                 {
                     //AddComment(new TextBlock() { Text= "已发送：" + txt_Comment.Text }, true);
                     //if (LoadDanmu)
@@ -537,7 +587,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel()
                     {
                         success = false,
-                        message = "发送弹幕失败" + jb["msg"]
+                        message = "发送弹幕失败: " + (jb?["message"]?.ToString() ?? jb?["msg"]?.ToString() ?? response.message)
                     };
 
                 }
@@ -558,44 +608,12 @@ namespace BiliBili.UWP.Modules
         /// <returns></returns>
         public async Task<ReturnModel<DateTime>> GetFreeSilverCurrentTask()
         {
-            if (!ApiHelper.IsLogin())
+            await Task.CompletedTask;
+            return new ReturnModel<DateTime>
             {
-                return new ReturnModel<DateTime>()
-                {
-                    success = false,
-                    message = "请先登录"
-                };
-            }
-            try
-            {
-                string url = $"https://api.live.bilibili.com/mobile/freeSilverCurrentTask?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = JObject.Parse(results);
-                if (model["code"].ToInt32() == 0)
-                {
-
-                    return new ReturnModel<DateTime>()
-                    {
-                        success = true,
-                        data = Utils.TimestampToDatetime(Convert.ToInt64(model["data"]["time_end"]))
-                    };
-                }
-                else
-                {
-                    return new ReturnModel<DateTime>()
-                    {
-                        success = false,
-                        message = model["message"].ToString()
-                    };
-                }
-
-            }
-            catch (Exception ex)
-            {
-
-                return HandelError<DateTime>(ex);
-            }
+                success = false,
+                message = "免费银瓜子宝箱已下线"
+            };
         }
         /// <summary>
         /// 领取免费瓜子
@@ -603,44 +621,12 @@ namespace BiliBili.UWP.Modules
         /// <returns></returns>
         public async Task<ReturnModel<string>> GetFreeSilverAward()
         {
-            if (!ApiHelper.IsLogin())
+            await Task.CompletedTask;
+            return new ReturnModel<string>
             {
-                return new ReturnModel<string>()
-                {
-                    success = false,
-                    message = "请先登录"
-                };
-            }
-            try
-            {
-                string url = $"https://api.live.bilibili.com/mobile/freeSilverAward?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = JObject.Parse(results);
-                if (model["code"].ToInt32() == 0)
-                {
-                    return new ReturnModel<string>()
-                    {
-                        success = true,
-                        message = "领取成功,瓜子+" + model["data"]["awardSilver"],
-                        data = model["data"]["silver"].ToString()
-                    };
-                }
-                else
-                {
-                    return new ReturnModel<string>()
-                    {
-                        success = false,
-                        message = model["message"].ToString()
-                    };
-                }
-
-            }
-            catch (Exception ex)
-            {
-
-                return HandelError<string>(ex);
-            }
+                success = false,
+                message = "免费银瓜子宝箱已下线"
+            };
         }
 
        
@@ -649,22 +635,31 @@ namespace BiliBili.UWP.Modules
         /// 七日榜
         /// </summary>
         /// <returns></returns>
-        public async Task<ReturnModel<ObservableCollection<GiftTopListModel>>> GetGiftTop(int roomid)
+        public async Task<ReturnModel<ObservableCollection<GiftTopListModel>>> GetGiftTop(int roomid, long anchorUid)
         {
             try
             {
-
-                string url = $"https://api.live.bilibili.com/AppRoom/getGiftTop?actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&room_id={roomid}&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetOnlineGoldRank(roomid, anchorUid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    ObservableCollection<GiftTopListModel> ls = JsonConvert.DeserializeObject<ObservableCollection<GiftTopListModel>>(model.json["data"]["list"].ToString());
-
-
+                    var ls = new ObservableCollection<GiftTopListModel>();
+                    var items = root["data"]?["OnlineRankItem"] as JArray;
+                    if (items != null)
+                    {
+                        foreach (var item in items)
+                        {
+                            ls.Add(new GiftTopListModel
+                            {
+                                uid = item.Value<long?>("uid") ?? 0,
+                                uname = item.Value<string>("name") ?? string.Empty,
+                                face = item.Value<string>("face") ?? string.Empty,
+                                rank = item.Value<int?>("userRank") ?? 0,
+                                score = item.Value<long?>("score") ?? 0,
+                                guard_level = item.Value<int?>("guard_level") ?? 0
+                            });
+                        }
+                    }
                     return new ReturnModel<ObservableCollection<GiftTopListModel>>()
                     {
                         success = true,
@@ -677,7 +672,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<GiftTopListModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -692,25 +687,31 @@ namespace BiliBili.UWP.Modules
         /// 粉丝榜
         /// </summary>
         /// <returns></returns>
-        public async Task<ReturnModel<ObservableCollection<MedalRankListModel>>> GetMedalRankList(int roomid)
+        public async Task<ReturnModel<ObservableCollection<MedalRankListModel>>> GetMedalRankList(long anchorUid)
         {
             try
             {
-
-                string url = $"https://api.live.bilibili.com/AppRoom/medalRankList?actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&room_id={roomid}&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetFansRank(anchorUid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    ObservableCollection<MedalRankListModel> ls = JsonConvert.DeserializeObject<ObservableCollection<MedalRankListModel>>(model.json["data"]["list"].ToString());
-                    int i = 1;
-                    foreach (var item in ls)
+                    var ls = new ObservableCollection<MedalRankListModel>();
+                    var items = root["data"]?["item"] as JArray;
+                    if (items != null)
                     {
-                        item.rank = i;
-                        i++;
+                        foreach (var item in items)
+                        {
+                            ls.Add(new MedalRankListModel
+                            {
+                                uid = item.Value<long?>("uid") ?? 0,
+                                medal_name = item.Value<string>("medal_name") ?? string.Empty,
+                                level = item.Value<int?>("level") ?? 0,
+                                uname = item.Value<string>("name") ?? string.Empty,
+                                color = (item.Value<int?>("medal_color_start") ?? 0).ToString(),
+                                face = item.Value<string>("face") ?? string.Empty,
+                                rank = item.Value<int?>("user_rank") ?? ls.Count + 1
+                            });
+                        }
                     }
 
                     return new ReturnModel<ObservableCollection<MedalRankListModel>>()
@@ -725,7 +726,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<MedalRankListModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -745,40 +746,12 @@ namespace BiliBili.UWP.Modules
         /// <returns></returns>
         public async Task<ReturnModel<ObservableCollection<OpTopListModel>>> GetOpRank(int roomid, string type)
         {
-            try
+            await Task.CompletedTask;
+            return new ReturnModel<ObservableCollection<OpTopListModel>>()
             {
-
-                string url = $"https://api.live.bilibili.com/AppRoom/opTop?actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&room_id={roomid}&scale=hdpi&ts={ApiHelper.GetTimeSpan}&type={type}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
-                {
-                    ObservableCollection<OpTopListModel> ls = JsonConvert.DeserializeObject<ObservableCollection<OpTopListModel>>(model.json["data"]["list"].ToString());
-                    return new ReturnModel<ObservableCollection<OpTopListModel>>()
-                    {
-                        success = true,
-                        message = "",
-                        data = ls
-                    };
-                }
-                else
-                {
-                    return new ReturnModel<ObservableCollection<OpTopListModel>>()
-                    {
-                        success = false,
-                        message = model.message
-                    };
-                }
-
-
-            }
-            catch (Exception ex)
-            {
-                return HandelError<ObservableCollection<OpTopListModel>>(ex);
-            }
+                success = false,
+                message = "该活动榜单已下线"
+            };
         }
 
         /// <summary>
@@ -786,20 +759,39 @@ namespace BiliBili.UWP.Modules
         /// </summary>
         /// <param name="uid"></param>
         /// <returns></returns>
-        public async Task<ReturnModel<ObservableCollection<GuardRankListModel>>> GetGuardRank(int uid)
+        public async Task<ReturnModel<ObservableCollection<GuardRankListModel>>> GetGuardRank(int roomid, long uid)
         {
             try
             {
-
-                string url = $"https://api.live.bilibili.com/AppRoom/guardRank?actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&page=1&page_size=30&platform=android&ruid={uid}&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetGuardRank(roomid, uid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-                    ObservableCollection<GuardRankListModel> ls = JsonConvert.DeserializeObject<ObservableCollection<GuardRankListModel>>(model.json["data"].ToString());
+                    var ls = new ObservableCollection<GuardRankListModel>();
+                    var items = new JArray();
+                    var top3 = root["data"]?["top3"] as JArray;
+                    var list = root["data"]?["list"] as JArray;
+                    if (top3 != null)
+                    {
+                        foreach (var item in top3) items.Add(item);
+                    }
+                    if (list != null)
+                    {
+                        foreach (var item in list) items.Add(item);
+                    }
+                    foreach (var item in items.OrderBy(x => x.Value<int?>("rank") ?? int.MaxValue))
+                    {
+                        var userInfo = item["uinfo"];
+                        ls.Add(new GuardRankListModel
+                        {
+                            uid = userInfo?.Value<long?>("uid") ?? 0,
+                            ruid = item.Value<long?>("ruid") ?? uid,
+                            rank = item.Value<int?>("rank") ?? 0,
+                            username = userInfo?["base"]?.Value<string>("name") ?? string.Empty,
+                            face = userInfo?["base"]?.Value<string>("face") ?? string.Empty,
+                            guard_level = userInfo?["medal"]?.Value<int?>("guard_level") ?? 0
+                        });
+                    }
                     return new ReturnModel<ObservableCollection<GuardRankListModel>>()
                     {
                         success = true,
@@ -812,7 +804,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<GuardRankListModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -832,80 +824,28 @@ namespace BiliBili.UWP.Modules
         /// <param name="roomid"></param>
         /// <param name="ruid"></param>
         /// <returns></returns>
-        public async Task<ReturnModel<ObservableCollection<RankActivityModel>>> GetRankActivity(int area_v2_id, int area_v2_parent_id, int roomid, int ruid)
+        public async Task<ReturnModel<ObservableCollection<RankActivityModel>>> GetRankActivity(int area_v2_id, int area_v2_parent_id, int roomid, long ruid)
         {
-            try
+            await Task.CompletedTask;
+            return new ReturnModel<ObservableCollection<RankActivityModel>>()
             {
-
-                string url = $"https://api.live.bilibili.com/activity/v1/Common/mobileRoomInfo?actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&area_v2_id={area_v2_id}&area_v2_parent_id={area_v2_parent_id}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&roomid={roomid}&ruid={ruid}&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                var results = await WebClientClass.GetResults(new Uri(url));
-
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                success = true,
+                data = new ObservableCollection<RankActivityModel>
                 {
-                    ObservableCollection<RankActivityModel> ls = JsonConvert.DeserializeObject<ObservableCollection<RankActivityModel>>(model.json["data"]["rankInfo"]["activity"].ToString());
-                    ls.Insert(0, new RankActivityModel()
+                    new RankActivityModel
                     {
                         isEvent = 0,
-                        type = "粉丝榜",
-                        desc = "粉丝榜"
-                    });
-                    ls.Insert(0, new RankActivityModel()
+                        type = "贡献榜",
+                        desc = "贡献榜"
+                    },
+                    new RankActivityModel
                     {
                         isEvent = 0,
-                        type = "七日榜",
-                        desc = "七日榜"
-                    });
-                    return new ReturnModel<ObservableCollection<RankActivityModel>>()
-                    {
-                        success = true,
-                        message = "",
-                        data = ls
-                    };
-                }
-                else
-                {
-                    return new ReturnModel<ObservableCollection<RankActivityModel>>()
-                    {
-                        success = true,
-                        data = new ObservableCollection<RankActivityModel>() {
-                         new RankActivityModel() {
-                          isEvent=0,
-                          type="七日榜",
-                          desc= "七日榜"
-                    },new RankActivityModel()
-                    {
-                        isEvent = 0,
-                        type = "粉丝榜",
-                        desc = "粉丝榜"
+                        type = "粉丝团",
+                        desc = "粉丝团"
                     }
-                     }
-                    };
                 }
-
-
-            }
-            catch (Exception ex)
-            {
-                return new ReturnModel<ObservableCollection<RankActivityModel>>()
-                {
-                    success = true,
-                    data = new ObservableCollection<RankActivityModel>() {
-                         new RankActivityModel() {
-                          isEvent=0,
-                          type="七日榜",
-                          desc= "七日榜"
-                    },new RankActivityModel()
-                    {
-                        isEvent = 0,
-                        type = "粉丝榜",
-                        desc = "粉丝榜"
-                    }
-                     }
-                };
-            }
+            };
         }
 
         /// <summary>
@@ -922,14 +862,9 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                string url = $"https://api.live.bilibili.com/gift/v2/live/bag_send?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-
-                string data = $"uid={uid}&ruid={ruid}&gift_id={gift_id}&gift_num={gift_num}&bag_id={bag_id}&biz_id={roomid}&rnd={ApiHelper.GetTimeSpan}&biz_code=live";
-
-                var results = await WebClientClass.PostResultsUtf8(new Uri(url), data);
-                var json = results.ToDynamicJObject();
-                if (json.code == 0)
+                var response = await LiveRoomAPI.SendBagGift(uid, ruid, gift_id, gift_num, bag_id, roomid).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
                     return new ReturnModel()
                     {
@@ -941,7 +876,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel()
                     {
                         success = false,
-                        message = json.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -974,13 +909,13 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                string url = $"https://api.live.bilibili.com/gift/v2/live/send";
-                string data = $"access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&biz_code=live&biz_id={roomid}&build={ApiHelper.build}&coin_type={coin_type}&device=android&gift_id={gift_id}&gift_num={gift_num}&mobi_app=android&platform=android&price={price}&rnd={ApiHelper.GetTimeSpan}&ruid={ruid}&ts={ApiHelper.GetTimeSpan}&uid={uid}";
-                data += "&sign=" + ApiHelper.GetSign(data);
-
-                var results = await WebClientClass.PostResultsUtf8(new Uri(url), data);
-                var json = results.ToDynamicJObject();
-                if (json.code == 0)
+                if (!string.Equals(coin_type, "gold", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ReturnModel { success = false, message = "银瓜子礼物已停止支持" };
+                }
+                var response = await LiveRoomAPI.SendGoldGift(uid, ruid, gift_id, gift_num, roomid, price).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
                     return new ReturnModel()
                     {
@@ -992,7 +927,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel()
                     {
                         success = false,
-                        message = json.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -1012,7 +947,7 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                var outHtml = html;
+                var outHtml = html ?? string.Empty;
                 outHtml = Regex.Replace(outHtml, @"<p.*?>", "<Paragraph>", RegexOptions.Singleline);
                 outHtml = Regex.Replace(outHtml, @"</p>", "</Paragraph>", RegexOptions.Singleline);
                 outHtml = Regex.Replace(outHtml, @"<span.*?>", "", RegexOptions.Singleline);
@@ -1060,7 +995,7 @@ namespace BiliBili.UWP.Modules
                     TextWrapping = TextWrapping.Wrap,
                 };
                 var htmldoc = new HtmlDocument();
-                htmldoc.LoadHtml(html);
+                htmldoc.LoadHtml(html ?? string.Empty);
                 var p = new Paragraph();
                 p.Inlines.Add(new Run() { Text = htmldoc.DocumentNode.InnerText });
                 rich.Blocks.Add(p);
@@ -1441,6 +1376,20 @@ namespace BiliBili.UWP.Modules
             /// https://i0.hdslb.com/bfs/album/33c6c91e8603e9ef4c2be910dc39efa3edf4e000.png
             /// </summary>
             public string value { get; set; }
+            public string image_url
+            {
+                get
+                {
+                    if (string.IsNullOrWhiteSpace(value))
+                    {
+                        return null;
+                    }
+
+                    var candidate = value.StartsWith("//", StringComparison.Ordinal) ? "https:" + value : value;
+                    Uri uri;
+                    return Uri.TryCreate(candidate, UriKind.Absolute, out uri) ? uri.AbsoluteUri : null;
+                }
+            }
             /// <summary>
             /// 
             /// </summary>
@@ -1476,7 +1425,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// Room_id
             /// </summary>
@@ -1651,7 +1600,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// 两仪滚
             /// </summary>
@@ -1719,7 +1668,7 @@ namespace BiliBili.UWP.Modules
             {
                 get
                 {
-                    if (relation_status == 1)
+                    if (relation_status != 1)
                     {
                         return Visibility.Visible;
                     }
@@ -1733,7 +1682,7 @@ namespace BiliBili.UWP.Modules
             {
                 get
                 {
-                    if (relation_status != 1)
+                    if (relation_status == 1)
                     {
                         return Visibility.Visible;
                     }
@@ -1828,7 +1777,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// 叶江霖
             /// </summary>
@@ -1915,7 +1864,7 @@ namespace BiliBili.UWP.Modules
                 get
                 {
 
-                    return Modules.LiveRoom.titleItems.FirstOrDefault(x => x.identification == user_title)?.web_pic_url;
+                    return Modules.LiveRoom.titleItems?.FirstOrDefault(x => x.identification == user_title)?.web_pic_url;
 
 
                 }
@@ -2013,7 +1962,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// 果冻菌
             /// </summary>
@@ -2029,7 +1978,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Score
             /// </summary>
-            public int score { get; set; }
+            public long score { get; set; }
             /// <summary>
             /// Guard_level
             /// </summary>
@@ -2058,6 +2007,11 @@ namespace BiliBili.UWP.Modules
                     return "ms-appx:///Assets/LiveRank/ic_rank_seeds.png";
                 }
             }
+
+            // 贡献榜和粉丝团共用同一个 XAML 项模板。
+            public string medal_name { get; set; } = string.Empty;
+            public int level { get; set; }
+            public SolidColorBrush medal_color { get; set; }
 
             public Visibility show_medal { get; set; } = Visibility.Collapsed;
             public Visibility show_info { get; set; } = Visibility.Visible;
@@ -2092,7 +2046,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// 召唤师
             /// </summary>
@@ -2123,6 +2077,9 @@ namespace BiliBili.UWP.Modules
                     return "ms-appx:///Assets/LiveRank/ic_live_rank_" + rank + ".png";
                 }
             }
+
+            public ImageSource info_img { get; set; }
+            public long score { get; set; }
 
             public Visibility show_medal { get; set; } = Visibility.Visible;
             public Visibility show_info { get; set; } = Visibility.Collapsed;
@@ -2182,7 +2139,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// 逆时空的朋也
             /// </summary>
@@ -2229,11 +2186,11 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// Ruid
             /// </summary>
-            public int ruid { get; set; }
+            public long ruid { get; set; }
             /// <summary>
             /// Rank
             /// </summary>

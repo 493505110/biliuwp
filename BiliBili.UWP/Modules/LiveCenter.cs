@@ -1,7 +1,10 @@
 ﻿using BiliBili.UWP.Helper;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.Live;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules.LiveCenterModels;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -23,19 +26,19 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                string url = $"https://api.live.bilibili.com/mobile/getUser?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetLiveUserInfo().Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
                     if (Account.myInfo == null)
                     {
                         await new Account().GetMyInfo();
                     }
-                    LiveUserInfoModel m = JsonConvert.DeserializeObject<LiveUserInfoModel>(model.json["data"].ToString());
-                    m.uname = Account.myInfo.name;
-                    m.face = Account.myInfo.face;
+                    var data = root["data"];
+                    var m = data?.ToObject<LiveUserInfoModel>() ?? new LiveUserInfoModel();
+                    m.wearTitle = data?["wear_title"]?.ToObject<UserInfoWearTitleModel>();
+                    m.uname = Account.myInfo?.name ?? data?.Value<string>("uname") ?? string.Empty;
+                    m.face = Account.myInfo?.face ?? data?.Value<string>("face") ?? string.Empty;
                     return new ReturnModel<LiveUserInfoModel>()
                     {
                         success = true,
@@ -47,7 +50,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<LiveUserInfoModel>()
                     {
                         success = false,
-                        message = model.message.ToString()
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -67,16 +70,36 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                
-                string url = $"https://api.live.bilibili.com/relation/v1/App/LiveHomePage?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetFollowingLive().Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-
-                    ObservableCollection<LivingModel> m = JsonConvert.DeserializeObject<ObservableCollection<LivingModel>>(model.json["data"]["rooms"].ToString());
-                   
+                    var m = new ObservableCollection<LivingModel>();
+                    var rooms = root["data"]?["rooms"] as Newtonsoft.Json.Linq.JArray;
+                    if (rooms != null)
+                    {
+                        foreach (var item in rooms)
+                        {
+                            m.Add(new LivingModel
+                            {
+                                roomid = item.Value<int?>("room_id") ?? item.Value<int?>("roomid") ?? 0,
+                                uid = item.Value<long?>("uid") ?? 0,
+                                uname = item.Value<string>("uname") ?? item.Value<string>("nickname") ?? string.Empty,
+                                face = item.Value<string>("face") ?? string.Empty,
+                                title = item.Value<string>("title") ?? string.Empty,
+                                live_tag_name = item.Value<string>("tag_name") ?? string.Empty,
+                                online = item.Value<int?>("online") ?? 0,
+                                area_name = item.Value<string>("area_name") ?? string.Empty,
+                                area_v2_id = item.Value<int?>("area_v2_id") ?? 0,
+                                area_v2_name = item.Value<string>("area_v2_name") ?? string.Empty,
+                                area_v2_parent_id = item.Value<int?>("area_v2_parent_id") ?? 0,
+                                area_v2_parent_name = item.Value<string>("area_v2_parent_name") ?? string.Empty,
+                                broadcast_type = item.Value<int?>("broadcast_type") ?? 0,
+                                link = item.Value<string>("link") ?? string.Empty,
+                                cover = item.Value<string>("cover_from_user") ?? item.Value<string>("keyframe") ?? string.Empty
+                            });
+                        }
+                    }
                     return new ReturnModel<ObservableCollection<LivingModel>>()
                     {
                         success = true,
@@ -89,7 +112,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<LivingModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -109,16 +132,33 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-
-                string url = $"https://api.live.bilibili.com/relation/v1/App/UnLiveRooms?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&page={page}&pagesize=20&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResults(new Uri(url));
-                var model = results.ToDynamicJObject();
-                if (model.code == 0)
+                var response = await LiveRoomAPI.GetFollowing(page, 10).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
-
-                    ObservableCollection<NotLivingModel> m = JsonConvert.DeserializeObject<ObservableCollection<NotLivingModel>>(model.json["data"]["rooms"].ToString());
-
+                    var m = new ObservableCollection<NotLivingModel>();
+                    var list = root["data"]?["list"] as Newtonsoft.Json.Linq.JArray;
+                    if (list != null)
+                    {
+                        foreach (var item in list.Where(x => (x.Value<int?>("live_status") ?? 0) != 1))
+                        {
+                            m.Add(new NotLivingModel
+                            {
+                                live_desc = item.Value<string>("text_small") ?? "最近",
+                                roomid = item.Value<int?>("roomid") ?? 0,
+                                uid = item.Value<long?>("uid") ?? 0,
+                                uname = item.Value<string>("uname") ?? string.Empty,
+                                face = item.Value<string>("face") ?? string.Empty,
+                                live_status = item.Value<int?>("live_status") ?? 0,
+                                broadcast_type = item.Value<int?>("broadcast_type") ?? 0,
+                                area_name = item.Value<string>("area_name") ?? string.Empty,
+                                area_v2_id = item.Value<int?>("area_id") ?? 0,
+                                area_v2_name = item.Value<string>("area_name_v2") ?? string.Empty,
+                                area_v2_parent_id = item.Value<int?>("parent_area_id") ?? 0,
+                                link = "https://live.bilibili.com/" + (item.Value<int?>("roomid") ?? 0)
+                            });
+                        }
+                    }
                     return new ReturnModel<ObservableCollection<NotLivingModel>>()
                     {
                         success = true,
@@ -131,7 +171,7 @@ namespace BiliBili.UWP.Modules
                     return new ReturnModel<ObservableCollection<NotLivingModel>>()
                     {
                         success = false,
-                        message = model.message
+                        message = root?["message"]?.ToString() ?? response.message
                     };
                 }
 
@@ -179,7 +219,7 @@ namespace BiliBili.UWP.Modules
             {
                 get
                 {
-                    return Modules.LiveRoom.titleItems.FirstOrDefault(x => x.identification == title)?.web_pic_url;
+                    return Modules.LiveRoom.titleItems?.FirstOrDefault(x => x.identification == title)?.web_pic_url;
                 }
             }
 
@@ -277,7 +317,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// bilibili英雄联盟赛事
             /// </summary>
@@ -385,7 +425,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Uid
             /// </summary>
-            public int uid { get; set; }
+            public long uid { get; set; }
             /// <summary>
             /// 宫本狗雨
             /// </summary>

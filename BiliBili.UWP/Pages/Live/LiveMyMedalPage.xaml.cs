@@ -1,4 +1,6 @@
 ﻿using Newtonsoft.Json;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.Live;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -50,27 +52,29 @@ namespace BiliBili.UWP.Pages
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
-
-                string url = $"https://api.live.bilibili.com/AppUser/medal?access_key={ApiHelper.access_key}&actionKey=appkey&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&device=android&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                LiveMedalModel m = JsonConvert.DeserializeObject<LiveMedalModel>(results);
-                if (m.code == 0)
+                var medals = new List<LiveMedalModel>();
+                var page = 1;
+                var totalPages = 1;
+                while (page <= totalPages)
                 {
-                    if (m.data.Count == 0)
+                    var response = await LiveRoomAPI.GetMyMedals(page, 10).Request();
+                    var root = response.GetJObject();
+                    if (!response.status || root == null || root.Value<int?>("code") != 0)
                     {
-                        NoDT.Visibility = Visibility.Visible;
+                        Utils.ShowMessageToast(root?["message"]?.ToString() ?? response.message, 3000);
+                        return;
                     }
-                    else
+                    var items = root["data"]?["items"]?.ToObject<List<LiveMedalModel>>() ?? new List<LiveMedalModel>();
+                    foreach (var medal in items)
                     {
-                        NoDT.Visibility = Visibility.Collapsed;
+                        medal.color = medal.medal_color_start.ToString();
+                        medals.Add(medal);
                     }
-                    list.ItemsSource = m.data;
+                    totalPages = root["data"]?["page_info"]?.Value<int?>("total_page") ?? 1;
+                    page++;
                 }
-                else
-                {
-                    Utils.ShowMessageToast(m.message, 3000);
-                }
+                NoDT.Visibility = medals.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                list.ItemsSource = medals;
             }
             catch (Exception ex)
             {
@@ -98,52 +102,19 @@ namespace BiliBili.UWP.Pages
         }
         private void Button_Click(object sender, RoutedEventArgs e)
         {
-            if ((sender as Button).Content.ToString()=="卸下")
+            var medal = (sender as Button).DataContext as LiveMedalModel;
+            if (medal.status == 1)
             {
                 Cancel();
             }
             else
             {
-                Add(((sender as Button).DataContext as LiveMedalModel).medal_id);
+                Add(medal.medal_id);
             }
         }
         private async void Cancel()
         {
-
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-
-                string url = $"http://live.bilibili.com/AppUser/canelMedal?access_key={ApiHelper.access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&mobi_app=android&platform=android";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                JObject m = JObject.Parse(results);
-                if ( (int)m["code"] == 0)
-                {
-                    Utils.ShowMessageToast("操作成功", 3000);
-                    LoadData();
-                }
-                else
-                {
-                    Utils.ShowMessageToast(m["message"].ToString(), 3000);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex.HResult == -2147012867)
-                {
-                    Utils.ShowMessageToast("检查你的网络连接！", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("发生错误\r\n" + ex.Message, 3000);
-                }
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-
-            }
+            await new Windows.UI.Popups.MessageDialog("当前接口不支持卸下粉丝勋章").ShowAsync();
         }
         private async void Add(int id)
         {
@@ -151,18 +122,16 @@ namespace BiliBili.UWP.Pages
             {
                 pr_Load.Visibility = Visibility.Visible;
 
-                string url = $"http://live.bilibili.com/AppUser/wearMedal?access_key={ApiHelper.access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&platform=android";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.PostResults(new Uri(url), "medal_id="+ id + "&");
-                JObject m = JObject.Parse(results);
-                if ((int)m["code"] == 0)
+                var response = await LiveRoomAPI.WearMedal(id).Request();
+                var root = response.GetJObject();
+                if (response.status && root != null && root.Value<int?>("code") == 0)
                 {
                     Utils.ShowMessageToast("操作成功", 3000);
                     LoadData();
                 }
                 else
                 {
-                    Utils.ShowMessageToast(m["message"].ToString(), 3000);
+                    Utils.ShowMessageToast(root?["message"]?.ToString() ?? response.message, 3000);
                 }
             }
             catch (Exception ex)
@@ -192,6 +161,7 @@ namespace BiliBili.UWP.Pages
         public List<LiveMedalModel> data{ get; set; }
 
         public int medal_id { get; set; }
+        public int medal_color_start { get; set; }
         public string medal_name { get; set; }
         public string level { get; set; }
         public string uname { get; set; }
@@ -204,7 +174,7 @@ namespace BiliBili.UWP.Pages
             {
                 if (status==1)
                 {
-                    return "卸下";
+                    return "已佩戴";
                 }
                 else
                 {

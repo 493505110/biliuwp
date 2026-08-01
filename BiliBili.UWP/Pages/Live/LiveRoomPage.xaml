@@ -22,11 +22,11 @@
                             <TextBlock FontSize="16">赠送道具</TextBlock>
                         </PivotItem.Header>
                         <Grid>
-                            <GridView x:Name="gridview_Gifts" HorizontalAlignment="Center" ItemsSource="{Binding roomgifts}" ItemClick="gridview_Gifts_ItemClick" SelectionMode="None" IsItemClickEnabled="True" >
+                            <GridView x:Name="gridview_Gifts" HorizontalAlignment="Center" ItemClick="gridview_Gifts_ItemClick" SelectionMode="None" IsItemClickEnabled="True" >
                                 <GridView.ItemTemplate>
                                     <DataTemplate>
-                                        <StackPanel ToolTipService.ToolTip="{Binding Price}">
-                                            <Image Source="{Binding img}" Width="56" ></Image>
+                                        <StackPanel ToolTipService.ToolTip="{Binding desc}">
+                                            <Image Source="{Binding img_basic}" Width="56" ></Image>
                                             <TextBlock HorizontalAlignment="Center" FontSize="12" Text="{Binding name}" ></TextBlock>
                                             <TextBlock HorizontalAlignment="Center" FontSize="12" Text="{Binding price}" Visibility="Visible"></TextBlock>
                                         </StackPanel>

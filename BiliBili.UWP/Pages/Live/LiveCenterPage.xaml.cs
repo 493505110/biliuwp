@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Api;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
+using BiliBili.UWP.Modules.LiveCenterModels;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -124,12 +125,12 @@ namespace BiliBili.UWP.Pages
      
         private void btn_myroom_Click(object sender, RoutedEventArgs e)
         {
-            var info = this.DataContext as LiveCenterModel;
+            var info = this.DataContext as LiveUserInfoModel;
             if (info==null)
             {
                 return;
             }
-            if (info.room_id=="0")
+            if (info.room_id == 0)
             {
                 return;
             }
@@ -148,46 +149,22 @@ namespace BiliBili.UWP.Pages
 
         private async void btn_sign_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                var api = new Api.Live.LiveCenterAPI();
-                var result =await api.DoSign().Request();
-                SignModel model = JsonConvert.DeserializeObject<SignModel>(result.results);
-                if (model.code == 0)
-                {
-                    SignModel data = JsonConvert.DeserializeObject<SignModel>(model.data.ToString());
-
-                    btn_sign.Visibility = Visibility.Collapsed;
-                    signed.Visibility = Visibility.Visible;
-
-                    await new MessageDialog(data.text).ShowAsync();
-                    
-                }
-                else
-                {
-                    await new MessageDialog(model.msg).ShowAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                await new MessageDialog("签到时发生错误\r\n"+ ex.Message).ShowAsync();
-            }
-
+            await new MessageDialog("直播签到功能已下线").ShowAsync();
         }
 
         private void btn_buyVIP_Click(object sender, RoutedEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "http://live.bilibili.com/i#to-vip");
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "https://live.bilibili.com/i#to-vip");
         }
 
         private void btn_Capsuletoy_Click(object sender, RoutedEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "http://live.bilibili.com/pages/playground/index#!/capsule-toy");
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "https://live.bilibili.com/pages/playground/index#!/capsule-toy");
         }
 
         private void btn_DHH_Click(object sender, RoutedEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "http://live.bilibili.com/hd/guard-desc?menu=0");
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "https://live.bilibili.com/hd/guard-desc?menu=0");
         }
 
         private void btn_myMedal_Click(object sender, RoutedEventArgs e)
@@ -215,8 +192,7 @@ namespace BiliBili.UWP.Pages
 
         private void btn_buySlider_Click(object sender, RoutedEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "http://live.bilibili.com/exchange");
-            //http://live.bilibili.com/exchange
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), "https://live.bilibili.com/exchange");
            // Utils.ShowMessageToast("暂时没开发，请到其它平台操作", 3000);
         }
     }
