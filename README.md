@@ -62,4 +62,5 @@ release
 
 ### 其他
 
-<img width="398" height="400" alt="image" src="https://github.com/user-attachments/assets/c74ee29e-e26e-4149-af21-efb3ac8c6cd0" />
+<img width="426" height="416" alt="image" src="https://github.com/user-attachments/assets/e0702d50-1456-459c-9e80-b3b77b2b626f" />
+
