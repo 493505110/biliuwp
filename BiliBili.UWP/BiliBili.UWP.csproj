@@ -382,6 +382,7 @@
     <Compile Include="Helper\UserManage.cs" />
     <Compile Include="Helper\Utils.cs" />
     <Compile Include="Helper\WbiEncodeHelper.cs" />
+    <Compile Include="Helper\WebView2CookieHelper.cs" />
     <Compile Include="Helper\WebClientClass.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
@@ -1241,10 +1242,6 @@
     <ProjectReference Include="..\BiliBili.Background\BiliBili.Background.csproj">
       <Project>{e3691422-cbfd-4df9-827b-77d195731eec}</Project>
       <Name>BackTask</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\BiliBili.JSBridge\BiliBili.JSBridge.csproj">
-      <Project>{0839991c-f5eb-4181-98e0-ae81a5f5be1a}</Project>
-      <Name>BiliBiliJS</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

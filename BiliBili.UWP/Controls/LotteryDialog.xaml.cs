@@ -22,7 +22,20 @@ namespace BiliBili.UWP.Controls
         public LotteryDialog(string id)
         {
             this.InitializeComponent();
-            web.Source = new Uri($"https://t.bilibili.com/lottery/h5/index/#/result?business_id={id}&business_type=1&isWeb=1");
+            Opened += async (sender, args) =>
+            {
+                try
+                {
+                    await web.EnsureCoreWebView2Async();
+                    await Helper.WebView2CookieHelper.CopyToWebViewAsync(web.CoreWebView2);
+                    web.Source = new Uri($"https://t.bilibili.com/lottery/h5/index/#/result?business_id={id}&business_type=1&isWeb=1");
+                }
+                catch (Exception ex)
+                {
+                    Helper.LogHelper.WriteLog("WebView2初始化失败", Helper.LogType.ERROR, ex);
+                    BiliBili.UWP.Utils.ShowMessageToast("浏览器组件不可用，请安装 WebView2 运行时后重试");
+                }
+            };
         }
 
         private void ContentDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)

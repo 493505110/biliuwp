@@ -1,439 +1,324 @@
-﻿using BiliBili.UWP.Helper;
-using BiliBili.UWP.Models;
+using BiliBili.UWP.Helper;
 using BiliBili.UWP.Modules;
-using Microsoft.Toolkit.Uwp.Helpers;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
-
-// “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
 
 namespace BiliBili.UWP.Pages
 {
-    /// <summary>
-    /// 可用于自身或导航至 Frame 内部的空白页。
-    /// </summary>
     public sealed partial class WebPage : Page
     {
+        private const string BiliAppBridgeScript = @"
+(() => {
+    const send = (action, data) => window.chrome.webview.postMessage(JSON.stringify({
+        source: 'biliapp',
+        action: action,
+        data: data == null ? '' : String(data)
+    }));
+    const alert = message => send('Alert', message);
+    const validateLogin = data => send('ValidateLogin', data);
+    const closeBrowser = () => send('CloseBrowser', '');
+    window.biliapp = {
+        Alert: alert,
+        alert: alert,
+        ValidateLogin: validateLogin,
+        validateLogin: validateLogin,
+        CloseBrowser: closeBrowser,
+        closeBrowser: closeBrowser
+    };
+})();";
+
+        private bool webViewReady;
+        private string bypassNavigationUri;
+
         public WebPage()
         {
-            this.InitializeComponent();
-            //webView = new WebView(WebViewExecutionMode.SameThread);
-            this.NavigationCacheMode = NavigationCacheMode.Enabled;
+            InitializeComponent();
+            NavigationCacheMode = NavigationCacheMode.Enabled;
         }
-        BiliBili.JSBridge.biliapp _biliapp = new BiliBili.JSBridge.biliapp();
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.NavigationMode == NavigationMode.New)
+            base.OnNavigatedTo(e);
+            if (e.NavigationMode != NavigationMode.New || e.Parameter == null)
             {
-
-                _biliapp.CloseBrowserEvent += _biliapp_CloseBrowserEvent;
-                _biliapp.ValidateLoginEvent += _biliapp_ValidateLoginEvent;
-                if (e.Parameter is object[])
-                {
-                    webView.Navigate(new Uri((e.Parameter as object[])[0].ToString()));
-                }
-                else
-                {
-                    webView.Navigate(new Uri(e.Parameter.ToString()));
-                }
-
+                return;
             }
-            
+
+            var parameter = e.Parameter is object[] values && values.Length > 0
+                ? values[0]?.ToString()
+                : e.Parameter.ToString();
+            if (!Uri.TryCreate(parameter, UriKind.Absolute, out var uri))
+            {
+                Utils.ShowMessageToast("无法打开无效的网址");
+                return;
+            }
+
+            if (await EnsureWebViewAsync())
+            {
+                webView.Source = uri;
+            }
         }
+
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             if (e.NavigationMode == NavigationMode.Back)
             {
-                webView.NavigateToString("");
-                this.NavigationCacheMode = NavigationCacheMode.Disabled;
+                if (webView.CoreWebView2 != null)
+                {
+                    bypassNavigationUri = "about:blank";
+                    webView.CoreWebView2.Navigate("about:blank");
+                }
+                NavigationCacheMode = NavigationCacheMode.Disabled;
             }
             base.OnNavigatedFrom(e);
         }
-        private void _biliapp_CloseBrowserEvent(object sender, string e)
-        {
-            this.Frame.GoBack();
-        }
 
-        private async void _biliapp_ValidateLoginEvent(object sender, string e)
+        private async System.Threading.Tasks.Task<bool> EnsureWebViewAsync()
         {
+            if (webViewReady)
+            {
+                return true;
+            }
+
             try
             {
-                JObject jObject = JObject.Parse(e);
-                if (jObject["access_token"] != null)
-                {
-                    Account account = new Account();
-                    var m= await account.CheckAgainLogin(jObject["access_token"].ToString(), jObject["refresh_token"].ToString(), jObject["expires_in"].ToInt32(),Convert.ToInt64(jObject["mid"]));
-                    if (m.success)
-                    {
-                        Utils.ShowMessageToast("登录成功");
-                    }
-                    else
-                    {
-                        Utils.ShowMessageToast("登录失败");
-                    }
-                    //await UserManage.LoginSucess(jObject["access_token"].ToString());
-                }
-                else
-                {
-                    Utils.ShowMessageToast("登录失败");
-                }
-                this.Frame.GoBack();
-            }
-            catch (Exception)
-            {
-            }
-            
-        }
-
-      
-
-
-
-        private void btn_Back_Click(object sender, RoutedEventArgs e)
-        {
-            //if (webView.CanGoBack)
-            //{
-            //    webView.GoBack();
-            //}
-            //else
-            //{
-              //  this.Frame.GoBack();
-            //}
-            if (this.Frame.CanGoBack)
-            {
-                this.Frame.GoBack();
-            }
-        }
-
-        private async void webview_WebView_NavigationStarting(WebView sender, WebViewNavigationStartingEventArgs args)
-        {
-            if (args.Uri==null)
-            {
-                return;
-            }
-            if (await MessageCenter.HandelUrl(args.Uri.AbsoluteUri))
-            {
-                args.Cancel = true;
-            }
-            try
-            {
-                this.webView.AddWebAllowedObject("biliapp", _biliapp);
+                await webView.EnsureCoreWebView2Async();
+                webView.NavigationStarting += WebView_NavigationStarting;
+                webView.NavigationCompleted += WebView_NavigationCompleted;
+                webView.WebMessageReceived += WebView_WebMessageReceived;
+                webView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+                webView.CoreWebView2.DOMContentLoaded += (sender, args) =>
+                    webview_progressBar.Visibility = Visibility.Collapsed;
+                webView.CoreWebView2.DocumentTitleChanged += (sender, args) =>
+                    txt_Header.Text = webView.CoreWebView2.DocumentTitle;
+                await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BiliAppBridgeScript);
+                await WebView2CookieHelper.CopyToWebViewAsync(webView.CoreWebView2);
+                webViewReady = true;
+                return true;
             }
             catch (Exception ex)
             {
-                LogHelper.WriteLog("初始化JSbridge失败", LogType.ERROR,ex);
+                LogHelper.WriteLog("WebView2初始化失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("浏览器组件不可用，请安装 WebView2 运行时后重试");
+                return false;
             }
-          
-
-
-
-            //string ban = Regex.Match(args.Uri.AbsoluteUri, @"^http://bangumi.bilibili.com/anime/(.*?)$").Groups[1].Value;
-            //if (ban.Length != 0)
-            //{
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), ban.Replace("/", ""));
-            //    return;
-            //}
-            //string ban2 = Regex.Match(args.Uri.AbsoluteUri, @"^http://www.bilibili.com/bangumi/i/(.*?)$").Groups[1].Value;
-            //if (ban2.Length != 0)
-            //{
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), ban2.Replace("/", ""));
-            //    return;
-            //}
-
-            ////bilibili://?av=4284663
-            //string ban3 = Regex.Match(args.Uri.AbsoluteUri, @"^bilibili://?av=(.*?)$").Groups[1].Value;
-            //if (ban3.Length != 0)
-            //{
-            //    //args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), ban3.Replace("/", ""));
-            //    //this.Frame.Navigate(typeof(VideoViewPage), ban3.Replace("/", ""));
-            //    return;
-            //}
-            ////https://bangumi.bilibili.com/anime/6499
-            //string ban4 = Regex.Match(args.Uri.AbsoluteUri+"/", @"/anime/(.*?)/",RegexOptions.Singleline).Groups[1].Value;
-            //if (ban4.Length != 0)
-            //{
-            //    //args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), ban4.Replace("/", ""));
-            //    // this.Frame.Navigate(typeof(BanInfoPage), ban2.Replace("/", ""));
-            //    return;
-            //}
-
-
-
-            //string live = Regex.Match(args.Uri.AbsoluteUri, @"^bilibili://live/(.*?)$").Groups[1].Value;
-            //if (live.Length != 0)
-            //{
-            //    MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), live);
-
-            //    return;
-            //}
-
-            //string live2 = Regex.Match(args.Uri.AbsoluteUri, @"^http://live.bilibili.com/(.*?)$").Groups[1].Value;
-            //if (live2.Length != 0)
-            //{
-            //    long roomid = 0;
-            //    if (long.TryParse(live2.Replace("/",""),out roomid))
-            //    {
-            //        MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), live2.Replace("/", "").Replace("h5/",""));
-            //        return;
-            //    }
-
-
-
-            //}
-
-            //string minivideo = Regex.Match(args.Uri.AbsoluteUri+"/", @"vc=(.*?)/").Groups[1].Value;
-            //if (minivideo.Length != 0)
-            //{
-
-            //    //MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), minivideo);
-            //    MessageCenter.ShowMiniVideo(minivideo);
-            //    return;
-            //}
-
-
-            ////text .Text= args.Uri.AbsoluteUri;
-            //webview_progressBar.Visibility = Visibility.Visible;
-            //if (Regex.IsMatch(args.Uri.AbsoluteUri, "/video/av(.*)?[/|+](.*)?"))
-            //{
-
-            //    string a = Regex.Match(args.Uri.AbsoluteUri, "/video/av(.*)?[/|+](.*)?").Groups[1].Value;
-            //    //this.Frame.Navigate(typeof(VideoViewPage), a);
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), a);
-            //}
-
-
         }
 
-     
-
-        private void webview_WebView_FrameDOMContentLoaded(WebView sender, WebViewDOMContentLoadedEventArgs args)
+        private async void WebView_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
         {
+            webview_progressBar.Visibility = Visibility.Visible;
+            if (args.Uri == bypassNavigationUri)
+            {
+                bypassNavigationUri = null;
+                return;
+            }
+
+            if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri))
+            {
+                args.Cancel = true;
+                webview_progressBar.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var isWebUri = uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+            if (isWebUri && args.NavigationKind != CoreWebView2NavigationKind.NewDocument)
+            {
+                return;
+            }
+
+            args.Cancel = true;
+            if (await MessageCenter.HandelUrl(args.Uri))
+            {
+                webview_progressBar.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            if (isWebUri)
+            {
+                bypassNavigationUri = args.Uri;
+                sender.CoreWebView2.Navigate(args.Uri);
+                return;
+            }
+
             webview_progressBar.Visibility = Visibility.Collapsed;
-            
+            await PromptOpenExternalAsync(uri);
         }
 
-        private void webview_WebView_DOMContentLoaded(WebView sender, WebViewDOMContentLoadedEventArgs args)
-        {
-            webview_progressBar.Visibility = Visibility.Collapsed;
-
-        }
-
-
-        private async void webview_WebView_NewWindowRequested(WebView sender, WebViewNewWindowRequestedEventArgs args)
+        private async void CoreWebView2_NewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs args)
         {
             args.Handled = true;
-            var re = await MessageCenter.HandelUrl(args.Uri.AbsoluteUri);
-            if (!re)
+            var deferral = args.GetDeferral();
+            try
             {
-                var md = new MessageDialog("是否调用外部浏览器打开此链接？");
-                md.Commands.Add(new UICommand("确定", new UICommandInvokedHandler(async (e) => { await Windows.System.Launcher.LaunchUriAsync(args.Uri); })));
-                md.Commands.Add(new UICommand("取消", new UICommandInvokedHandler((e) => { })));
-                await md.ShowAsync();
+                if (!await MessageCenter.HandelUrl(args.Uri) &&
+                    Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri))
+                {
+                    await PromptOpenExternalAsync(uri);
+                }
             }
+            finally
+            {
+                deferral.Complete();
+            }
+        }
 
+        private async void WebView_WebMessageReceived(WebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
+        {
+            try
+            {
+                var message = JObject.Parse(args.TryGetWebMessageAsString());
+                if (message.Value<string>("source") != "biliapp")
+                {
+                    return;
+                }
 
+                var data = message.Value<string>("data") ?? string.Empty;
+                switch (message.Value<string>("action"))
+                {
+                    case "Alert":
+                        await new MessageDialog(data).ShowAsync();
+                        break;
+                    case "ValidateLogin":
+                        await ValidateLoginAsync(data);
+                        break;
+                    case "CloseBrowser":
+                        if (Frame.CanGoBack)
+                        {
+                            Frame.GoBack();
+                        }
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("解析WebView2消息失败", LogType.ERROR, ex);
+            }
+        }
 
-            //string ban = Regex.Match(args.Uri.AbsoluteUri, @"^http://bangumi.bilibili.com/anime/(.*?)$").Groups[1].Value;
-            //if (ban.Length != 0)
-            //{
-            //    args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), ban.Replace("/", ""));
-            //    // this.Frame.Navigate(typeof(BanInfoPage), ban.Replace("/", ""));
-            //    return;
-            //}
-            //string ban2 = Regex.Match(args.Uri.AbsoluteUri, @"^http://www.bilibili.com/bangumi/i/(.*?)$").Groups[1].Value;
-            //if (ban2.Length != 0)
-            //{
-            //    args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), ban2.Replace("/", ""));
-            //    //this.Frame.Navigate(typeof(BanInfoPage), ban2.Replace("/", ""));
-            //    return;
-            //}
-            //string ban3 = Regex.Match(args.Uri.AbsoluteUri, @"^bilibili://?av=(.*?)$").Groups[1].Value;
-            //if (ban3.Length != 0)
-            //{
-            //    args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), ban3.Replace("/", ""));
-            //    //this.Frame.Navigate(typeof(VideoViewPage), ban3.Replace("/", ""));
-            //    return;
-            //}
+        private async System.Threading.Tasks.Task ValidateLoginAsync(string data)
+        {
+            try
+            {
+                var result = JObject.Parse(data);
+                if (result["access_token"] == null)
+                {
+                    Utils.ShowMessageToast("登录失败");
+                    return;
+                }
 
-            //string ban4 = Regex.Match(args.Uri.AbsoluteUri, @"^bilibili.com/anime/(.*?)$").Groups[1].Value;
-            //if (ban4.Length != 0)
-            //{
-            //    //args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), ban4.Replace("/", ""));
-            //    // this.Frame.Navigate(typeof(BanInfoPage), ban2.Replace("/", ""));
-            //    return;
-            //}
-            //string live = Regex.Match(args.Uri.AbsoluteUri, @"^bilibili://live/(.*?)$").Groups[1].Value;
-            //if (live.Length != 0)
-            //{
-            //    args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), live);
+                var account = new Account();
+                var loginResult = await account.CheckAgainLogin(
+                    result.Value<string>("access_token"),
+                    result.Value<string>("refresh_token"),
+                    result.Value<int>("expires_in"),
+                    result.Value<long>("mid"));
+                Utils.ShowMessageToast(loginResult.success ? "登录成功" : "登录失败");
+                if (Frame.CanGoBack)
+                {
+                    Frame.GoBack();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("处理网页登录结果失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("登录失败");
+            }
+        }
 
-            //    return;
-            //}
+        private static async System.Threading.Tasks.Task PromptOpenExternalAsync(Uri uri)
+        {
+            var dialog = new MessageDialog("是否调用外部浏览器打开此链接？");
+            dialog.Commands.Add(new UICommand("确定", async command =>
+                await Windows.System.Launcher.LaunchUriAsync(uri)));
+            dialog.Commands.Add(new UICommand("取消"));
+            await dialog.ShowAsync();
+        }
 
-            //string minivideo = Regex.Match(args.Uri.AbsoluteUri + "/", @"vc=(.*?)/").Groups[1].Value;
-            //if (minivideo.Length != 0)
-            //{
-            //    args.Handled = true;
-            //    //MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), minivideo);
-            //    MessageCenter.ShowMiniVideo(minivideo);
-
-
-
-            //    return;
-            //}
-
-
-            //string video = Regex.Match(args.Uri.AbsoluteUri + "?", @"av(.*?)\?").Groups[1].Value;
-            //if (video.Length != 0)
-            //{
-            //    args.Handled = true;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), video);
-            //    return;
-            //}
-
-
-
-            ////乱写一通的正则
-            ////正则真的真的真的不会啊- -
-            //if (Regex.IsMatch(args.Uri.AbsoluteUri, "/video/av(.*)?[/|+](.*)?"))
-            //{
-            //    args.Handled = true;
-
-            //    string a = Regex.Match(args.Uri.AbsoluteUri, "/video/av(.*)?[/|+](.*)?").Groups[1].Value;
-            //    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), a);
-            //    //this.Frame.Navigate(typeof(VideoViewPage), a);
-            //}
-            //else
-            //{
-            //    if (Regex.IsMatch(args.Uri.AbsoluteUri + "+", "/video/av(.*)[/|+]"))
-            //    {
-            //        args.Handled = true;
-            //        string a = Regex.Match(args.Uri.AbsoluteUri + "+", "/video/av(.*)[/|+]").Groups[1].Value;
-            //        //this.Frame.Navigate(typeof(VideoViewPage), a);
-            //        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), a);
-            //    }
-            //    else
-            //    {
-            //        if (Regex.IsMatch(args.Uri.AbsoluteUri, @"live.bilibili.com/(.*?)"))
-            //        {
-            //            args.Handled = true;
-            //            string a = Regex.Match(args.Uri.AbsoluteUri + "a", "live.bilibili.com/(.*?)a").Groups[1].Value;
-            //            // livePlayVideo(a);
-            //            MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), a.Replace("h5/", ""));
-            //        }
-            //        else
-            //        {
-            //            args.Handled = true;
-
-            //            var md = new MessageDialog("是否调用外部浏览器打开此链接？");
-            //            md.Commands.Add(new UICommand("确定", new UICommandInvokedHandler(async (e) => { await Windows.System.Launcher.LaunchUriAsync(args.Uri); })));
-            //            md.Commands.Add(new UICommand("取消", new UICommandInvokedHandler((e) => {  })));
-            //            await md.ShowAsync();
-
-            //            //Utils.ShowMessageToast("已禁止跳转：" + args.Uri.AbsoluteUri + "\r\n请点击右上角使用浏览器打开", 3000);
-            //            //text.Text = "已禁止跳转：" + args.Uri.AbsoluteUri;
-            //        }
-            //    }
-            //}
-
+        private void btn_Back_Click(object sender, RoutedEventArgs e)
+        {
+            if (Frame.CanGoBack)
+            {
+                Frame.GoBack();
+            }
         }
 
         private void menu_copy_Click(object sender, RoutedEventArgs e)
         {
-            DataPackage pack = new Windows.ApplicationModel.DataTransfer.DataPackage();
-            pack.SetText(webView.Source.AbsoluteUri);
-            Clipboard.SetContent(pack); // 保存 DataPackage 对象到剪切板
+            if (webView.Source == null)
+            {
+                return;
+            }
+            var package = new DataPackage();
+            package.SetText(webView.Source.AbsoluteUri);
+            Clipboard.SetContent(package);
             Clipboard.Flush();
         }
 
         private async void menu_open_Click(object sender, RoutedEventArgs e)
         {
-            await Windows.System.Launcher.LaunchUriAsync(webView.Source);
+            if (webView.Source != null)
+            {
+                await Windows.System.Launcher.LaunchUriAsync(webView.Source);
+            }
         }
 
         private void btn_refresh_Click(object sender, RoutedEventArgs e)
         {
-            webView.Refresh();
-        }
-
-        private async void web_UnsupportedUriSchemeIdentified(WebView sender, WebViewUnsupportedUriSchemeIdentifiedEventArgs args)
-        {
-            if (args.Uri.AbsoluteUri.Contains("bilibili://"))
-            {
-                args.Handled = true;
-
-                var re = await MessageCenter.HandelUrl(args.Uri.AbsoluteUri);
-                if (!re)
-                {
-                    Utils.ShowMessageToast("不支持打开的链接" + args.Uri.AbsoluteUri);
-                }
-
-            }
+            webView.CoreWebView2?.Reload();
         }
 
         private void btn_WebBack_Click(object sender, RoutedEventArgs e)
         {
-            if (webView.CanGoBack)
+            if (webView.CoreWebView2?.CanGoBack == true)
             {
-                webView.GoBack();
+                webView.CoreWebView2.GoBack();
             }
-           
         }
 
         private void btn_WebRefresh_Click(object sender, RoutedEventArgs e)
         {
-            webView.Refresh();
+            webView.CoreWebView2?.Reload();
         }
 
-        private async void webView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
+        private async void WebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
         {
+            webview_progressBar.Visibility = Visibility.Collapsed;
+            if (!args.IsSuccess || sender.Source == null)
+            {
+                return;
+            }
+
             try
             {
-                if (args.Uri != null && args.Uri.AbsoluteUri.Contains("bilibili.com"))
+                await WebView2CookieHelper.CopyToHttpClientAsync(sender.CoreWebView2);
+                if (sender.Source.AbsoluteUri.Contains("bilibili.com"))
                 {
-                    //微软商店的审核都是傻逼
-                    await webView.InvokeScriptAsync("eval", new string[] {
-                        "document.getElementById('internationalHeader').style.display='none';document.getElementsByClassName('international-footer')[0].style.display='none';" ,
-                    });
+                    await sender.CoreWebView2.ExecuteScriptAsync(
+                        "document.getElementById('internationalHeader')?.remove();" +
+                        "document.getElementsByClassName('international-footer')[0]?.remove();");
                 }
 
-                if (args.Uri!=null&&args.Uri.AbsoluteUri.Contains("23344273.aspx"))
+                if (sender.Source.AbsoluteUri.Contains("23344273.aspx"))
                 {
-                    string appVer = SettingHelper.GetVersion();
-                 
-                    string systemVer = Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily + " " +SystemHelper.SystemVersion();
-                    string js = $"document.getElementById('q2').value='{appVer}';document.getElementById('q3').value='{systemVer}';";
-                    await webView.InvokeScriptAsync("eval", new string[] { js });
+                    var appVersion = SettingHelper.GetVersion();
+                    var systemVersion = Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily + " " +
+                        SystemHelper.SystemVersion();
+                    var script = $"document.getElementById('q2').value={JsonConvert.SerializeObject(appVersion)};" +
+                        $"document.getElementById('q3').value={JsonConvert.SerializeObject(systemVersion)};";
+                    await sender.CoreWebView2.ExecuteScriptAsync(script);
                 }
-
-
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("WebView2脚本执行失败", LogType.ERROR, ex);
             }
         }
     }

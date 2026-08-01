@@ -697,8 +697,17 @@ namespace BiliBili.UWP.Views
 
         private async void btn_Clear_Click(object sender, RoutedEventArgs e)
         {
-            await WebView.ClearTemporaryWebDataAsync();
-            await new MessageDialog("清除完成,为了能正常使用，请重新登录").ShowAsync();
+            try
+            {
+                await cacheWebView.EnsureCoreWebView2Async();
+                await cacheWebView.CoreWebView2.Profile.ClearBrowsingDataAsync();
+                await new MessageDialog("清除完成,为了能正常使用，请重新登录").ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("清除WebView2缓存失败", LogType.ERROR, ex);
+                await new MessageDialog("清除失败，请确认已安装WebView2运行时").ShowAsync();
+            }
         }
 
         private void sw_toMp4_Toggled(object sender, RoutedEventArgs e)

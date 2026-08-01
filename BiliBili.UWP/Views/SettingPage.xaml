@@ -7,6 +7,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:controls="using:Microsoft.Toolkit.Uwp.UI.Controls"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d"
     Tag="设置"
     >
@@ -744,6 +745,7 @@
                 </ScrollViewer>
             </PivotItem>
         </Pivot>
+        <muxc:WebView2 x:Name="cacheWebView" Grid.RowSpan="3" Visibility="Collapsed" />
         <ProgressRing Width="56" Height="56" x:Name="pr_Load" Grid.RowSpan="2" IsActive="True" Visibility="Collapsed"></ProgressRing>
        
     </Grid>

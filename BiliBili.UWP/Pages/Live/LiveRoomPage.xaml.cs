@@ -452,7 +452,15 @@ namespace BiliBili.UWP.Pages
                     }
                     txt_ul.Foreground = GetColor(m.master_level_color);
                     string b = @"<head><style>p{font-family:""微软雅黑"";}</style></head>";
-                    web.NavigateToString(b + m.meta.description);
+                    try
+                    {
+                        await web.EnsureCoreWebView2Async();
+                        web.NavigateToString(b + m.meta.description);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog("WebView2初始化失败", LogType.ERROR, ex);
+                    }
                     grid_Error.Visibility = Visibility.Collapsed;
                     txt_online.Text = m.online.ToString();
 

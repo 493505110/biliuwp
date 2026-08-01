@@ -6,6 +6,7 @@
        xmlns:my="using:BiliBili.UWP"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d">
 
     <Grid x:Name="grid_bg"  Background="{ThemeResource Bili-Background}" >
@@ -38,7 +39,7 @@
                 </AppBarButton>
             </Grid>
             <Grid Grid.Row="1">
-                <WebView x:Name="web" NavigationStarting="web_NavigationStarting" NewWindowRequested="web_NewWindowRequested" UnsupportedUriSchemeIdentified="web_UnsupportedUriSchemeIdentified" NavigationCompleted="web_NavigationCompleted"></WebView>
+                <muxc:WebView2 x:Name="web" />
             </Grid>
         </Grid>
 

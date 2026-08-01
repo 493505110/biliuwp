@@ -21,8 +21,6 @@ using BiliBili.UWP.Modules.AccountModels;
 using System.Threading.Tasks;
 using System.Timers;
 using Microsoft.Web.WebView2.Core;
-using Windows.Web.Http;
-using Windows.Web.Http.Filters;
 
 // https://go.microsoft.com/fwlink/?LinkId=234238 上介绍了“内容对话框”项模板
 
@@ -86,7 +84,7 @@ namespace BiliBili.UWP.Controls
                 webView.NavigationCompleted += webView_NavigationCompleted;
                 webView.WebMessageReceived += webView_WebMessageReceived;
                 //注销时由 UserManage.Logout() 调用，清 WebView2 自己的 cookie 存储
-                UserManage.ClearWebViewCookies = () => webView.CoreWebView2?.CookieManager.DeleteAllCookies();
+                WebView2CookieHelper.Register(webView.CoreWebView2);
                 webViewReady = true;
                 return true;
             }
@@ -208,7 +206,7 @@ namespace BiliBili.UWP.Controls
                     }
                     //安全验证(如异地登录验证手机号)交给网页完成。
                     //登录过程的cookie在WinRT一侧，先回写给WebView2
-                    await CopyCookiesToWebView();
+                    await WebView2CookieHelper.CopyToWebViewAsync(webView.CoreWebView2);
                     Title = "安全验证";
                     mode = LoginMode.Validate;
                     pwdLogin.Visibility = Visibility.Collapsed;
@@ -418,104 +416,12 @@ namespace BiliBili.UWP.Controls
                 //离开登录/验证页且cookie里已有DedeUserID，说明网页侧已登录成功
                 bool stillOnLoginPage = host.Contains("passport.bilibili.com") &&
                     (path.StartsWith("/login") || path.Contains("/h5-app/passport"));
-                if (!stillOnLoginPage && await GetWebViewCookie("DedeUserID") != "")
+                if (!stillOnLoginPage && await WebView2CookieHelper.GetCookieAsync(webView.CoreWebView2, "DedeUserID") != "")
                 {
                     await FinishWebLogin();
                 }
                 return;
             }
-        }
-
-        /// <summary>
-        /// 读取WebView2自己的cookie。它与WinRT的HttpClient不共用cookie存储
-        /// </summary>
-        private async Task<string> GetWebViewCookie(string name)
-        {
-            try
-            {
-                var cookies = await webView.CoreWebView2.CookieManager.GetCookiesAsync("https://www.bilibili.com");
-                foreach (var item in cookies)
-                {
-                    if (item.Name == name && !string.IsNullOrEmpty(item.Value))
-                    {
-                        return item.Value;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("读取WebView2 cookie失败", LogType.ERROR, ex);
-            }
-            return "";
-        }
-
-        /// <summary>
-        /// 把WebView2里的cookie搬到WinRT的cookie jar，
-        /// 这样后续用HttpClient发的确认请求才带得上SESSDATA
-        /// </summary>
-        private async Task CopyCookiesToHttpClient()
-        {
-            try
-            {
-                var filter = new HttpBaseProtocolFilter();
-                foreach (var origin in new string[] { "https://www.bilibili.com", "https://passport.bilibili.com" })
-                {
-                    var cookies = await webView.CoreWebView2.CookieManager.GetCookiesAsync(origin);
-                    foreach (var item in cookies)
-                    {
-                        try
-                        {
-                            var domain = string.IsNullOrEmpty(item.Domain) ? "bilibili.com" : item.Domain.TrimStart('.');
-                            var cookiePath = string.IsNullOrEmpty(item.Path) ? "/" : item.Path;
-                            var cookie = new HttpCookie(item.Name, domain, cookiePath);
-                            cookie.Value = item.Value;
-                            if (!item.IsSession && item.Expires > 0)
-                            {
-                                cookie.Expires = DateTimeOffset.FromUnixTimeSeconds((long)item.Expires);
-                            }
-                            filter.CookieManager.SetCookie(cookie);
-                        }
-                        catch (Exception)
-                        {
-                            //个别cookie域名不合法会抛异常，跳过
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("拷贝WebView2 cookie失败", LogType.ERROR, ex);
-            }
-        }
-
-        /// <summary>
-        /// 反向：把WinRT的cookie塞进WebView2。
-        /// 账密登录触发安全验证时，验证页要能看到登录过程写下的cookie
-        /// </summary>
-        private async Task CopyCookiesToWebView()
-        {
-            try
-            {
-                var filter = new HttpBaseProtocolFilter();
-                var cookies = filter.CookieManager.GetCookies(new Uri("https://passport.bilibili.com/"));
-                foreach (var item in cookies)
-                {
-                    try
-                    {
-                        var c = webView.CoreWebView2.CookieManager.CreateCookie(
-                            item.Name, item.Value, ".bilibili.com", "/");
-                        webView.CoreWebView2.CookieManager.AddOrUpdateCookie(c);
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("回写cookie到WebView2失败", LogType.ERROR, ex);
-            }
-            await Task.CompletedTask;
         }
 
         /// <summary>
@@ -531,7 +437,7 @@ namespace BiliBili.UWP.Controls
             Title = "正在完成登录";
             webView.Visibility = Visibility.Collapsed;
             //WebView2与HttpClient的cookie存储是分开的，先搬过去
-            await CopyCookiesToHttpClient();
+            await WebView2CookieHelper.CopyToHttpClientAsync(webView.CoreWebView2);
             var result = await account.CookieToAccessKey();
             if (result.status == Modules.LoginStatus.Success)
             {

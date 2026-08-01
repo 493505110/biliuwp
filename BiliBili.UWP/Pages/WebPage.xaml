@@ -6,6 +6,7 @@
       xmlns:my="using:BiliBili.UWP"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d">
 
     <Grid  Background="{ThemeResource Bili-Background}">
@@ -25,7 +26,7 @@
                     <ColumnDefinition Width="auto"/>
                 </Grid.ColumnDefinitions>
                 <AppBarButton x:Name="btn_Back" Click="btn_Back_Click" Foreground="White" Width="48" Icon="Back" Height="48"  ></AppBarButton>
-                <TextBlock x:Name="txt_Header" TextTrimming="CharacterEllipsis" Text="{Binding ElementName=webView,Path=DocumentTitle}" Grid.Column="1" Margin="5 0" VerticalAlignment="Center" Foreground="White"></TextBlock>
+                <TextBlock x:Name="txt_Header" TextTrimming="CharacterEllipsis" Grid.Column="1" Margin="5 0" VerticalAlignment="Center" Foreground="White"></TextBlock>
                 <AppBarButton Grid.Column="2" Width="48" Height="48" Foreground="White" Icon="More">
                     <AppBarButton.Flyout>
                         <MenuFlyout>
@@ -36,7 +37,7 @@
                     </AppBarButton.Flyout>
                 </AppBarButton>
             </Grid>
-            <WebView x:Name="webView" Grid.Row="1" NavigationStarting="webview_WebView_NavigationStarting" NavigationCompleted="webView_NavigationCompleted" DOMContentLoaded="webview_WebView_DOMContentLoaded" UnsupportedUriSchemeIdentified="web_UnsupportedUriSchemeIdentified" NewWindowRequested="webview_WebView_NewWindowRequested"></WebView>
+            <muxc:WebView2 x:Name="webView" Grid.Row="1" />
         </Grid>
         <!--<ContentDialog x:Name="cd"  Grid.RowSpan="2" IsPrimaryButtonEnabled="True" IsSecondaryButtonEnabled="True" PrimaryButtonText="分享" PrimaryButtonClick="cd_PrimaryButtonClick" SecondaryButtonText="关闭">
             <ScrollViewer VerticalScrollBarVisibility="Auto" >

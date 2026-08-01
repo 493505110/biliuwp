@@ -5,12 +5,13 @@
     xmlns:local="using:BiliBili.UWP.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d"
     SecondaryButtonText="关闭"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
 
     <Grid>
-        <WebView x:Name="web" MinHeight="400" Width="460"></WebView>
+        <muxc:WebView2 x:Name="web" MinHeight="400" Width="460" />
     </Grid>
 </ContentDialog>

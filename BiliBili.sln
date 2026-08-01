@@ -7,8 +7,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BiliBili.UWP", "BiliBili.UW
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BiliBili.Background", "BiliBili.Background\BiliBili.Background.csproj", "{E3691422-CBFD-4DF9-827B-77D195731EEC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BiliBili.JSBridge", "BiliBili.JSBridge\BiliBili.JSBridge.csproj", "{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -67,26 +65,6 @@ Global
 		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Release|x64.Build.0 = Release|x64
 		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Release|x86.ActiveCfg = Release|x86
 		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Release|x86.Build.0 = Release|x86
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|ARM.ActiveCfg = Debug|ARM
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|ARM.Build.0 = Debug|ARM
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|ARM64.ActiveCfg = Debug|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|ARM64.Build.0 = Debug|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|x64.ActiveCfg = Debug|x64
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|x64.Build.0 = Debug|x64
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|x86.ActiveCfg = Debug|x86
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Debug|x86.Build.0 = Debug|x86
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|ARM.ActiveCfg = Release|ARM
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|ARM.Build.0 = Release|ARM
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|ARM64.ActiveCfg = Release|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|ARM64.Build.0 = Release|Any CPU
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|x64.ActiveCfg = Release|x64
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|x64.Build.0 = Release|x64
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|x86.ActiveCfg = Release|x86
-		{0839991C-F5EB-4181-98E0-AE81A5F5BE1A}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

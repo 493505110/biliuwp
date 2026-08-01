@@ -8,6 +8,7 @@
     xmlns:danmu="using:NSDanmaku.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d"
     xmlns:vlc="using:VLC"
     SizeChanged="Page_SizeChanged"
@@ -472,7 +473,7 @@
         </Grid>
 
         <Grid x:Name="cd"  Grid.RowSpan="3" VerticalAlignment="Stretch" Visibility="Collapsed">
-            <WebView x:Name="web" Margin="20"></WebView>
+            <muxc:WebView2 x:Name="web" Margin="20" />
             <AppBarButton x:Name="btn_Close" Click="btn_Close_Click" Margin="20" HorizontalAlignment="Right" Icon="Clear" Width="48"></AppBarButton>
         </Grid>
 

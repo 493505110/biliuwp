@@ -5,7 +5,7 @@
 ## 构建与验证
 
 - 使用 **Visual Studio 2019+**，安装 UWP 工作负载和 **Windows SDK 10.0.19041.0**。
-- 主应用 `BiliBili.UWP` 的 `TargetPlatformMinVersion` 为 `10.0.17763.0`，这是 WinUI 2.8/WebView2 的最低要求；`BiliBili.Background` 和 `BiliBili.JSBridge` 仍声明为 `10.0.16299.0`。
+- 主应用 `BiliBili.UWP` 的 `TargetPlatformMinVersion` 为 `10.0.17763.0`，这是 WinUI 2.8/WebView2 的最低要求；`BiliBili.Background` 仍声明为 `10.0.16299.0`。
 - 打开 `BiliBili.sln`，还原 NuGet 包并生成解决方案。涉及网页登录或安全验证时，运行环境还需安装 WebView2 Runtime。
 - 主目标为 `BiliBili.UWP`（`AppContainerExe`）。解决方案的 `Any CPU` 和 `ARM64` 主应用配置映射到 `x86`，不要把它们理解为真正的 AnyCPU/ARM64 主程序产物。
 - 主应用的 `Release|x86`、`Release|ARM`、`Release|x64` 启用 `.NET Native toolchain`，依赖反射的代码在 Release 下可能有不同表现；`Debug|x64` 显式关闭该工具链。
@@ -15,13 +15,12 @@
 
 ## 架构
 
-`BiliBili.sln` 包含三个项目：
+`BiliBili.sln` 包含两个项目：
 
 | 项目 | 类型 | 用途 |
 |---|---|---|
 | `BiliBili.UWP` | UWP 应用 | 主客户端：页面、业务模块、API 层、UI 控件 |
 | `BiliBili.Background` | `winmdobj` | 后台任务（`BackgroundTask.cs`）和关注动态磁贴通知 |
-| `BiliBili.JSBridge` | `winmdobj` | 旧 `WebPage` 使用的 `biliapp` / `secure` WebView JS 桥；当前 `LoginDialog` 的 WebView2 流程不经过该桥 |
 
 ### 关键目录（`BiliBili.UWP/` 下）
 
