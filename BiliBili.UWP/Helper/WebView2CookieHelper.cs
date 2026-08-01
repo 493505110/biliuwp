@@ -17,6 +17,15 @@ namespace BiliBili.UWP.Helper
             "https://passport.bilibili.com/"
         };
 
+        private static readonly HashSet<string> SharedLoginCookieNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "SESSDATA",
+            "DedeUserID",
+            "DedeUserID__ckMd5",
+            "bili_jct",
+            "sid"
+        };
+
         public static async Task<string> GetCookieAsync(CoreWebView2 webView, string name)
         {
             Register(webView);
@@ -89,11 +98,15 @@ namespace BiliBili.UWP.Helper
                 var copied = new HashSet<string>();
                 foreach (var origin in BilibiliOrigins)
                 {
-                    var cookies = filter.CookieManager.GetCookies(new Uri(origin));
+                    var originUri = new Uri(origin);
+                    var cookies = filter.CookieManager.GetCookies(originUri);
                     foreach (var item in cookies)
                     {
-                        var domain = string.IsNullOrEmpty(item.Domain) ? ".bilibili.com" : item.Domain;
-                        var path = string.IsNullOrEmpty(item.Path) ? "/" : item.Path;
+                        var isSharedLoginCookie = SharedLoginCookieNames.Contains(item.Name);
+                        var domain = isSharedLoginCookie
+                            ? ".bilibili.com"
+                            : (string.IsNullOrEmpty(item.Domain) ? originUri.Host : item.Domain);
+                        var path = isSharedLoginCookie || string.IsNullOrEmpty(item.Path) ? "/" : item.Path;
                         if (!copied.Add(item.Name + "\n" + domain + "\n" + path))
                         {
                             continue;

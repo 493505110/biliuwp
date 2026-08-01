@@ -63,7 +63,9 @@ namespace BiliBili.UWP.Pages
 
             if (await EnsureWebViewAsync())
             {
-                webView.Source = uri;
+                //页面会被导航缓存复用，登录或换号后每次进入都要刷新Cookie。
+                await WebView2CookieHelper.CopyToWebViewAsync(webView.CoreWebView2);
+                webView.CoreWebView2.Navigate(uri.AbsoluteUri);
             }
         }
 
@@ -100,7 +102,6 @@ namespace BiliBili.UWP.Pages
                 webView.CoreWebView2.DocumentTitleChanged += (sender, args) =>
                     txt_Header.Text = webView.CoreWebView2.DocumentTitle;
                 await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BiliAppBridgeScript);
-                await WebView2CookieHelper.CopyToWebViewAsync(webView.CoreWebView2);
                 webViewReady = true;
                 return true;
             }

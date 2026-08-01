@@ -54,6 +54,7 @@ namespace BiliBili.UWP.Controls
         {
             this.InitializeComponent();
             account = new Account();
+            Closed += (sender, args) => StopQRTimer();
         }
 
         protected async override void OnApplyTemplate()
@@ -273,6 +274,7 @@ namespace BiliBili.UWP.Controls
 
         private void ContentDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
         {
+            StopQRTimer();
         }
 
         private void txt_Password_GotFocus(object sender, RoutedEventArgs e)
@@ -326,6 +328,7 @@ namespace BiliBili.UWP.Controls
         private void StartQRTimer()
         {
             StopQRTimer();
+            qrPollCancellation = new System.Threading.CancellationTokenSource();
             timer = new Timer();
             timer.Interval = 3000;
             timer.Elapsed += Timer_Elapsed;
@@ -337,6 +340,8 @@ namespace BiliBili.UWP.Controls
         /// </summary>
         private void StopQRTimer()
         {
+            qrPollCancellation?.Cancel();
+            qrPollCancellation = null;
             if (timer != null)
             {
                 timer.Stop();
@@ -482,6 +487,8 @@ namespace BiliBili.UWP.Controls
             await GetQRAuthInfo();
         }
         bool qr_loading = false;
+        bool qr_polling = false;
+        System.Threading.CancellationTokenSource qrPollCancellation;
         QRAuthInfo authInfo;
         Timer timer;
         private async Task GetQRAuthInfo()
@@ -490,7 +497,7 @@ namespace BiliBili.UWP.Controls
             {
                 qr_loading = true;
                 StopQRTimer();
-                var result = await account.GetQRAuthInfo();
+                var result = await account.GetWebQRAuthInfo();
                 if (result.success)
                 {
                     authInfo = result.data;
@@ -510,29 +517,67 @@ namespace BiliBili.UWP.Controls
                 {
                     Utils.ShowMessageToast(result.message);
                 }
-                qr_loading = false;
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("读取和加载登录二维码失败", LogType.ERROR, ex);
                 Utils.ShowMessageToast("加载二维码失败");
             }
+            finally
+            {
+                qr_loading = false;
+            }
 
         }
 
         private async void Timer_Elapsed(object sender, ElapsedEventArgs e)
         {
-
+            var activeTimer = sender as Timer;
+            var cancellation = qrPollCancellation;
+            if (activeTimer == null || cancellation == null)
+            {
+                return;
+            }
+            var cancellationToken = cancellation.Token;
             await this.Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal,
-               async () =>
-                {
-                    var result = await account.PollQRAuthInfo(authInfo.auth_code);
-                    if (result.status == Modules.LoginStatus.Success)
+                 async () =>
+                 {
+                    if (activeTimer != timer || cancellationToken.IsCancellationRequested || qr_polling)
                     {
-                        StopQRTimer();
-                        this.Hide();
+                        return;
                     }
-                });
+                    var currentAuthInfo = authInfo;
+                    var currentMode = mode;
+                    qr_polling = true;
+                    try
+                    {
+                        var result = currentMode == LoginMode.WebConfirm
+                            ? await account.PollQRAuthInfo(currentAuthInfo.auth_code, cancellationToken)
+                            : await account.PollWebQRAuthInfo(currentAuthInfo.qrcode_key, cancellationToken);
+                        if (cancellationToken.IsCancellationRequested || activeTimer != timer ||
+                            currentAuthInfo != authInfo || currentMode != mode)
+                        {
+                            return;
+                        }
+                        if (result.status == Modules.LoginStatus.Success)
+                        {
+                            StopQRTimer();
+                            this.Hide();
+                        }
+                        else if (result.status == Modules.LoginStatus.Error)
+                        {
+                            StopQRTimer();
+                            Utils.ShowMessageToast(result.message);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    finally
+                    {
+                        qr_polling = false;
+                    }
+                 });
 
         }
 

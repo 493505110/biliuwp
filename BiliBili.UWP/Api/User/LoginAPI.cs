@@ -43,6 +43,34 @@ namespace BiliBili.UWP.Api.User
         }
 
         /// <summary>
+        /// Web二维码登录获取二维码及qrcode_key
+        /// </summary>
+        public ApiModel WebQRLoginGenerate()
+        {
+            return new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
+                parameter = "source=main-fe-header",
+                headers = WebHeaders()
+            };
+        }
+
+        /// <summary>
+        /// Web二维码登录轮询。成功响应会向应用Cookie存储写入Web登录Cookie
+        /// </summary>
+        public ApiModel WebQRLoginPoll(string qrcodeKey)
+        {
+            return new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
+                parameter = $"qrcode_key={Uri.EscapeDataString(qrcodeKey)}&source=main-fe-header",
+                headers = WebHeaders()
+            };
+        }
+
+        /// <summary>
         /// Web端请求头，passport接口对UA与Referer敏感
         /// </summary>
         private static IDictionary<string, string> WebHeaders()

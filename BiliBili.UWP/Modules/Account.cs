@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Security.Cryptography.Core;
 using Windows.Storage.Streams;
@@ -692,10 +693,17 @@ namespace BiliBili.UWP.Modules
         /// 走TV二维码：申请auth_code → 用cookie确认 → 轮询取token。
         /// 原先用的/login/app/third接口已下线(code 20000)，故改用此路径
         /// </summary>
-        public async Task<LoginCallbackModel> CookieToAccessKey()
+        public Task<LoginCallbackModel> CookieToAccessKey()
         {
+            return CookieToAccessKey(CancellationToken.None);
+        }
+
+        private async Task<LoginCallbackModel> CookieToAccessKey(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             var csrf = GetCookieValue("bili_jct");
             var authResult = await GetQRAuthInfo();
+            cancellationToken.ThrowIfCancellationRequested();
             if (!authResult.success)
             {
                 return new LoginCallbackModel() { status = LoginStatus.Fail, message = "获取授权码失败：" + authResult.message };
@@ -706,6 +714,7 @@ namespace BiliBili.UWP.Modules
                 return new LoginCallbackModel() { status = LoginStatus.Fail, message = confirm.message };
             }
             var obj = confirm.GetJObject();
+            cancellationToken.ThrowIfCancellationRequested();
             if (obj == null || obj["code"].ToInt32() != 0)
             {
                 return new LoginCallbackModel()
@@ -715,17 +724,27 @@ namespace BiliBili.UWP.Modules
                 };
             }
             //确认后轮询取token。服务端状态可能有延迟，重试几次
-            LoginCallbackModel poll = null;
+            ReturnModel<Token_info> tokenResult = null;
             for (int i = 0; i < 5; i++)
             {
-                poll = await PollQRAuthInfo(authResult.data.auth_code);
-                if (poll.status == LoginStatus.Success)
+                cancellationToken.ThrowIfCancellationRequested();
+                tokenResult = await PollQRTokenInfo(authResult.data.auth_code);
+                if (tokenResult.success)
                 {
-                    return poll;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    SaveTokenInfo(tokenResult.data);
+                    MessageCenter.SendLogined();
+                    return new LoginCallbackModel() { status = LoginStatus.Success, message = "登录成功" };
                 }
-                await Task.Delay(800);
+                await Task.Delay(800, cancellationToken);
             }
-            return poll ?? new LoginCallbackModel() { status = LoginStatus.Fail, message = "获取登录凭证失败" };
+            return new LoginCallbackModel()
+            {
+                status = LoginStatus.Fail,
+                message = tokenResult == null || string.IsNullOrEmpty(tokenResult.message)
+                    ? "获取登录凭证失败"
+                    : tokenResult.message
+            };
         }
 
         /// <summary>
@@ -796,56 +815,185 @@ namespace BiliBili.UWP.Modules
                 return HandelError<QRAuthInfo>(ex);
             }
         }
+
+        /// <summary>
+        /// 获取Web二维码登录信息。此流程会在扫码成功后建立Web Cookie登录态
+        /// </summary>
+        public async Task<ReturnModel<QRAuthInfo>> GetWebQRAuthInfo()
+        {
+            try
+            {
+                var result = await loginAPI.WebQRLoginGenerate().Request();
+                if (!result.status)
+                {
+                    return new ReturnModel<QRAuthInfo>() { success = false, message = result.message };
+                }
+
+                var data = await result.GetData<QRAuthInfo>();
+                if (data == null || !data.success || data.data == null ||
+                    string.IsNullOrEmpty(data.data.url) || string.IsNullOrEmpty(data.data.qrcode_key))
+                {
+                    return new ReturnModel<QRAuthInfo>()
+                    {
+                        success = false,
+                        message = data == null ? "读取二维码失败" : data.message
+                    };
+                }
+                return new ReturnModel<QRAuthInfo>() { success = true, data = data.data };
+            }
+            catch (Exception ex)
+            {
+                return HandelError<QRAuthInfo>(ex);
+            }
+        }
+
+        /// <summary>
+        /// 轮询Web二维码；Web Cookie与App token都建立后才返回成功
+        /// </summary>
+        public Task<LoginCallbackModel> PollWebQRAuthInfo(string qrcodeKey)
+        {
+            return PollWebQRAuthInfo(qrcodeKey, CancellationToken.None);
+        }
+
+        public async Task<LoginCallbackModel> PollWebQRAuthInfo(string qrcodeKey, CancellationToken cancellationToken)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await loginAPI.WebQRLoginPoll(qrcodeKey).Request();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!result.status)
+                {
+                    return new LoginCallbackModel() { status = LoginStatus.Fail, message = result.message };
+                }
+
+                var obj = result.GetJObject();
+                if (obj == null || obj["code"].ToInt32() != 0 || obj["data"] == null)
+                {
+                    return new LoginCallbackModel()
+                    {
+                        status = LoginStatus.Fail,
+                        message = obj == null ? "二维码轮询返回异常" : obj["message"]?.ToString()
+                    };
+                }
+
+                var data = obj["data"];
+                var code = data["code"].ToInt32();
+                if (code == 86101 || code == 86090)
+                {
+                    return new LoginCallbackModel() { status = LoginStatus.Fail, message = data["message"]?.ToString() };
+                }
+                if (code == 86038)
+                {
+                    return new LoginCallbackModel() { status = LoginStatus.Error, message = "二维码已失效，请刷新后重试" };
+                }
+                if (code != 0)
+                {
+                    return new LoginCallbackModel()
+                    {
+                        status = LoginStatus.Error,
+                        message = string.IsNullOrEmpty(data["message"]?.ToString()) ? $"扫码登录失败，代码：{code}" : data["message"].ToString()
+                    };
+                }
+
+                //始终处理本次扫码的成功回跳，避免沿用Cookie存储中的旧账号状态。
+                if (Uri.TryCreate(data["url"]?.ToString(), UriKind.Absolute, out var crossDomainUri))
+                {
+                    await WebClientClass.GetResults(crossDomainUri);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!HasWebLoginCookies())
+                {
+                    return new LoginCallbackModel()
+                    {
+                        status = LoginStatus.Error,
+                        message = "扫码成功，但同步网页登录状态失败，请刷新二维码重试"
+                    };
+                }
+
+                var tokenResult = await CookieToAccessKey(cancellationToken);
+                if (tokenResult.status != LoginStatus.Success)
+                {
+                    tokenResult.status = LoginStatus.Error;
+                    tokenResult.message = "网页已登录，但同步客户端登录状态失败：" + tokenResult.message;
+                }
+                return tokenResult;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("Web二维码登录失败", LogType.ERROR, ex);
+                return new LoginCallbackModel() { status = LoginStatus.Error, message = "扫码登录失败：" + ex.Message };
+            }
+        }
+
+        private static bool HasWebLoginCookies()
+        {
+            return !string.IsNullOrEmpty(GetCookieValue("SESSDATA")) &&
+                !string.IsNullOrEmpty(GetCookieValue("DedeUserID")) &&
+                !string.IsNullOrEmpty(GetCookieValue("bili_jct"));
+        }
+
+        private static void SaveTokenInfo(Token_info token)
+        {
+            SettingHelper.Set_Access_key(token.access_token);
+            SettingHelper.Set_Refresh_Token(token.refresh_token);
+            SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(token.expires_in));
+            SettingHelper.Set_UserID(token.mid);
+        }
+
+        private async Task<ReturnModel<Token_info>> PollQRTokenInfo(string authCode)
+        {
+            try
+            {
+                var result = await loginAPI.QRLoginPoll(authCode, guid).Request();
+                if (!result.status)
+                {
+                    return new ReturnModel<Token_info>() { success = false, message = result.message };
+                }
+                var data = await result.GetData<Token_info>();
+                if (data == null || !data.success || data.data == null)
+                {
+                    return new ReturnModel<Token_info>()
+                    {
+                        success = false,
+                        message = data == null ? "二维码轮询返回异常" : data.message
+                    };
+                }
+                return new ReturnModel<Token_info>() { success = true, data = data.data };
+            }
+            catch (Exception ex)
+            {
+                return new ReturnModel<Token_info>() { success = false, message = ex.Message };
+            }
+        }
+
         /// <summary>
         /// 轮询二维码扫描信息
         /// </summary>
         /// <returns></returns>
-        public async Task<LoginCallbackModel> PollQRAuthInfo(string auth_code)
+        public Task<LoginCallbackModel> PollQRAuthInfo(string auth_code)
         {
-            try
-            {
-                var result = await loginAPI.QRLoginPoll(auth_code,guid).Request();
-                if (result.status)
-                {
-                    var data = await result.GetData<Token_info>();
-                    if (data.success)
-                    {
-                        SettingHelper.Set_Access_key(data.data.access_token);
-                        SettingHelper.Set_Refresh_Token(data.data.refresh_token);
-                        SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(data.data.expires_in));
-                        SettingHelper.Set_UserID(data.data.mid);
-                        await SSO(data.data.access_token);
-                        MessageCenter.SendLogined();
-                        return new LoginCallbackModel() { 
-                            status= LoginStatus.Success,
-                            message= ""
-                        };
-                    }
-                    else
-                    {
-                        return new LoginCallbackModel()
-                        {
-                            status = LoginStatus.Fail,
-                            message = data.message
-                        };
+            return PollQRAuthInfo(auth_code, CancellationToken.None);
+        }
 
-                    }
-                }
-                else
-                {
-                    return new LoginCallbackModel() { 
-                        status= LoginStatus.Fail,
-                        message= result.message
-                    };
-                }
-            }
-            catch (Exception ex)
+        public async Task<LoginCallbackModel> PollQRAuthInfo(string auth_code, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var tokenResult = await PollQRTokenInfo(auth_code);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!tokenResult.success)
             {
-                return new LoginCallbackModel() { 
-                    status= LoginStatus.Fail,
-                    message=ex.Message
-                };
+                return new LoginCallbackModel() { status = LoginStatus.Fail, message = tokenResult.message };
             }
+            await SSO(tokenResult.data.access_token);
+            cancellationToken.ThrowIfCancellationRequested();
+            SaveTokenInfo(tokenResult.data);
+            MessageCenter.SendLogined();
+            return new LoginCallbackModel() { status = LoginStatus.Success, message = "" };
         }
     }
     public enum LoginStatus
@@ -1160,6 +1308,7 @@ namespace BiliBili.UWP.Modules
         {
             public string url { get; set; }
             public string auth_code { get; set; }
+            public string qrcode_key { get; set; }
         }
       
     }
