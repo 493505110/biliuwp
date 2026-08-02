@@ -57,12 +57,13 @@ namespace BiliBili.UWP.Pages.Live
             list_chat.ItemsSource = danmu_list;
         }
 
-        private void MessageCenter_Logined()
+        private async void MessageCenter_Logined()
         {
             //加载我的信息
             LoadMyInfo();
             //加载我的礼物
             LoadMyGifts();
+            await LoadFollowStatus();
         }
 
         private async void _systemMediaTransportControls_ButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
@@ -193,6 +194,8 @@ namespace BiliBili.UWP.Pages.Live
 
                 this.DataContext = roomInfo.data;
                 txt_online.Text = roomInfo.data.online.ToW();
+                SetFollowStatus(roomInfo.data.UserInfo?.relation_status == 1);
+                await LoadFollowStatus();
                 //加载我的信息
                 LoadMyInfo();
                 //加载礼物
@@ -243,6 +246,28 @@ namespace BiliBili.UWP.Pages.Live
 
             pr_Loading.Visibility = Visibility.Collapsed;
         }
+
+        private async Task LoadFollowStatus()
+        {
+            if (!ApiHelper.IsLogin())
+            {
+                SetFollowStatus(false);
+                return;
+            }
+
+            var relation = await account.IsFollowing(uId.ToString());
+            if (relation.success)
+            {
+                SetFollowStatus(relation.data);
+            }
+        }
+
+        private void SetFollowStatus(bool isFollowing)
+        {
+            btn_Follow.Visibility = isFollowing ? Visibility.Collapsed : Visibility.Visible;
+            btn_UnFollow.Visibility = isFollowing ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         /// <summary>
         /// 读取礼物列表
         /// </summary>
@@ -1430,12 +1455,12 @@ namespace BiliBili.UWP.Pages.Live
             var content = await account.UnFollow((this.DataContext as LiveRoomInfoModel).uid.ToString());
             if (content.success)
             {
-                btn_UnFollow.Visibility = Visibility.Collapsed;
-                btn_Follow.Visibility = Visibility.Visible;
+                SetFollowStatus(false);
                 Utils.ShowMessageToast("已经取消关注");
             }
             else
             {
+                await LoadFollowStatus();
                 Utils.ShowMessageToast(content.message);
             }
         }
@@ -1457,12 +1482,12 @@ namespace BiliBili.UWP.Pages.Live
             var content = await account.Follow((this.DataContext as LiveRoomInfoModel).uid.ToString());
             if (content.success)
             {
-                btn_UnFollow.Visibility = Visibility.Visible;
-                btn_Follow.Visibility = Visibility.Collapsed;
+                SetFollowStatus(true);
                 Utils.ShowMessageToast("关注成功");
             }
             else
             {
+                await LoadFollowStatus();
                 Utils.ShowMessageToast(content.message);
             }
         }

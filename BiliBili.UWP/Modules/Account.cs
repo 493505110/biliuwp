@@ -33,6 +33,42 @@ namespace BiliBili.UWP.Modules
         }
         public static MyInfoModel myInfo;
 
+        public async Task<ReturnModel<bool>> IsFollowing(string uid)
+        {
+            try
+            {
+                var result = await userCenterAPI.Relation(uid).Request();
+                if (result.status)
+                {
+                    var data = await result.GetJson<ApiDataModel<JObject>>();
+                    if (data?.success == true)
+                    {
+                        var attribute = data.data?.Value<int?>("attribute") ?? 0;
+                        return new ReturnModel<bool>()
+                        {
+                            success = true,
+                            message = "",
+                            data = attribute == 2 || attribute == 6
+                        };
+                    }
+                    return new ReturnModel<bool>()
+                    {
+                        success = false,
+                        message = data?.message ?? "读取关注状态失败"
+                    };
+                }
+                return new ReturnModel<bool>()
+                {
+                    success = false,
+                    message = result.message
+                };
+            }
+            catch (Exception ex)
+            {
+                return HandelError<bool>(ex);
+            }
+        }
+
         public async Task<ReturnModel> Follow(string uid)
         {
             try

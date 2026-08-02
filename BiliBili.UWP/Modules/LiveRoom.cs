@@ -253,10 +253,10 @@ namespace BiliBili.UWP.Modules
                         level = liveInfo?.Value<int?>("level") ?? 0,
                         level_color = "#" + levelColor.ToString("X6"),
                         room_id = room.room_id,
-                        follow_num = relationInfo?.Value<int?>("follower_num") ?? 0,
-                        relation_status = relationInfo?.Value<int?>("relation_status")
+                        follow_num = relationInfo?.Value<int?>("follower_num")
                             ?? relationInfo?.Value<int?>("attention")
-                            ?? 0,
+                            ?? room.attention,
+                        relation_status = relationInfo?.Value<int?>("relation_status") ?? 0,
                         glory_info = new List<Glory_info>()
                     };
                     roomUpInfo.lvColor = CreateColorBrush(levelColor);

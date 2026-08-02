@@ -59,6 +59,23 @@ namespace BiliBili.UWP.Api.User
         }
 
         /// <summary>
+        /// 查询当前用户与目标用户的关注关系
+        /// </summary>
+        /// <param name="mid">目标用户ID</param>
+        /// <returns></returns>
+        public ApiModel Relation(string mid)
+        {
+            ApiModel api = new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/relation",
+                parameter = ApiUtils.MustParameter(ApiHelper.AndroidKey, true) + $"&fid={mid}"
+            };
+            api.parameter += ApiUtils.GetSign(api.parameter, ApiHelper.AndroidKey);
+            return api;
+        }
+
+        /// <summary>
         /// 关注
         /// </summary>
         /// <param name="mid">用户ID</param>
