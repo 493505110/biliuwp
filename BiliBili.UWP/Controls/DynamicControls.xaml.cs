@@ -153,7 +153,7 @@ namespace BiliBili.UWP.Controls
                 OpenComment(this, null);
                 return;
             }
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(DynamicInfoPage), item);
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(DynamicInfoPage), item.desc.dynamic_id);
 
         }
 
@@ -228,7 +228,7 @@ namespace BiliBili.UWP.Controls
 
 
 
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(DynamicInfoPage), item);
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(DynamicInfoPage), item.desc.dynamic_id);
 
 
         }
