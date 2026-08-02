@@ -1,19 +1,22 @@
+using BiliBili.UWP.Controls;
 using BiliBili.UWP.Helper;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.Web.WebView2.Core;
+using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules;
 using System;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.System;
 using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
 
 namespace BiliBili.UWP.Pages.FindMore
 {
     public sealed partial class ArticleContentPage : Page
     {
-        private bool webViewReady;
-        private string bypassNavigationUri;
+        private readonly ArticleVM viewModel = new ArticleVM();
+        private long articleId;
 
         public ArticleContentPage()
         {
@@ -24,158 +27,157 @@ namespace BiliBili.UWP.Pages.FindMore
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-            if (e.Parameter == null)
+            if (!ArticleParameterParser.TryParse(e.Parameter, out articleId))
             {
+                ShowError("无法打开无效的专栏地址");
                 return;
             }
-
-            var parameter = e.Parameter is object[] values && values.Length > 0
-                ? values[0]?.ToString()
-                : e.Parameter.ToString();
-            var url = parameter;
-            if (!string.IsNullOrEmpty(url) && !url.Contains("bilibili.com"))
-            {
-                url = "https://www.bilibili.com/read/cv" + url;
-            }
-
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            {
-                Utils.ShowMessageToast("无法打开无效的专栏地址");
-                return;
-            }
-
-            if (await EnsureWebViewAsync())
-            {
-                web.Source = uri;
-            }
+            await LoadArticleAsync();
         }
 
-        private async System.Threading.Tasks.Task<bool> EnsureWebViewAsync()
+        private async System.Threading.Tasks.Task LoadArticleAsync()
         {
-            if (webViewReady)
-            {
-                return true;
-            }
-
-            try
-            {
-                await web.EnsureCoreWebView2Async();
-                web.NavigationStarting += Web_NavigationStarting;
-                web.NavigationCompleted += Web_NavigationCompleted;
-                web.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
-                await WebView2CookieHelper.CopyToWebViewAsync(web.CoreWebView2);
-                webViewReady = true;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("WebView2初始化失败", LogType.ERROR, ex);
-                Utils.ShowMessageToast("浏览器组件不可用，请安装 WebView2 运行时后重试");
-                return false;
-            }
+            ShowLoading();
+            await viewModel.LoadAsync(articleId);
+            RenderState();
         }
 
-        private async void Web_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+        private void ShowLoading()
         {
-            txt_Header.Text = "专栏";
+            articleScroll.Visibility = Visibility.Collapsed;
+            errorPanel.Visibility = Visibility.Collapsed;
             pr_Load.Visibility = Visibility.Visible;
-            if (args.Uri == bypassNavigationUri)
-            {
-                bypassNavigationUri = null;
-                return;
-            }
-
-            if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri))
-            {
-                args.Cancel = true;
-                pr_Load.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            var isWebUri = uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
-            if (isWebUri && args.Uri.Contains("read/"))
-            {
-                return;
-            }
-            if (isWebUri && args.NavigationKind != CoreWebView2NavigationKind.NewDocument)
-            {
-                return;
-            }
-
-            args.Cancel = true;
-            if (await MessageCenter.HandelUrl(args.Uri))
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            if (isWebUri)
-            {
-                bypassNavigationUri = args.Uri;
-                sender.CoreWebView2.Navigate(args.Uri);
-                return;
-            }
-
-            pr_Load.Visibility = Visibility.Collapsed;
-            Utils.ShowMessageToast("不支持打开的链接" + args.Uri);
+            pr_Load.IsActive = true;
         }
 
-        private async void Web_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+        private void RenderState()
         {
+            if (viewModel.Loading)
+            {
+                ShowLoading();
+                return;
+            }
+            pr_Load.IsActive = false;
             pr_Load.Visibility = Visibility.Collapsed;
-            if (!args.IsSuccess || sender.Source == null)
+            if (!string.IsNullOrWhiteSpace(viewModel.ErrorMessage))
             {
+                ShowError(viewModel.ErrorMessage);
+                return;
+            }
+            if (viewModel.Article == null)
+            {
+                ShowError("专栏数据解析失败");
                 return;
             }
 
-            txt_Header.Text = sender.CoreWebView2.DocumentTitle;
-            await WebView2CookieHelper.CopyToHttpClientAsync(sender.CoreWebView2);
-            if (!sender.Source.AbsoluteUri.Contains("read/app") &&
-                !sender.Source.AbsoluteUri.Contains("read/mobile"))
+            ArticleDataModel article = viewModel.Article;
+            txt_Header.Text = string.IsNullOrWhiteSpace(article.title) ? "专栏" : article.title;
+            articleTitle.Text = article.title ?? string.Empty;
+            authorName.Text = article.author == null ? string.Empty : article.author.name ?? string.Empty;
+            articleMeta.Text = BuildMeta(article);
+            articleStats.Text = BuildStats(article.stats);
+            authorAvatar.ImageSource = CreateImageSource(article.author == null ? null : article.author.face);
+            articleBlocks.ItemsSource = viewModel.Blocks;
+            errorPanel.Visibility = Visibility.Collapsed;
+            articleScroll.Visibility = Visibility.Visible;
+            articleScroll.ChangeView(null, 0, null, true);
+        }
+
+        private static string BuildMeta(ArticleDataModel article)
+        {
+            string date = article.publish_time > 0
+                ? Utils.TimestampToDatetime(article.publish_time).ToString("yyyy-MM-dd")
+                : string.Empty;
+            string category = article.category == null ? string.Empty : article.category.name ?? string.Empty;
+            if (string.IsNullOrEmpty(date))
+            {
+                return category;
+            }
+            return string.IsNullOrEmpty(category) ? date : date + " · " + category;
+        }
+
+        private static string BuildStats(ArticleStatsModel stats)
+        {
+            if (stats == null)
+            {
+                return string.Empty;
+            }
+            return "阅读 " + stats.view + " · 点赞 " + stats.like + " · 收藏 " + stats.favorite;
+        }
+
+        private static BitmapImage CreateImageSource(string value)
+        {
+            Uri uri;
+            return Uri.TryCreate(value, UriKind.Absolute, out uri) ? new BitmapImage(uri) : null;
+        }
+
+        private void ShowError(string message)
+        {
+            pr_Load.IsActive = false;
+            pr_Load.Visibility = Visibility.Collapsed;
+            articleScroll.Visibility = Visibility.Collapsed;
+            errorText.Text = string.IsNullOrWhiteSpace(message) ? "专栏加载失败" : message;
+            errorPanel.Visibility = Visibility.Visible;
+        }
+
+        private async void ArticleText_LinkClicked(object sender, string link)
+        {
+            await OpenLinkAsync(link);
+        }
+
+        private async void EmbedCard_Click(object sender, RoutedEventArgs e)
+        {
+            Button button = sender as Button;
+            await OpenLinkAsync(button == null ? null : button.Tag as string);
+        }
+
+        private async System.Threading.Tasks.Task OpenLinkAsync(string link)
+        {
+            Uri uri;
+            if (string.IsNullOrWhiteSpace(link) || !Uri.TryCreate(link, UriKind.Absolute, out uri))
+            {
+                Utils.ShowMessageToast("无法打开无效链接");
+                return;
+            }
+            if (await MessageCenter.HandelUrl(link))
             {
                 return;
             }
-
-            try
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             {
-                const string script = @"
-['h5-download-bar', 'bili-nav-bar', 'top-holder'].forEach(name => {
-    const element = document.getElementsByClassName(name)[0];
-    if (element) element.style.display = 'none';
-});";
-                await sender.CoreWebView2.ExecuteScriptAsync(script);
+                Utils.ShowMessageToast("不支持打开的链接：" + link);
+                return;
             }
-            catch (Exception ex)
+
+            MessageDialog dialog = new MessageDialog("是否调用外部浏览器打开此链接？");
+            UICommand confirm = new UICommand("确定");
+            UICommand cancel = new UICommand("取消");
+            dialog.Commands.Add(confirm);
+            dialog.Commands.Add(cancel);
+            dialog.CancelCommandIndex = 1;
+            dialog.DefaultCommandIndex = 0;
+            IUICommand selected = await dialog.ShowAsync();
+            if (selected == confirm)
             {
-                LogHelper.WriteLog("专栏页面脚本执行失败", LogType.ERROR, ex);
+                await Launcher.LaunchUriAsync(uri);
             }
         }
 
-        private async void CoreWebView2_NewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs args)
+        private void ArticleImage_ImageFailed(object sender, ExceptionRoutedEventArgs e)
         {
-            args.Handled = true;
-            var deferral = args.GetDeferral();
-            try
+            Image image = sender as Image;
+            Grid parent = image == null ? null : image.Parent as Grid;
+            if (parent == null || parent.Children.Count < 2)
             {
-                if (await MessageCenter.HandelUrl(args.Uri))
-                {
-                    return;
-                }
-                if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri))
-                {
-                    return;
-                }
+                return;
+            }
+            image.Visibility = Visibility.Collapsed;
+            parent.Children[1].Visibility = Visibility.Visible;
+        }
 
-                var dialog = new MessageDialog("是否调用外部浏览器打开此链接？");
-                dialog.Commands.Add(new UICommand("确定", async command =>
-                    await Windows.System.Launcher.LaunchUriAsync(uri)));
-                dialog.Commands.Add(new UICommand("取消"));
-                await dialog.ShowAsync();
-            }
-            finally
-            {
-                deferral.Complete();
-            }
+        private async void Retry_Click(object sender, RoutedEventArgs e)
+        {
+            await LoadArticleAsync();
         }
 
         private void btn_Back_Click(object sender, RoutedEventArgs e)
@@ -188,15 +190,47 @@ namespace BiliBili.UWP.Pages.FindMore
 
         private void btn_Share_Click(object sender, RoutedEventArgs e)
         {
-            if (web.Source == null)
+            if (articleId <= 0)
             {
                 return;
             }
-            var package = new DataPackage();
-            package.SetText(web.Source.AbsoluteUri);
+            string url = "https://www.bilibili.com/read/cv" + articleId;
+            DataPackage package = new DataPackage();
+            package.SetText(url);
             Clipboard.SetContent(package);
             Clipboard.Flush();
             Utils.ShowMessageToast("已将地址复制到剪切板", 3000);
+        }
+    }
+
+    public class ArticleBlockTemplateSelector : DataTemplateSelector
+    {
+        public DataTemplate TextTemplate { get; set; }
+        public DataTemplate ImageTemplate { get; set; }
+        public DataTemplate SeparatorTemplate { get; set; }
+        public DataTemplate EmbedTemplate { get; set; }
+        public DataTemplate UnknownTemplate { get; set; }
+
+        protected override DataTemplate SelectTemplateCore(object item, DependencyObject container)
+        {
+            ArticleBlockModel block = item as ArticleBlockModel;
+            if (block == null)
+            {
+                return UnknownTemplate;
+            }
+            switch (block.Type)
+            {
+                case ArticleBlockType.Text:
+                    return TextTemplate;
+                case ArticleBlockType.Image:
+                    return ImageTemplate;
+                case ArticleBlockType.Separator:
+                    return SeparatorTemplate;
+                case ArticleBlockType.Embed:
+                    return EmbedTemplate;
+                default:
+                    return UnknownTemplate;
+            }
         }
     }
 }

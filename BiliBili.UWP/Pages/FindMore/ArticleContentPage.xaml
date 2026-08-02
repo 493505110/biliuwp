@@ -1,48 +1,135 @@
-﻿<Page
+<Page
     x:Class="BiliBili.UWP.Pages.FindMore.ArticleContentPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:BiliBili.UWP.Pages"
-       xmlns:my="using:BiliBili.UWP"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
-    mc:Ignorable="d">
+    xmlns:controls="using:BiliBili.UWP.Controls"
+    xmlns:local="using:BiliBili.UWP.Pages.FindMore">
 
-    <Grid x:Name="grid_bg"  Background="{ThemeResource Bili-Background}" >
-        <Grid x:Name="grid_o" >
-            <Grid.RowDefinitions>
-                <RowDefinition Height="48"/>
-                <RowDefinition/>
-                <RowDefinition Height="auto"/>
-            </Grid.RowDefinitions>
-         
-            <Grid x:Name="grid_Top" Background="{ThemeResource Bili-ForeColor}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="auto"/>
-                    <ColumnDefinition/>
-                    <ColumnDefinition Width="auto"/>
-                    <ColumnDefinition Width="auto"/>
-                    <ColumnDefinition Width="auto"/>
-                    <ColumnDefinition Width="auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Visibility="Collapsed" x:Name="txt_color">1223</TextBlock>
-                <AppBarButton x:Name="btn_Back" Click="btn_Back_Click" Foreground="White" Width="48" Icon="Back" Height="48"  ></AppBarButton>
-                <TextBlock x:Name="txt_Header" TextTrimming="CharacterEllipsis" Text="专栏" Grid.Column="1" Margin="5 0" VerticalAlignment="Center" Foreground="White"></TextBlock>
-                <AppBarButton x:Name="btn_Share" Click="btn_Share_Click" Foreground="White" Grid.Column="3" Width="48" Height="48">
-                    <AppBarButton.Icon>
-                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE72D;" />
-                    </AppBarButton.Icon>
-                </AppBarButton>
-                <AppBarButton Visibility="Collapsed" Foreground="White" Icon="More" Grid.Column="4" Width="48" Height="48">
+    <Page.Resources>
+        <DataTemplate x:Key="ArticleTextTemplate">
+            <controls:ArticleTextBlockControl Model="{Binding}" LinkClicked="ArticleText_LinkClicked" />
+        </DataTemplate>
+        <DataTemplate x:Key="ArticleImageTemplate">
+            <Grid Margin="0,10">
+                <Image Source="{Binding Url}" Stretch="Uniform" ImageFailed="ArticleImage_ImageFailed" />
+                <TextBlock Text="{Binding Alt}" Visibility="Collapsed" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" Foreground="Gray" />
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="ArticleSeparatorTemplate">
+            <Border Height="1" Margin="0,18" Background="{ThemeResource SystemControlForegroundBaseLowBrush}" />
+        </DataTemplate>
+        <DataTemplate x:Key="ArticleEmbedTemplate">
+            <Button Tag="{Binding Link}" Click="EmbedCard_Click" HorizontalContentAlignment="Stretch"
+                    HorizontalAlignment="Stretch" Margin="0,8" Padding="12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="104" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Image Source="{Binding CoverUrl}" Width="104" Height="62" Stretch="UniformToFill" />
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding TypeText}" FontSize="12" Foreground="Gray" Margin="0,5,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Button>
+        </DataTemplate>
+        <DataTemplate x:Key="ArticleUnknownTemplate">
+            <TextBlock Text="{Binding Description}" Foreground="Gray" FontSize="13"
+                       TextWrapping="Wrap" Margin="0,8" />
+        </DataTemplate>
+        <local:ArticleBlockTemplateSelector x:Key="ArticleBlockSelector"
+                                            TextTemplate="{StaticResource ArticleTextTemplate}"
+                                            ImageTemplate="{StaticResource ArticleImageTemplate}"
+                                            SeparatorTemplate="{StaticResource ArticleSeparatorTemplate}"
+                                            EmbedTemplate="{StaticResource ArticleEmbedTemplate}"
+                                            UnknownTemplate="{StaticResource ArticleUnknownTemplate}" />
+    </Page.Resources>
 
-                </AppBarButton>
-            </Grid>
-            <Grid Grid.Row="1">
-                <muxc:WebView2 x:Name="web" />
-            </Grid>
+    <Grid x:Name="grid_bg" Background="{ThemeResource Bili-Background}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="grid_Top" Background="{ThemeResource Bili-ForeColor}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <AppBarButton x:Name="btn_Back" Click="btn_Back_Click" Foreground="White"
+                          Width="48" Height="48" Icon="Back" />
+            <TextBlock x:Name="txt_Header" Grid.Column="1" Text="专栏" Margin="5,0"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="White" />
+            <AppBarButton x:Name="btn_Share" Grid.Column="2" Click="btn_Share_Click"
+                          Foreground="White" Width="48" Height="48">
+                <AppBarButton.Icon>
+                    <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE72D;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
         </Grid>
 
-        <ProgressRing Width="56" Height="56" x:Name="pr_Load" IsActive="True" Visibility="Collapsed"></ProgressRing>
+        <Grid Grid.Row="1">
+            <ScrollViewer x:Name="articleScroll" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="articleRoot" MaxWidth="760" Margin="42,28,42,48"
+                            HorizontalAlignment="Stretch">
+                    <TextBlock x:Name="articleTitle" FontSize="28" FontWeight="SemiBold"
+                               TextWrapping="Wrap" />
+                    <Grid Margin="0,18,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Width="38" Height="38">
+                            <Ellipse.Fill>
+                                <ImageBrush x:Name="authorAvatar" Stretch="UniformToFill" />
+                            </Ellipse.Fill>
+                        </Ellipse>
+                        <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                            <TextBlock x:Name="authorName" FontWeight="SemiBold" />
+                            <TextBlock x:Name="articleMeta" FontSize="12" Foreground="Gray" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock x:Name="articleStats" FontSize="12" Foreground="Gray" Margin="0,0,0,20" />
+                    <ItemsControl x:Name="articleBlocks"
+                                  ItemTemplateSelector="{StaticResource ArticleBlockSelector}" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel x:Name="errorPanel" Visibility="Collapsed" HorizontalAlignment="Center"
+                        VerticalAlignment="Center" MaxWidth="420" Margin="24">
+                <TextBlock x:Name="errorText" TextWrapping="Wrap" TextAlignment="Center" />
+                <Button Content="重试" Click="Retry_Click" HorizontalAlignment="Center" Margin="0,16,0,0" />
+            </StackPanel>
+            <ProgressRing x:Name="pr_Load" Width="56" Height="56" Visibility="Collapsed" />
+        </Grid>
+
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="NarrowState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="articleRoot.Margin" Value="16,20,16,40" />
+                        <Setter Target="articleTitle.FontSize" Value="23" />
+                        <Setter Target="articleStats.Margin" Value="48,0,0,20" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="WideState">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="700" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="articleRoot.Margin" Value="42,28,42,48" />
+                        <Setter Target="articleTitle.FontSize" Value="28" />
+                        <Setter Target="articleStats.Margin" Value="0,0,0,20" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
     </Grid>
 </Page>

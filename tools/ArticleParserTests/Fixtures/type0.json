@@ -1,0 +1,21 @@
+{
+  "id": 1,
+  "type": 0,
+  "title": "旧版专栏",
+  "content": "<h2>章节</h2><p>普通<strong>加粗</strong><em>斜体</em><s>删除</s><font color=\"#fb7299\">颜色</font><a href=\"https://www.bilibili.com/video/av1\">链接</a><br>换行</p><blockquote>引用</blockquote><ol><li>第一项</li><li>第二项</li></ol><ul><li>项目一</li></ul><img data-src=\"https://i0.hdslb.com/test.jpg\" src=\"https://example.com/fallback.jpg\" alt=\"示例图\" width=\"640\" height=\"360\"><hr><script>不能显示</script><div>尾段</div>",
+  "author": {
+    "mid": 2,
+    "name": "作者",
+    "face": "https://i0.hdslb.com/face.jpg"
+  },
+  "category": {
+    "id": 3,
+    "name": "科技"
+  },
+  "publish_time": 1744789930,
+  "stats": {
+    "view": 10,
+    "like": 2,
+    "favorite": 1
+  }
+}

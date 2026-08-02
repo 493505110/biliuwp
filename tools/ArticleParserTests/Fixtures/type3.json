@@ -1,0 +1,7 @@
+{
+  "id": 41358718,
+  "type": 3,
+  "title": "Delta article",
+  "content": "{\"ops\":[{\"insert\":\"Heading\"},{\"attributes\":{\"header\":2},\"insert\":\"\\n\"},{\"attributes\":{\"bold\":true,\"link\":\"https://www.bilibili.com/video/av1\"},\"insert\":\"Quoted text\"},{\"attributes\":{\"blockquote\":true},\"insert\":\"\\n\"},{\"insert\":{\"native-image\":{\"alt\":\"Image\",\"url\":\"https://i0.hdslb.com/image.png\",\"width\":800,\"height\":450}}},{\"insert\":{\"cut-off\":{\"type\":\"1\",\"url\":\"\"}}},{\"insert\":{\"video-card\":{\"id\":\"av1\",\"url\":\"https://i0.hdslb.com/video.jpg\",\"alt\":\"Video\"}}},{\"insert\":{\"article-card\":{\"id\":\"cv2\",\"url\":\"https://i0.hdslb.com/article.jpg\",\"alt\":\"Article\"}}},{\"insert\":{\"vote-card\":{\"id\":\"3\",\"url\":\"https://i0.hdslb.com/vote.jpg\",\"alt\":\"Vote\"}}},{\"insert\":{\"live-card\":{\"id\":\"lv4\",\"url\":\"https://i0.hdslb.com/live.jpg\",\"alt\":\"Live\"}}}]}",
+  "opus": null
+}

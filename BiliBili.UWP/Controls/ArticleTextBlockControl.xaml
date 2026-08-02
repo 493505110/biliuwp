@@ -1,0 +1,9 @@
+<UserControl
+    x:Class="BiliBili.UWP.Controls.ArticleTextBlockControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <RichTextBlock x:Name="richText"
+                   IsTextSelectionEnabled="True"
+                   TextWrapping="Wrap"
+                   LineHeight="28" />
+</UserControl>

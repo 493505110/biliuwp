@@ -284,6 +284,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Api\ApiRequest.cs" />
+    <Compile Include="Api\ArticleAPI.cs" />
     <Compile Include="Api\ApiUtils.cs" />
     <Compile Include="Api\Home\CinemaAPI.cs" />
     <Compile Include="Api\Home\HomeAPI.cs" />
@@ -313,6 +314,9 @@
     <Compile Include="Controls\Carousel\CarouselPanel.cs" />
     <Compile Include="Controls\Carousel\CarouselPanel.Items.cs" />
     <Compile Include="Controls\Carousel\CarouselPanel.Members.cs" />
+    <Compile Include="Controls\ArticleTextBlockControl.xaml.cs">
+      <DependentUpon>ArticleTextBlockControl.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\CommentDialog.xaml.cs">
       <DependentUpon>CommentDialog.xaml</DependentUpon>
     </Compile>
@@ -388,6 +392,7 @@
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Models\AttenionModels.cs" />
+    <Compile Include="Models\ArticleModels.cs" />
     <Compile Include="Models\SpaceDynamicModel.cs" />
     <Compile Include="Models\BangumiModel.cs" />
     <Compile Include="Models\BanInfoModel.cs" />
@@ -399,6 +404,9 @@
     <Compile Include="Models\UserModels.cs" />
     <Compile Include="Models\VideoInfoModels.cs" />
     <Compile Include="Modules\Account.cs" />
+    <Compile Include="Modules\ArticleContentParser.cs" />
+    <Compile Include="Modules\ArticleParameterParser.cs" />
+    <Compile Include="Modules\ArticleVM.cs" />
     <Compile Include="Modules\Detail\VideoDetailVM.cs" />
     <Compile Include="Modules\Download.cs" />
     <Compile Include="Modules\Emote.cs" />
@@ -809,6 +817,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Page Include="Controls\ArticleTextBlockControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Controls\Carousel\Carousel.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
