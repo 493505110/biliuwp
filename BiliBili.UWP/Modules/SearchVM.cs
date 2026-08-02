@@ -148,11 +148,6 @@ namespace BiliBili.UWP.Modules
                 {
                     Title="专栏",
                     SearchType= SearchType.Article
-                },
-                new SearchTopicVM()
-                {
-                    Title="话题",
-                    SearchType= SearchType.Topic
                 }
             };
             SelectItem = SearchItems[0];

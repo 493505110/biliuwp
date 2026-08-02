@@ -32,12 +32,10 @@ namespace BiliBili.UWP.Pages.FindMore
             var parameter = e.Parameter is object[] values && values.Length > 0
                 ? values[0]?.ToString()
                 : e.Parameter.ToString();
-            var url = parameter?.Replace(
-                "www.bilibili.com/read/cv",
-                "www.bilibili.com/read/mobile/");
+            var url = parameter;
             if (!string.IsNullOrEmpty(url) && !url.Contains("bilibili.com"))
             {
-                url = "https://www.bilibili.com/read/mobile/" + url;
+                url = "https://www.bilibili.com/read/cv" + url;
             }
 
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
@@ -95,12 +93,6 @@ namespace BiliBili.UWP.Pages.FindMore
             }
 
             var isWebUri = uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
-            if (isWebUri && args.Uri.Contains("read/cv"))
-            {
-                args.Cancel = true;
-                pr_Load.Visibility = Visibility.Collapsed;
-                return;
-            }
             if (isWebUri && args.Uri.Contains("read/"))
             {
                 return;
