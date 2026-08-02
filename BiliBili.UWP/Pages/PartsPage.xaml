@@ -386,13 +386,39 @@
     </Page.Resources>
     <Grid  Background="{ThemeResource Bili-Background}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="48"/>
+            <RowDefinition Height="auto"/>
             <RowDefinition/>
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="WindowStates">
+                <VisualState x:Name="Wide">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="501"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="com_bar.(Grid.Row)" Value="0"/>
+                        <Setter Target="com_bar.(Grid.RowSpan)" Value="3"/>
+                        <Setter Target="com_bar.HorizontalAlignment" Value="Right"/>
+                        <Setter Target="com_bar.VerticalAlignment" Value="Top"/>
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Narrow">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="com_bar.(Grid.Row)" Value="2"/>
+                        <Setter Target="com_bar.(Grid.RowSpan)" Value="1"/>
+                        <Setter Target="com_bar.HorizontalAlignment" Value="Stretch"/>
+                        <Setter Target="com_bar.VerticalAlignment" Value="Bottom"/>
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
         <Border x:Name="ViewBox_num"  VerticalAlignment="Top" Width="170"></Border>
         <Border x:Name="ViewBox2_num" VerticalAlignment="Top" Width="170"></Border>
-        <Grid Background="{ThemeResource Bili-ForeColor}" Grid.Row="0" Height="48" >
+        <Grid Background="{ThemeResource Bili-ForeColor}" Grid.Row="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="48"/>
                 <ColumnDefinition/>
@@ -418,8 +444,18 @@
 
         </Pivot>
 
-        <CommandBar x:Name="com_bar" Grid.Row="2" VerticalAlignment="Bottom" Background="{ThemeResource Bili-ForeColor}" Foreground="White">
-            <AppBarToggleButton x:Name="btn_Type" Checked="btn_Type_Checked" Unchecked="btn_Type_Unchecked" Icon="Filter" Foreground="White" Label="标签" ></AppBarToggleButton>
+        <CommandBar x:Name="com_bar" Background="{ThemeResource Bili-ForeColor}" Foreground="White" Opening="com_bar_Opening">
+            <CommandBar.SecondaryCommands>
+                <AppBarButton x:Name="btn_Refresh" Icon="Refresh" Label="刷新" Foreground="White" Click="btn_Refresh_Click"/>
+            </CommandBar.SecondaryCommands>
+            <AppBarToggleButton x:Name="btn_Type" Checked="btn_Type_Checked" Unchecked="btn_Type_Unchecked" Foreground="White" Label="标签">
+                <AppBarToggleButton.RenderTransform>
+                    <TranslateTransform Y="4"/>
+                </AppBarToggleButton.RenderTransform>
+                <AppBarToggleButton.Icon>
+                    <SymbolIcon Symbol="Filter"/>
+                </AppBarToggleButton.Icon>
+            </AppBarToggleButton>
             <AppBarButton Icon="Sort" Label="排序" Foreground="White">
                 <AppBarButton.Flyout>
                     <MenuFlyout x:Name="menu">
@@ -431,7 +467,6 @@
                     </MenuFlyout>
                 </AppBarButton.Flyout>
             </AppBarButton>
-            <AppBarButton x:Name="btn_Refresh" Icon="Refresh" Label="刷新" Foreground="White" Click="btn_Refresh_Click"></AppBarButton>
         </CommandBar>
         <ProgressRing x:Name="pr_Laod" Width="56" Height="56" VerticalAlignment="Center" Grid.RowSpan="2" IsActive="True"></ProgressRing>
     </Grid>

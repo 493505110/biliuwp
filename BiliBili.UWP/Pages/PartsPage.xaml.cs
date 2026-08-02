@@ -2037,22 +2037,12 @@ namespace BiliBili.UWP.Pages
             {
                 ViewBox_num.Width = ActualWidth / 2 - 18;
                 ViewBox2_num.Width = ActualWidth / 2 - 18;
-                Grid.SetRow(com_bar, 2);
-               
-                com_bar.HorizontalAlignment = HorizontalAlignment.Stretch;
-                com_bar.VerticalAlignment = VerticalAlignment.Bottom;
-
             }
             else
             {
                 int i = Convert.ToInt32(ActualWidth / 200);
                 ViewBox_num.Width = ActualWidth / i - 13;
                 ViewBox2_num.Width = ActualWidth / i - 13;
-
-                Grid.SetRow(com_bar, 0);
-                Grid.SetRowSpan(com_bar, 2);
-                com_bar.HorizontalAlignment = HorizontalAlignment.Right;
-                com_bar.VerticalAlignment = VerticalAlignment.Top;
             }
 
            
@@ -2083,6 +2073,19 @@ namespace BiliBili.UWP.Pages
 
 
         }
+
+        private async void com_bar_Opening(object sender, object e)
+        {
+            if (ActualWidth > 500)
+            {
+                await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.High, () =>
+                {
+                    VisualStateManager.GoToState(com_bar, "CompactClosed", false);
+                    VisualStateManager.GoToState(com_bar, "CompactOpenDown", true);
+                });
+            }
+        }
+
         private void UpdateBannerState()
         {
             if (pivot.Items.Count == 0)
