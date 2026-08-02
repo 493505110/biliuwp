@@ -150,6 +150,14 @@ namespace BiliBili.UWP
                         activityCenter.uri = "https://www.bilibili.com/blackboard/era/reward-activity-list-page.html";
                     }
 
+                    var vlog = model.data.FirstOrDefault(x => x.name == "VLOG");
+                    if (vlog != null)
+                    {
+                        vlog.tid = 1029;
+                        vlog.uri = null;
+                        vlog.children = new List<RegionModel>();
+                    }
+
                     model.data.RemoveAll(x => (x.name == "会员购" || x.name == "游戏中心")
                         || x.logo == ""
                         || x.name == "漫画"

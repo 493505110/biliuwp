@@ -1798,6 +1798,14 @@ namespace BiliBili.UWP.Pages
                 {
                     pr_Laod.Visibility = Visibility.Visible;
                 }
+
+                if (id == 1029)
+                {
+                    string feedUri = $"https://api.bilibili.com/x/web-interface/region/feed/rcmd?display_id={Num}&request_cnt=15&from_region={id}&device=web&plat=30";
+                    JObject feed = JObject.Parse(await WebClientClass.GetResults(new Uri(feedUri)));
+                    AddArchiveItems(list, feed["data"]?["archives"]);
+                    return list;
+                }
               
                 if (tagId != 0)
                 {
@@ -1865,7 +1873,15 @@ namespace BiliBili.UWP.Pages
 
             foreach (var item in items)
             {
-                string pic = (string)item["pic"];
+                string pic = (string)(item["pic"] ?? item["cover"]);
+                JToken author = item["author"];
+                string authorName = (string)item["owner"]?["name"];
+                if (string.IsNullOrEmpty(authorName))
+                {
+                    authorName = author?.Type == JTokenType.Object
+                        ? (string)author["name"]
+                        : (string)author;
+                }
                 if (!string.IsNullOrEmpty(pic) && pic.StartsWith("//"))
                 {
                     pic = "https:" + pic;
@@ -1876,7 +1892,7 @@ namespace BiliBili.UWP.Pages
                     aid = (string)(item["aid"] ?? item["id"]),
                     title = (string)item["title"],
                     pic = string.IsNullOrEmpty(pic) ? pic : pic + "@200w.jpg",
-                    author = (string)(item["owner"]?["name"] ?? item["author"]),
+                    author = authorName,
                     play = (string)(item["stat"]?["view"] ?? item["play"]),
                     video_review = (string)(item["stat"]?["danmaku"] ?? item["video_review"])
                 });
