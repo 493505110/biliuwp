@@ -2095,10 +2095,9 @@ namespace BiliBili.UWP.Pages
         }
 
 
-        private async void LZ_List_ItemClick(object sender, ItemClickEventArgs e)
+        private void LZ_List_ItemClick(object sender, ItemClickEventArgs e)
         {
-            await MessageCenter.HandelUrl(((DHModel)e.ClickedItem).aid);
-           // MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), ((DHModel)e.ClickedItem).aid);
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), ((DHModel)e.ClickedItem).aid);
         }
         bool isLoading = false;
         private async void sv_LZ_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
