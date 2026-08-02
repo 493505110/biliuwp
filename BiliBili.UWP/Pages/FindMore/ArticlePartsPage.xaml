@@ -74,7 +74,7 @@
                                                     <TextBlock FontSize="14" Foreground="Gray" VerticalAlignment="Center" Margin="4 0" Text="{Binding Path=author.name}"></TextBlock>
                                                 </StackPanel>
                                                 <TextBlock TextTrimming="CharacterEllipsis" Margin="0 4" Text="{Binding title}"></TextBlock>
-                                                <Image  Source="{Binding bannerImage}"  Height="120"  Stretch="UniformToFill"/>
+                                                <Image Source="{Binding bannerImage}" Visibility="{Binding bannerVisibility}" Height="120" Stretch="UniformToFill"/>
                                                 <TextBlock Margin="0 4" FontSize="14" TextTrimming="CharacterEllipsis" Foreground="Gray" MaxLines="2" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding summary}"></TextBlock>
                                                 <Grid>
                                                     <TextBlock  FontSize="14" Foreground="Gray"><Run Text="{Binding Path=category.name}"></Run> · <Run Text="{Binding Path=stats.view}"/>阅读</TextBlock>

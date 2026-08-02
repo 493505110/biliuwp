@@ -11,14 +11,13 @@
     xmlns:c="using:Microsoft.Toolkit.Uwp.UI.Controls"
     >
 
-    <Grid   x:Name="g" SizeChanged="Grid_SizeChanged">
+    <Grid x:Name="g">
         <Grid x:Name="grid_o" >
             <Grid.RowDefinitions>
                 <RowDefinition Height="auto"/>
                 <RowDefinition/>
                 <RowDefinition Height="auto"/>
             </Grid.RowDefinitions>
-            <Border x:Name="bor_SetBanner" Height="0" Width="200"></Border>
             <Grid x:Name="grid_Top" Visibility="Collapsed" Background="{ThemeResource Bili-ForeColor}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="auto"/>
@@ -35,50 +34,6 @@
             <Grid Grid.Row="1">
                 <ScrollViewer x:Name="sv" ViewChanged="sv_ViewChanged"  VerticalScrollMode="Auto" VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <Viewbox MaxWidth="640"  Grid.Column="1" >
-                            <FlipView x:Name="ls_Banner"  Height="200" Width="640" Grid.Column="1"   VerticalAlignment="Top" >
-                                <FlipView.ItemTemplate>
-                                    <DataTemplate>
-                                        <HyperlinkButton Padding="0"  Click="btn_Banner_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                            <Grid>
-                                                <c:ImageEx  Source="{Binding image}"  Height="200" PlaceholderSource="ms-appx:///Assets/Logo/PI900_300.png"/>
-                                            </Grid>
-                                        </HyperlinkButton>
-                                    </DataTemplate>
-                                </FlipView.ItemTemplate>
-                            </FlipView>
-                        </Viewbox>
-
-                        <ListView Visibility="Collapsed" ItemClick="ls_Banner_ItemClick" SelectionMode="None" IsItemClickEnabled="True" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.HorizontalScrollMode="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                            <ListView.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <ItemsStackPanel Orientation="Horizontal"></ItemsStackPanel>
-                                </ItemsPanelTemplate>
-                            </ListView.ItemsPanel>
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
-                                    <Setter Property="Margin" Value="8 0 8 0"></Setter>
-                                    <Setter Property="Padding" Value="0"></Setter>
-                                </Style>
-                            </ListView.ItemContainerStyle>
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <Image Height="{Binding ElementName=bor_SetBanner,Path=Width}" Source="{Binding image}"></Image>
-                                        <Grid VerticalAlignment="Bottom">
-                                            <Grid.Background>
-                                                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                                                    <GradientStop Offset="0"/>
-                                                    <GradientStop Color="#B29C9C9C" Offset="1"/>
-                                                </LinearGradientBrush>
-                                            </Grid.Background>
-                                            <TextBlock Foreground="White" Padding="4" Text="{Binding title}"></TextBlock>
-                                        </Grid>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-
-                        </ListView>
                         <Grid Background="{ThemeResource Bili-List-Background}" >
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition/>
@@ -139,7 +94,7 @@
                                             <TextBlock FontSize="14" Foreground="Gray" VerticalAlignment="Center" Margin="4 0" Text="{Binding Path=author.name}"></TextBlock>
                                         </StackPanel>
                                         <TextBlock TextWrapping="Wrap" Margin="0 4" Text="{Binding title}"></TextBlock>
-                                        <c:ImageEx  Source="{Binding bannerImage}"  Height="120" PlaceholderSource="ms-appx:///Assets/Logo/PI900_300.png" Stretch="UniformToFill"/>
+                                        <c:ImageEx Source="{Binding bannerImage}" Visibility="{Binding bannerVisibility}" Height="120" PlaceholderSource="ms-appx:///Assets/Logo/PI900_300.png" Stretch="UniformToFill"/>
                                         <TextBlock Margin="0 4" FontSize="14" TextTrimming="CharacterEllipsis" Foreground="Gray" MaxLines="2" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding summary}"></TextBlock>
                                         <Grid>
                                             <TextBlock  FontSize="14" Foreground="Gray"><Run Text="{Binding Path=category.name}"></Run> · <Run Text="{Binding Path=stats.view}"/>阅读</TextBlock>

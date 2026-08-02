@@ -41,40 +41,24 @@ namespace BiliBili.UWP.Pages.FindMore
         {
             if (e.NavigationMode == NavigationMode.New)
             {
-                LoadBanner();
+                LoadArticles();
             }
 
         }
 
-        private void Grid_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (g.ActualWidth >= 680)
-            {
-                bor_SetBanner.Width = 200;
-            }
-            else
-            {
-                var d = g.ActualWidth * ((double)212 / 680);
-                bor_SetBanner.Width = d;
-            }
-        }
-
-
-        private async void LoadBanner()
+        private async void LoadArticles()
         {
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
                 IsLoading = true;
                 _page = 1;
-                var url = string.Format("https://api.bilibili.com/x/article/home?appkey={0}&build=515000&cid=0&mobi_app=android&platform=android&pn=1&ps=20&ts={1}", ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
+                var url = "https://api.bilibili.com/x/article/recommends?cid=0&pn=1&ps=20&sort=0";
                 var results = await WebClientClass.GetResults(new Uri(url));
                 ArticleModel m = Newtonsoft.Json.JsonConvert.DeserializeObject<ArticleModel>(results);
                 if (m.code == 0)
                 {
-                    ls_Banner.ItemsSource = m.data.banners;
-                    ls_article.ItemsSource = m.data.articles;
+                    ls_article.ItemsSource = m.data;
                     _page++;
                 }
                 else
@@ -101,13 +85,12 @@ namespace BiliBili.UWP.Pages.FindMore
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
-                var url = string.Format("https://api.bilibili.com/x/article/home?appkey={0}&build=515000&cid=0&mobi_app=android&platform=android&pn={2}&ps=20&ts={1}", ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan, _page);
-                url += "&sign=" + ApiHelper.GetSign(url);
+                var url = $"https://api.bilibili.com/x/article/recommends?cid=0&pn={_page}&ps=20&sort=0";
                 var results = await WebClientClass.GetResults(new Uri(url));
                 ArticleModel m = Newtonsoft.Json.JsonConvert.DeserializeObject<ArticleModel>(results);
                 if (m.code == 0)
                 {
-                    foreach (var item in m.data.articles)
+                    foreach (var item in m.data)
                     {
                         (ls_article.ItemsSource as ObservableCollection<ArticlesModel>).Add(item);
                     }
@@ -131,12 +114,6 @@ namespace BiliBili.UWP.Pages.FindMore
             }
 
         }
-        private void ls_Banner_ItemClick(object sender, ItemClickEventArgs e)
-        {
-
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticleContentPage), (e.ClickedItem as ArticleModel).url);
-        }
-
         private void sv_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
             if (sv.VerticalOffset == sv.ScrollableHeight)
@@ -153,11 +130,6 @@ namespace BiliBili.UWP.Pages.FindMore
             MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticleContentPage), "https://www.bilibili.com/read/app/" + (e.ClickedItem as ArticlesModel).id);
         }
 
-        private void btn_Banner_Click(object sender, RoutedEventArgs e)
-        {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticleContentPage), ((sender as HyperlinkButton).DataContext as ArticleModel).url);
-        }
-
         private void btn_ArticlePart_Click(object sender, RoutedEventArgs e)
         {
             MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ArticlePartsPage), (sender as HyperlinkButton).Tag.ToInt32());
@@ -167,19 +139,7 @@ namespace BiliBili.UWP.Pages.FindMore
     public class ArticleModel
     {
         public int code { get; set; }
-
-        public ArticleModel data { get; set; }
-
-        public List<ArticleModel> banners { get; set; }
-
-        public ObservableCollection<ArticlesModel> articles { get; set; }
-        public int id { get; set; }
-        public string title { get; set; }
-        public string image { get; set; }
-        public string url { get; set; }
-
-
-
+        public ObservableCollection<ArticlesModel> data { get; set; }
     }
     public class ArticlesModel
     {
@@ -188,19 +148,49 @@ namespace BiliBili.UWP.Pages.FindMore
         public string title { get; set; }
         public string summary { get; set; }
         public string banner_url { get; set; }
+        public List<string> image_urls { get; set; }
+        public List<string> origin_image_urls { get; set; }
+
+        private string coverImage
+        {
+            get
+            {
+                return !string.IsNullOrWhiteSpace(banner_url)
+                    ? banner_url
+                    : image_urls?.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
+                        ?? origin_image_urls?.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+            }
+        }
+
         public string logo
         {
             get
             {
-                return banner_url + "@234w_176h.png";
+                return FormatImage(coverImage, "@234w_176h.png");
             }
         }
         public string bannerImage
         {
             get
             {
-                return banner_url + "@500w.jpg";
+                return FormatImage(coverImage, "@500w.jpg");
             }
+        }
+        public Visibility bannerVisibility => string.IsNullOrWhiteSpace(coverImage)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        private static string FormatImage(string image, string suffix)
+        {
+            if (string.IsNullOrWhiteSpace(image))
+            {
+                return null;
+            }
+            if (image.StartsWith("//"))
+            {
+                image = "https:" + image;
+            }
+            return image + suffix;
         }
 
         public ArticlesModel category { get; set; }
