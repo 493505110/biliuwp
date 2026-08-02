@@ -27,7 +27,7 @@ namespace BiliBili.UWP.Modules
                 return ParseHtml(article.content);
             }
 
-            if (article.type == 3)
+            if (article.type == 3 || article.type == 4)
             {
                 return ParseDeltaOrOpus(article.content, article.opus);
             }
