@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
+using Newtonsoft.Json.Linq;
 
 namespace BiliBili.UWP.Models
 {
@@ -147,9 +148,9 @@ namespace BiliBili.UWP.Models
         {
             get
             {
-                if (progress != null)
+                if (!string.IsNullOrEmpty(ProgressText))
                 {
-                    return progress.index_show;
+                    return ProgressText;
                 }
                 else
                 {
@@ -159,7 +160,23 @@ namespace BiliBili.UWP.Models
         }
 
         public FollowSeasonNewEpModel new_ep { get; set; }
-        public FollowSeasonProgressModel progress { get; set; }
+        public JToken progress { get; set; }
+
+        private string ProgressText
+        {
+            get
+            {
+                if (progress == null || progress.Type == JTokenType.Null)
+                {
+                    return null;
+                }
+                if (progress.Type == JTokenType.Object)
+                {
+                    return progress["index_show"]?.ToString();
+                }
+                return progress.ToString();
+            }
+        }
     }
     public class FollowSeasonNewEpModel
     {

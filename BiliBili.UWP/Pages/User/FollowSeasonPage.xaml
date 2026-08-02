@@ -77,7 +77,7 @@
                                                     <TextBlock Margin="0 4" TextWrapping="Wrap" Text="{Binding title}"></TextBlock>
                                                     <TextBlock  Margin="0 4" FontSize="14" Foreground="Gray" Visibility="{Binding show_areas}" Text="{Binding Path=areas_str}"></TextBlock>
                                                     <TextBlock  Margin="0 4" FontSize="14" Foreground="Gray" Text="{Binding Path=new_ep.index_show}"></TextBlock>
-                                                    <TextBlock  Margin="0 4" FontSize="14" Foreground="Gray" Text="{Binding Path=progress.index_show}"></TextBlock>
+                                                    <TextBlock  Margin="0 4" FontSize="14" Foreground="Gray" Text="{Binding progress_text}"></TextBlock>
                                                 </StackPanel>
                                             </Grid>
                                         </DataTemplate>

@@ -8,6 +8,8 @@ using System.Collections.ObjectModel;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
 using BiliBili.UWP.Models;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.User;
 
 namespace BiliBili.UWP.Modules
 {
@@ -63,47 +65,66 @@ namespace BiliBili.UWP.Modules
         /// </summary>
         public async void LoadData()
         {
-            //try
-            //{
             if (Loading || !HasNext)
             {
                 return;
             }
-            Page += 1;
             Loading = true;
-
-
-            var url = $"https://api.bilibili.com/pgc/app/follow/v2/{ SeasonType.ToString() }?access_key={ ApiHelper.access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&platform=android&pn={Page}&ps=20&status={Status}&ts={ApiHelper.GetTimeSpan}";
-            url += "&sign=" + ApiHelper.GetSign(url);
-            var result = await WebClientClass.GetResults(new Uri(url));
-            var obj = JObject.Parse(result);
-            if (obj["code"].ToInt32() == 0)
+            try
             {
-                var data = JsonConvert.DeserializeObject<FollowResult>(obj["result"].ToString());
-                HasNext = data.has_next == 1;
-                Total = data.total;
-                if (data.follow_list!=null)
+                var added = 0;
+                do
                 {
-                    foreach (var item in data.follow_list)
+                    var nextPage = Page + 1;
+                    var api = SeasonType == SeasonType.bangumi
+                        ? new FollowAPI().MyFollowBangumi(nextPage, Status, 30)
+                        : new FollowAPI().MyFollowCinema(nextPage, Status, 30);
+                    var response = await api.Request();
+                    if (!response.status)
+                    {
+                        Utils.ShowMessageToast(response.message);
+                        return;
+                    }
+
+                    var obj = response.GetJObject();
+                    if (obj == null)
+                    {
+                        Utils.ShowMessageToast("追番信息解析失败");
+                        return;
+                    }
+                    if (obj["code"].ToInt32() != 0)
+                    {
+                        Utils.ShowMessageToast(obj["message"]?.ToString() ?? "读取追番失败");
+                        return;
+                    }
+
+                    var data = obj["data"]?.ToObject<FollowResult>();
+                    if (data == null)
+                    {
+                        Utils.ShowMessageToast("追番信息为空");
+                        return;
+                    }
+
+                    Page = nextPage;
+                    Total = data.total;
+                    HasNext = data.ps > 0 && Page * data.ps < data.total;
+                    var items = data.list?.Where(x => x.follow_status == Status).ToList() ?? new List<FollowSeasonInfo>();
+                    foreach (var item in items)
                     {
                         item._status = Status;
                         FollowList.Add(item);
                     }
-                }
+                    added = items.Count;
+                } while (added == 0 && HasNext);
             }
-            else
+            catch (Exception ex)
             {
-                Utils.ShowMessageToast(obj["message"].ToString());
+                Utils.ShowMessageToast(HandelError(ex).message);
             }
-            //}
-            //catch (Exception ex)
-            //{
-            //    Utils.ShowMessageToast(HandelError(ex).message);
-            //}
-            //finally
-            //{
-            Loading = false;
-            //}
+            finally
+            {
+                Loading = false;
+            }
         }
         /// <summary>
         /// 取消收藏
@@ -186,9 +207,10 @@ namespace BiliBili.UWP.Modules
     }
     public class FollowResult
     {
-        public int has_next { get; set; }
+        public int pn { get; set; }
+        public int ps { get; set; }
         public int total { get; set; }
-        public ObservableCollection<FollowSeasonInfo> follow_list { get; set; }
+        public List<FollowSeasonInfo> list { get; set; }
     }
     public class FollowSeasonInfo
     {
@@ -212,10 +234,26 @@ namespace BiliBili.UWP.Modules
         public string title { get; set; }
         public int season_id { get; set; }
         public int season_type { get; set; }
+        public int follow_status { get; set; }
         public string season_type_name { get; set; }
         public string url { get; set; }
         public FollowSeasonNewEp new_ep { get; set; }
-        public FollowSeasonProgress progress { get; set; }
+        public JToken progress { get; set; }
+        public string progress_text
+        {
+            get
+            {
+                if (progress == null || progress.Type == JTokenType.Null)
+                {
+                    return "尚未观看";
+                }
+                if (progress.Type == JTokenType.Object)
+                {
+                    return progress["index_show"]?.ToString() ?? "尚未观看";
+                }
+                return string.IsNullOrEmpty(progress.ToString()) ? "尚未观看" : progress.ToString();
+            }
+        }
         public List<FollowSeasonAreas> areas { get; set; }
         public bool show_areas
         {

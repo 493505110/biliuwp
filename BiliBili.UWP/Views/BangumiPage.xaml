@@ -35,12 +35,12 @@
                                     <GradientStop Color="Transparent"/>
                                 </LinearGradientBrush>
                             </Grid.Background>
-                            <TextBlock Foreground="White" Padding="5" FontSize="12"><Run Text="{Binding favouritesCount}"></Run>人追番</TextBlock>
+                            <TextBlock Foreground="White" Padding="5" FontSize="12" Text="{Binding order}"></TextBlock>
                         </Grid>
                     </Grid>
 
                     <TextBlock Grid.Row="1" MaxLines="2" TextWrapping="Wrap" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource Bili-FontColor}" FontSize="14" Text="{Binding title}"></TextBlock>
-                    <TextBlock Grid.Row="2" Foreground="Gray"  FontSize="12">更新至<Run Text="{Binding newest_ep_index}"></Run>话</TextBlock>
+                    <TextBlock Grid.Row="2" Foreground="Gray" FontSize="12" Text="{Binding index_show}"></TextBlock>
                 </Grid>
             </Border>
        
@@ -177,7 +177,7 @@
                                     </StackPanel>
                                 </HyperlinkButton>
                             </Grid>
-                            <GridView x:Name="list_ban_jp" ItemClick="list_ban_jp_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" ItemsSource="{Binding Path=result.recommend_jp.recommend}" ItemTemplate="{StaticResource HomeItemTemplate}" ItemContainerStyle="{StaticResource GridViewItemStyle}" Margin="10 0" SelectionMode="None" IsItemClickEnabled="True" ></GridView>
+                            <GridView x:Name="list_ban_jp" ItemClick="list_ban_jp_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" ItemTemplate="{StaticResource HomeItemTemplate}" ItemContainerStyle="{StaticResource GridViewItemStyle}" Margin="10 0" SelectionMode="None" IsItemClickEnabled="True" ></GridView>
                             <GridView x:Name="list_ban_jp_foot" ItemClick="list_ban_cn_foot_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" ItemsSource="{Binding Path=result.recommend_jp.foot}" ItemTemplate="{StaticResource FootItemTemplate}"  ItemContainerStyle="{StaticResource GridViewItemStyle}" Margin="10 0" SelectionMode="None" IsItemClickEnabled="True"></GridView>
                         </StackPanel>
                         <StackPanel Grid.Row="2">
@@ -195,7 +195,7 @@
 
                                 </HyperlinkButton>
                             </Grid>
-                            <GridView  x:Name="list_ban_cn" ItemClick="list_ban_jp_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" ItemsSource="{Binding Path=result.recommend_cn.recommend}" ItemTemplate="{StaticResource HomeItemTemplate}" ItemContainerStyle="{StaticResource GridViewItemStyle}" Margin="10 0" SelectionMode="None" IsItemClickEnabled="True" ></GridView>
+                            <GridView  x:Name="list_ban_cn" ItemClick="list_ban_jp_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" ItemTemplate="{StaticResource HomeItemTemplate}" ItemContainerStyle="{StaticResource GridViewItemStyle}" Margin="10 0" SelectionMode="None" IsItemClickEnabled="True" ></GridView>
                             <GridView  x:Name="list_ban_cn_foot" ItemClick="list_ban_cn_foot_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" ItemsSource="{Binding Path=result.recommend_cn.foot}" ItemTemplate="{StaticResource FootItemTemplate}"  ItemContainerStyle="{StaticResource GridViewItemStyle}" Margin="10 0" SelectionMode="None" IsItemClickEnabled="True"></GridView>
                         </StackPanel>
                     </Grid>

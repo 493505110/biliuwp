@@ -17,14 +17,12 @@ namespace BiliBili.UWP.Api.User
         /// <returns></returns>
         public ApiModel MyFollowBangumi(int page = 1, int status = 0, int pagesize = 20)
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = "https://api.bilibili.com/pgc/app/follow/v2/bangumi",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&pn={page}&ps={pagesize}&status={status}",
+                baseUrl = "https://api.bilibili.com/x/space/bangumi/follow/list",
+                parameter = $"vmid={ApiHelper.GetUserId()}&type=1&pn={page}&ps={pagesize}"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidKey);
-            return api;
         }
         /// <summary>
         /// 我的追剧
@@ -35,14 +33,12 @@ namespace BiliBili.UWP.Api.User
         /// <returns></returns>
         public ApiModel MyFollowCinema(int page = 1, int status = 0, int pagesize = 20)
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = "https://api.bilibili.com/pgc/app/follow/v2/cinema",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&pn={page}&ps={pagesize}&status={status}",
+                baseUrl = "https://api.bilibili.com/x/space/bangumi/follow/list",
+                parameter = $"vmid={ApiHelper.GetUserId()}&type=2&pn={page}&ps={pagesize}"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidKey);
-            return api;
         }
         /// <summary>
         /// 收藏番剧
