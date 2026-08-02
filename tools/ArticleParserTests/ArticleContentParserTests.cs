@@ -177,6 +177,28 @@ namespace ArticleParserTests
         }
 
         [TestMethod]
+        public void Parse_Type4Article_UsesOpusParagraphs()
+        {
+            ArticleDataModel article = new ArticleDataModel
+            {
+                type = 4,
+                opus = Newtonsoft.Json.Linq.JObject.Parse(
+                    "{\"content\":{\"paragraphs\":[" +
+                    "{\"para_type\":1,\"text\":{\"nodes\":[{\"word\":{\"words\":\"Type 4 text\"}}]}}," +
+                    "{\"para_type\":2,\"pic\":{\"pics\":[{\"url\":\"https://i0.hdslb.com/type4.png\",\"width\":640,\"height\":360}]}}" +
+                    "]}}")
+            };
+
+            ArticleBlockModel[] blocks = new ArticleContentParser().Parse(article).ToArray();
+
+            CollectionAssert.AreEqual(
+                new[] { ArticleBlockType.Text, ArticleBlockType.Image },
+                blocks.Select(item => item.Type).ToArray());
+            Assert.AreEqual("Type 4 text", JoinText((ArticleTextBlockModel)blocks[0]));
+            Assert.AreEqual("https://i0.hdslb.com/type4.png", ((ArticleImageBlockModel)blocks[1]).Url);
+        }
+
+        [TestMethod]
         public void Parse_UnknownInsert_ProducesUnknownBlock()
         {
             ArticleDataModel article = new ArticleDataModel
