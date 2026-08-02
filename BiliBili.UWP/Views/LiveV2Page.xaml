@@ -17,6 +17,7 @@
                         <ColumnDefinition/>
                         <ColumnDefinition/>
                         <ColumnDefinition/>
+                        <ColumnDefinition/>
                     </Grid.ColumnDefinitions>
                     <Button x:Name="btnTopbar_MyFeed" Command="{Binding NavigationInfoPageCommand}" CommandParameter="BiliBili.UWP.Pages.LiveFeedPage"  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#00000000" >
                         <StackPanel>
@@ -36,7 +37,7 @@
                             <TextBlock FontSize="14" TextAlignment="Center">搜索</TextBlock>
                         </StackPanel>
                     </Button>
-                    <Button x:Name="btnTopbar_LivePart" Visibility="Collapsed" Command="{Binding NavigationInfoPageCommand}" CommandParameter="BiliBili.UWP.Pages.LivePartPage" HorizontalAlignment="Stretch" Grid.Column="4" VerticalAlignment="Stretch" Background="#00000000" >
+                    <Button x:Name="btnTopbar_LivePart" Command="{Binding NavigationInfoPageCommand}" CommandParameter="BiliBili.UWP.Pages.LivePartPage" HorizontalAlignment="Stretch" Grid.Column="3" VerticalAlignment="Stretch" Background="#00000000" >
                         <StackPanel>
                             <Image Source="ms-appx:///Assets/Icon/live_home_all_category.png" Width="36" Height="36"></Image>
                             <TextBlock FontSize="14" TextAlignment="Center">分类</TextBlock>

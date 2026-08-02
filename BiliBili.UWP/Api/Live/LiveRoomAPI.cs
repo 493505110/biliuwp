@@ -32,7 +32,7 @@ namespace BiliBili.UWP.Api.Live
         public const string WearMedalUrl = "https://api.live.bilibili.com/xlive/web-room/v1/fansMedal/wear";
         public const string AreaListUrl = "https://api.live.bilibili.com/room/v1/Area/getList";
         public const string RecommendRoomsUrl = "https://api.live.bilibili.com/xlive/web-interface/v1/webMain/getMoreRecList";
-        public const string AreaRoomsUrl = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getList";
+        public const string AreaRoomsUrl = "https://api.live.bilibili.com/room/v3/Area/getRoomList";
         public const string AllRoomsUrl = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getListByArea";
 
         public static ApiModel GetAreaList()
@@ -59,18 +59,23 @@ namespace BiliBili.UWP.Api.Live
 
         public static ApiModel GetAreaRooms(int parentAreaId, int areaId, int page, string sortType = "")
         {
-            return new ApiModel
+            var api = new ApiModel
             {
                 method = HttpMethod.GET,
                 baseUrl = AreaRoomsUrl,
-                parameter = "platform=web&parent_area_id=" + parentAreaId
+                parameter = "actionKey=appkey&appkey=" + ApiHelper.AndroidKey.Appkey
                     + "&area_id=" + areaId
-                    + "&sort_type=" + Escape(sortType)
+                    + "&build=" + ApiHelper.build
+                    + "&cate_id=0&mobi_app=android"
                     + "&page=" + page
-                    + "&vajra_business_key=&web_location=444.253",
-                headers = GetWebHeaders(),
-                useWbi = true
+                    + "&page_size=30&parent_area_id=" + parentAreaId
+                    + "&platform=android&qn=0&tag_version=1"
+                    + "&sort_type=" + Escape(string.IsNullOrEmpty(sortType) ? "online" : sortType)
+                    + "&ts=" + ApiHelper.GetTimeSpan,
+                headers = GetAppHeaders()
             };
+            api.parameter += ApiUtils.GetSign(api.parameter, ApiHelper.AndroidKey);
+            return api;
         }
 
         public static ApiModel GetAllRooms(int page, bool latest)
@@ -308,6 +313,15 @@ namespace BiliBili.UWP.Api.Live
                 { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36" },
                 { "Referer", "https://live.bilibili.com/" },
                 { "Cookie", GetCookieHeader() }
+            };
+        }
+
+        private static IDictionary<string, string> GetAppHeaders()
+        {
+            return new Dictionary<string, string>
+            {
+                { "User-Agent", "Mozilla/5.0 BiliDroid/5.44.2 (bbcallen@gmail.com)" },
+                { "Referer", "https://www.bilibili.com/" }
             };
         }
 

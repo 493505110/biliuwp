@@ -38,11 +38,26 @@ namespace BiliBili.UWP.Pages
         int parent_area_id, area_id;
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.NavigationMode == NavigationMode.New && gv.ItemsSource == null)
+            base.OnNavigatedTo(e);
+            var parameters = e.Parameter as object[];
+            if (parameters == null || parameters.Length < 3)
             {
-                parent_area_id = (e.Parameter as object[])[0].ToInt32();
-                area_id = (e.Parameter as object[])[1].ToInt32();
-                top_txt_Header.Text = (e.Parameter as object[])[2].ToString();
+                return;
+            }
+
+            var nextParentAreaId = parameters[0].ToInt32();
+            var nextAreaId = parameters[1].ToInt32();
+            var nextTitle = parameters[2]?.ToString() ?? string.Empty;
+            var categoryChanged = parent_area_id != nextParentAreaId || area_id != nextAreaId;
+            if (e.NavigationMode == NavigationMode.New && (gv.ItemsSource == null || categoryChanged))
+            {
+                _Loading = true;
+                parent_area_id = nextParentAreaId;
+                area_id = nextAreaId;
+                top_txt_Header.Text = nextTitle;
+                grid_tag.SelectedIndex = -1;
+                grid_tag.ItemsSource = null;
+                gv.ItemsSource = null;
                 _page = 1;
                 _HasMore = true;
                 await GetData();
