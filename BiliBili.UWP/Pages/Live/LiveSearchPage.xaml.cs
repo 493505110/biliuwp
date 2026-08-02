@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using BiliBili.UWP.Api;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,6 +27,8 @@ namespace BiliBili.UWP.Pages
     /// </summary>
     public sealed partial class LiveSearchPage : Page
     {
+        private readonly SearchAPI _searchAPI = new SearchAPI();
+
         public LiveSearchPage()
         {
             this.InitializeComponent();
@@ -66,31 +69,23 @@ namespace BiliBili.UWP.Pages
                 _loadUser = true;
                 pr_Load.Visibility = Visibility.Visible;
 
-                string url = string.Format("https://api.bilibili.com/x/web-interface/search/type?search_type=live&highlight=0&keyword={0}&page=1",
-                    Uri.EscapeDataString(_keyword));
-                // url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                JObject jObject = JObject.Parse(results);
-                LiveSearchModel m = JsonConvert.DeserializeObject<LiveSearchModel>(results);
-                if (m.code == 0)
+                var data = await RequestLiveSearch(_searchAPI.WebSearchLive(_keyword));
+                if (data != null)
                 {
-                    if (Convert.ToInt32(jObject["data"]["pageinfo"]["live_user"]["total"].ToString()) != 0)
+                    var liveUserTotal = data["pageinfo"]?["live_user"]?["total"]?.Value<int>() ?? 0;
+                    if (liveUserTotal != 0)
                     {
-                        txt_hea_1.Text = "主播(" + jObject["data"]["pageinfo"]["live_user"]["total"].ToString() + ")";
-                        JsonConvert.DeserializeObject<List<LiveSearchModel>>(jObject["data"]["result"]["live_user"].ToString()).ForEach(x => list_Feed.Items.Add(x));
-                        //_page_user++;
+                        txt_hea_1.Text = "主播(" + liveUserTotal + ")";
+                        DeserializeItems(data["result"]?["live_user"]).ForEach(x => list_Feed.Items.Add(x));
+                        _page_user++;
                     }
-                    if (Convert.ToInt32(jObject["data"]["pageinfo"]["live_room"]["total"].ToString()) != 0)
+                    var liveRoomTotal = data["pageinfo"]?["live_room"]?["total"]?.Value<int>() ?? 0;
+                    if (liveRoomTotal != 0)
                     {
-                        txt_hea_0.Text = "正在直播(" + jObject["data"]["pageinfo"]["live_room"]["total"].ToString() + ")";
-                        JsonConvert.DeserializeObject<List<LiveSearchModel>>(jObject["data"]["result"]["live_room"].ToString()).ForEach(x => gv_Room.Items.Add(x));
+                        txt_hea_0.Text = "正在直播(" + liveRoomTotal + ")";
+                        DeserializeItems(data["result"]?["live_room"]).ForEach(x => gv_Room.Items.Add(x));
                         _page_room++;
                     }
-                    
-                }
-                else
-                {
-                    Utils.ShowMessageToast(m.message, 3000);
                 }
 
             }
@@ -120,14 +115,10 @@ namespace BiliBili.UWP.Pages
                 _loadUser = true;
                 pr_Load.Visibility = Visibility.Visible;
 
-                string url = string.Format("https://api.bilibili.com/x/web-interface/search/type?search_type=live_user&highlight=0&keyword={0}&page={1}&order=online&coverType=user_cover", Uri.EscapeDataString(_keyword), _page_user);
-                //url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                LiveSearchModel m = JsonConvert.DeserializeObject<LiveSearchModel>(results);
-                JObject jObject = JObject.Parse(results);
-                if (m.code == 0)
+                var data = await RequestLiveSearch(_searchAPI.WebSearchLiveUser(_keyword, _page_user));
+                if (data != null)
                 {
-                    List<LiveSearchModel> ls = JsonConvert.DeserializeObject<List<LiveSearchModel>>(jObject["data"]["result"].ToString());
+                    List<LiveSearchModel> ls = DeserializeItems(data["result"]);
 
 
                     if (ls.Count != 0)
@@ -140,11 +131,6 @@ namespace BiliBili.UWP.Pages
                         Utils.ShowMessageToast("加载完了...", 3000);
                     }
                 }
-                else
-                {
-                    Utils.ShowMessageToast(m.message, 3000);
-                }
-
             }
             catch (Exception ex)
             {
@@ -172,14 +158,10 @@ namespace BiliBili.UWP.Pages
                 _loadRoom = true;
                 pr_Load.Visibility = Visibility.Visible;
 
-                string url = string.Format("https://api.bilibili.com/x/web-interface/search/type?search_type=live&highlight=0&keyword={0}&page={1}", Uri.EscapeDataString(_keyword), _page_room);
-                //url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                LiveSearchModel m = JsonConvert.DeserializeObject<LiveSearchModel>(results);
-                JObject jObject = JObject.Parse(results);
-                if (m.code == 0)
+                var data = await RequestLiveSearch(_searchAPI.WebSearchLiveRoom(_keyword, _page_room));
+                if (data != null)
                 {
-                    List<LiveSearchModel> ls = JsonConvert.DeserializeObject<List<LiveSearchModel>>(jObject["data"]["result"]["live_room"].ToString());
+                    List<LiveSearchModel> ls = DeserializeItems(data["result"]);
 
 
                     if (ls.Count != 0)
@@ -192,11 +174,6 @@ namespace BiliBili.UWP.Pages
                         Utils.ShowMessageToast("加载完了...", 3000);
                     }
                 }
-                else
-                {
-                    Utils.ShowMessageToast(m.message, 3000);
-                }
-
             }
             catch (Exception ex)
             {
@@ -314,6 +291,38 @@ namespace BiliBili.UWP.Pages
         private void gv_Room_ItemClick(object sender, ItemClickEventArgs e)
         {
             MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), (e.ClickedItem as LiveSearchModel).roomid);
+        }
+
+        private async System.Threading.Tasks.Task<JObject> RequestLiveSearch(ApiModel api)
+        {
+            var results = await api.Request();
+            if (!results.status)
+            {
+                Utils.ShowMessageToast("搜索请求失败，代码：" + results.code, 3000);
+                return null;
+            }
+
+            var response = await results.GetJson<ApiDataModel<JObject>>();
+            if (response == null)
+            {
+                Utils.ShowMessageToast("搜索响应解析失败", 3000);
+                return null;
+            }
+            if (!response.success)
+            {
+                Utils.ShowMessageToast(response.message, 3000);
+                return null;
+            }
+            return response.data;
+        }
+
+        private static List<LiveSearchModel> DeserializeItems(JToken token)
+        {
+            if (token == null)
+            {
+                return new List<LiveSearchModel>();
+            }
+            return JsonConvert.DeserializeObject<List<LiveSearchModel>>(token.ToString()) ?? new List<LiveSearchModel>();
         }
     }
 }

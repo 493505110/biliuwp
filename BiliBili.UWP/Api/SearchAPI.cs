@@ -91,11 +91,23 @@ namespace BiliBili.UWP.Api
         }
         public ApiModel WebSearchLive(string keyword, int pn = 1)
         {
+            return WebSearchLive(keyword, "live", pn);
+        }
+        public ApiModel WebSearchLiveRoom(string keyword, int pn = 1)
+        {
+            return WebSearchLive(keyword, "live_room", pn);
+        }
+        public ApiModel WebSearchLiveUser(string keyword, int pn = 1)
+        {
+            return WebSearchLive(keyword, "live_user", pn);
+        }
+        private ApiModel WebSearchLive(string keyword, string searchType, int pn)
+        {
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.GET,
                 baseUrl = $"https://api.bilibili.com/x/web-interface/wbi/search/type",
-                parameter = $"?context=&search_type=live&cover_type=user_cover&page={pn}&keyword={Uri.EscapeDataString(keyword)}&__refresh__=true&changing=mid&highlight=1&single_column=0",
+                parameter = $"?context=&search_type={searchType}&cover_type=user_cover&page={pn}&keyword={Uri.EscapeDataString(keyword)}&__refresh__=true&changing=mid&highlight=1&single_column=0",
                 useWbi = true
             };
             return api;
