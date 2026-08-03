@@ -446,7 +446,7 @@
 
         <CommandBar x:Name="com_bar" Background="{ThemeResource Bili-ForeColor}" Foreground="White" Opening="com_bar_Opening">
             <CommandBar.SecondaryCommands>
-                <AppBarButton x:Name="btn_Refresh" Icon="Refresh" Label="刷新" Foreground="White" Click="btn_Refresh_Click"/>
+                <AppBarButton x:Name="btn_Refresh" Icon="Refresh" Label="刷新" Click="btn_Refresh_Click"/>
             </CommandBar.SecondaryCommands>
             <AppBarToggleButton x:Name="btn_Type" Checked="btn_Type_Checked" Unchecked="btn_Type_Unchecked" Foreground="White" Label="标签">
                 <AppBarToggleButton.RenderTransform>
