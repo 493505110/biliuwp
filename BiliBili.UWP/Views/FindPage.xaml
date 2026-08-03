@@ -107,7 +107,7 @@
                         <FontIcon  Grid.Column="2" FontSize="12" Foreground="Gray" FontFamily="Segoe MDL2 Assets" Glyph="&#xE00F;" />
                     </Grid>
                 </HyperlinkButton>
-                <HyperlinkButton x:Name="Find_btn_Topic" Click="Find_btn_Topic_Click" Foreground="Gray" Background="{ThemeResource Bili-List-Background}" HorizontalContentAlignment="Stretch" HorizontalAlignment="Stretch" Height="36" Margin="0 5" >
+                <!--<HyperlinkButton x:Name="Find_btn_Topic" Click="Find_btn_Topic_Click" Foreground="Gray" Background="{ThemeResource Bili-List-Background}" HorizontalContentAlignment="Stretch" HorizontalAlignment="Stretch" Height="36" Margin="0 5" >
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="48"/>
@@ -134,7 +134,7 @@
                         </TextBlock>
                         <FontIcon  Grid.Column="2" FontSize="12" Foreground="Gray" FontFamily="Segoe MDL2 Assets" Glyph="&#xE00F;" />
                     </Grid>
-                </HyperlinkButton>
+                </HyperlinkButton>-->
                 <HyperlinkButton x:Name="btn_localHistory" Click="btn_localHistory_Click" Foreground="Gray" Background="{ThemeResource Bili-List-Background}" HorizontalContentAlignment="Stretch" HorizontalAlignment="Stretch" Height="36" Margin="0 5" >
                     <Grid>
                         <Grid.ColumnDefinitions>
