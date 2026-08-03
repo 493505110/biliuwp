@@ -42,23 +42,16 @@
                         </GridView.ItemContainerStyle>
                         <GridView.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="{Binding ElementName=bor_Width,Path=Width}" >
-                                    <Grid >
+                                <Border Width="{Binding ElementName=bor_Width,Path=Width}" Padding="12">
+                                    <Grid>
                                         <Grid.RowDefinitions>
-                                            <RowDefinition/>
-                                            <RowDefinition Height="auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
-                                        <Image   Stretch="UniformToFill" Source="ms-appx:///Assets/Logo/PI900_300.png"></Image>
-                                        <Image  Source="{Binding cover}" Stretch="UniformToFill"></Image>
-
-                                        <Grid Grid.Row="1"   Margin="5">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition/>
-                                                <ColumnDefinition Width="auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock TextTrimming="CharacterEllipsis" Text="{Binding title}"></TextBlock>
-                                        </Grid>
-
+                                        <TextBlock FontSize="16" Text="{Binding name}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Row="1" Margin="0 6 0 0" Foreground="{ThemeResource Bili-ForeColor}" Text="{Binding stat_desc}"/>
+                                        <TextBlock Grid.Row="2" Margin="0 6 0 0" Foreground="Gray" MaxLines="2" Text="{Binding description}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap"/>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

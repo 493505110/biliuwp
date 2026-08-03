@@ -132,6 +132,8 @@ namespace BiliBili.UWP
             get { return Convert.ToInt64((DateTime.Now - new DateTime(1970, 1, 1, 8, 0, 0, 0)).TotalMilliseconds); }
         }
 
+        public const string ActivityCenterUrl = "https://www.bilibili.com/blackboard/era/reward-activity-list-page.html";
+
         public static List<RegionModel> regions;
         public static async Task SetRegions()
         {
@@ -147,7 +149,7 @@ namespace BiliBili.UWP
                     var activityCenter = model.data.FirstOrDefault(x => x.name == "活动中心");
                     if (activityCenter != null)
                     {
-                        activityCenter.uri = "https://www.bilibili.com/blackboard/era/reward-activity-list-page.html";
+                        activityCenter.uri = ActivityCenterUrl;
                     }
 
                     var vlog = model.data.FirstOrDefault(x => x.name == "VLOG");

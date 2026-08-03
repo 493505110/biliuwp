@@ -211,8 +211,7 @@ namespace BiliBili.UWP.Pages
                     //MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(TimelinePage));
                     break;
                 case "hd":
-                    // Utils.ShowMessageToast("开发中...", 3000);
-                    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ActivityPage));
+                    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), ApiHelper.ActivityCenterUrl);
                     break;
                 case "sq":
                     MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), new Random().Next(10000, 4999999).ToString());

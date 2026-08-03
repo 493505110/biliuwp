@@ -1,174 +1,165 @@
-﻿using System;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Helper;
+using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text.RegularExpressions;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
-
-// “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
 
 namespace BiliBili.UWP.Pages
 {
-    /// <summary>
-    /// 可用于自身或导航至 Frame 内部的空白页。
-    /// </summary>
     public sealed partial class TopicPage : Page
     {
+        bool IsLoading;
+        int offset;
+        bool hasMore = true;
+
         public TopicPage()
         {
-            this.InitializeComponent();
-            this.NavigationCacheMode = NavigationCacheMode.Required;
+            InitializeComponent();
+            NavigationCacheMode = NavigationCacheMode.Required;
         }
 
         private void btn_Back_Click(object sender, RoutedEventArgs e)
         {
-            if (this.Frame.CanGoBack)
+            if (Frame.CanGoBack)
             {
-                this.Frame.GoBack();
-            }
-        }
-        protected override void OnNavigatedTo(NavigationEventArgs e)
-        {
-            if (SettingHelper.Get_RefreshButton() && SettingHelper.IsPc())
-            {
-                b_btn_Refresh.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                b_btn_Refresh.Visibility = Visibility.Collapsed;
-            }
-            if (e.NavigationMode == NavigationMode.New)
-            {
-                GetTopic();
+                Frame.GoBack();
             }
         }
 
-        bool IsLoading = true;
-        int page = 1;
-        private async void GetTopic()
+        protected override void OnNavigatedTo(NavigationEventArgs e)
         {
+            b_btn_Refresh.Visibility = SettingHelper.Get_RefreshButton() && SettingHelper.IsPc()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            if (e.NavigationMode == NavigationMode.New)
+            {
+                GetTopic(true);
+            }
+        }
+
+        private async void GetTopic(bool refresh = false)
+        {
+            if (IsLoading || (!refresh && !hasMore))
+            {
+                return;
+            }
+
             try
             {
                 IsLoading = true;
                 btn_More_Video.Visibility = Visibility.Collapsed;
                 pr_Load.Visibility = Visibility.Visible;
-                string url = string.Format("http://api.bilibili.com/topic/getlist?access_key={0}&appkey={1}&build=424000&mobi_app=android&page={2}&pagesize=20&platform=android&ts={3}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, page, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                TopicModel m = Newtonsoft.Json.JsonConvert.DeserializeObject<TopicModel>(results);
 
-                m.list.ForEach(x =>
+                int requestOffset = refresh ? 0 : offset;
+                ApiModel api = new ApiModel
                 {
-                    if (x.link.Length != 0)
-                    {
-                        if (!x.cover.Contains("http:"))
-                        {
-                            x.cover = "http:" + x.cover;
-                        }
-                        grid_View.Items.Add(x);
-                    }
+                    method = HttpMethod.GET,
+                    baseUrl = "https://api.bilibili.com/x/topic/pub/search",
+                    parameter = $"keywords=&page_size=20&page_num=1&offset={requestOffset}&web_location=333.1365"
+                };
+                HttpResults results = await api.Request();
+                if (!results.status)
+                {
+                    Utils.ShowMessageToast(results.message, 2000);
+                    return;
                 }
-                );
-                page++;
-                //grid_View.ItemsSource = m.list;
+
+                ApiDataModel<TopicDataModel> response = await results.GetJson<ApiDataModel<TopicDataModel>>();
+                if (response == null || !response.success)
+                {
+                    Utils.ShowMessageToast(response?.message ?? "读取失败了", 2000);
+                    return;
+                }
+
+                List<TopicModel> topics = response.data?.topic_items;
+                if (topics == null)
+                {
+                    Utils.ShowMessageToast("读取失败了", 2000);
+                    return;
+                }
+
+                if (refresh)
+                {
+                    grid_View.Items.Clear();
+                }
+                foreach (TopicModel topic in topics)
+                {
+                    grid_View.Items.Add(topic);
+                }
+
+                offset = response.data.page_info?.offset ?? requestOffset + topics.Count;
+                hasMore = response.data.page_info?.has_more == true && topics.Count > 0;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("话题中心读取失败", LogType.ERROR, ex);
                 Utils.ShowMessageToast("读取失败了", 2000);
-                //throw;
             }
             finally
             {
                 IsLoading = false;
-                btn_More_Video.Visibility = Visibility.Visible;
+                btn_More_Video.Visibility = hasMore ? Visibility.Visible : Visibility.Collapsed;
                 pr_Load.Visibility = Visibility.Collapsed;
             }
         }
 
         private void btn_More_Video_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsLoading)
-            {
-                GetTopic();
-            }
+            GetTopic();
         }
 
         private void list_Topic_ItemClick(object sender, ItemClickEventArgs e)
         {
-            if (Regex.IsMatch(((TopicModel)e.ClickedItem).link, "/video/av(.*)?[/|+](.*)?"))
+            TopicModel topic = e.ClickedItem as TopicModel;
+            if (topic != null)
             {
-                string a = Regex.Match(((TopicModel)e.ClickedItem).link, "/video/av(.*)?[/|+](.*)?").Groups[1].Value;
-                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), a);
-            }
-            else
-            {
-                if (Regex.IsMatch(((TopicModel)e.ClickedItem).link, @"live.bilibili.com/(.*?)"))
-                {
-                    string a = Regex.Match(((TopicModel)e.ClickedItem).link + "a", "live.bilibili.com/(.*?)a").Groups[1].Value;
-                    // livePlayVideo(a);
-                }
-                else
-                {
-                    this.Frame.Navigate(typeof(WebPage), new object[] { ((TopicModel)e.ClickedItem).link});
-                }
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), topic.link);
             }
         }
 
         private void Page_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            int i = Convert.ToInt32(this.ActualWidth / 400);
-            bor_Width.Width = this.ActualWidth / i - 12;
+            int columns = Math.Max(1, Convert.ToInt32(ActualWidth / 400));
+            bor_Width.Width = ActualWidth / columns - 12;
         }
 
         private void sv_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            if (sv.VerticalOffset == sv.ScrollableHeight)
+            if (sv.VerticalOffset >= sv.ScrollableHeight - 1)
             {
-                if (!IsLoading)
-                {
-                    GetTopic();
-                }
+                GetTopic();
             }
         }
 
         private void b_btn_Refresh_Click(object sender, RoutedEventArgs e)
         {
-            page = 1;
-            GetTopic();
+            GetTopic(true);
         }
+    }
+
+    public class TopicDataModel
+    {
+        public List<TopicModel> topic_items { get; set; }
+        public TopicPageInfoModel page_info { get; set; }
+    }
+
+    public class TopicPageInfoModel
+    {
+        public int offset { get; set; }
+        public bool has_more { get; set; }
     }
 
     public class TopicModel
     {
-        public int code { get; set; }
-        public List<TopicModel> list { get; set; }
-        public string title { get; set; }
-        private string _cover;
-        public string cover {
-            get {
-                if (_cover.Length==0)
-                {
-                    return "ms-appx:///Assets/Logo/PI900_300.png";
-                }
-                else
-                {
-                    return _cover;
-                }
-            }
-            set { _cover = value; } }
-        public string link { get; set; }
-
-
-
+        public long id { get; set; }
+        public string name { get; set; }
+        public long view { get; set; }
+        public long discuss { get; set; }
+        public string stat_desc { get; set; }
+        public string description { get; set; }
+        public string link => $"https://m.bilibili.com/topic-detail?topic_id={id}";
     }
-
 }
