@@ -150,7 +150,7 @@ namespace BiliBili.UWP.Views
 
         private void Find_btn_Activity_Click(object sender, RoutedEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ActivityPage));
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), ApiHelper.ActivityCenterUrl);
         }
 
         private void Find_btn_Shop_Click(object sender, RoutedEventArgs e)
