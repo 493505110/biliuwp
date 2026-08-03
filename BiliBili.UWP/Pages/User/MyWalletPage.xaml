@@ -55,7 +55,9 @@
                 <PivotItem.Header>
                     <TextBlock FontSize="16">消费</TextBlock>
                 </PivotItem.Header>
-                <ScrollViewer x:Name="sv_Orders" ViewChanged="sv_Orders_ViewChanged" >
+                <Grid>
+                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Gray" Text="接口已失效，暂不可用"/>
+                    <ScrollViewer x:Name="sv_Orders" ViewChanged="sv_Orders_ViewChanged" Visibility="Collapsed">
                     <StackPanel Margin="10">
                         <ListView x:Name="list_Orders" ItemClick="list_Orders_ItemClick" ScrollViewer.VerticalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollMode="Disabled" SelectionMode="None" IsItemClickEnabled="True">
                             <ListView.ItemContainerStyle>
@@ -88,13 +90,16 @@
                             
                         </ListView>
                     </StackPanel>
-                </ScrollViewer>
+                    </ScrollViewer>
+                </Grid>
             </PivotItem>
             <PivotItem Margin="0">
                 <PivotItem.Header>
                     <TextBlock FontSize="16">充值</TextBlock>
                 </PivotItem.Header>
-                <ScrollViewer x:Name="sv_Recharge" ViewChanged="sv_Recharge_ViewChanged" >
+                <Grid>
+                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Gray" Text="接口已失效，暂不可用"/>
+                    <ScrollViewer x:Name="sv_Recharge" ViewChanged="sv_Recharge_ViewChanged" Visibility="Collapsed">
                     <StackPanel Margin="10">
                         <ListView x:Name="list_Recharge" ItemClick="list_Recharge_ItemClick" ScrollViewer.VerticalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollMode="Disabled" SelectionMode="None" IsItemClickEnabled="True">
                             <ListView.ItemContainerStyle>
@@ -127,13 +132,16 @@
 
                         </ListView>
                     </StackPanel>
-                </ScrollViewer>
+                    </ScrollViewer>
+                </Grid>
             </PivotItem>
             <PivotItem Margin="0">
                 <PivotItem.Header>
                     <TextBlock FontSize="16">B币券</TextBlock>
                 </PivotItem.Header>
-                <ScrollViewer x:Name="sv_Quan" ViewChanged="sv_Quan_ViewChanged" >
+                <Grid>
+                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Gray" Text="接口已失效，暂不可用"/>
+                    <ScrollViewer x:Name="sv_Quan" ViewChanged="sv_Quan_ViewChanged" Visibility="Collapsed">
                     <StackPanel Margin="10">
                         <ListView x:Name="list_Quan"  ScrollViewer.VerticalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollMode="Disabled" SelectionMode="None" IsItemClickEnabled="True">
                             <ListView.ItemContainerStyle>
@@ -166,13 +174,16 @@
 
                         </ListView>
                     </StackPanel>
-                </ScrollViewer>
+                    </ScrollViewer>
+                </Grid>
             </PivotItem>
             <PivotItem Margin="0">
                 <PivotItem.Header>
                     <TextBlock FontSize="16">硬币记录</TextBlock>
                 </PivotItem.Header>
-                <ListView x:Name="list_Coins" Margin="10"  SelectionMode="None" IsItemClickEnabled="True">
+                <Grid>
+                    <TextBlock x:Name="txt_CoinsEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Gray" Text="最近一周没有硬币变动记录" Visibility="Collapsed"/>
+                    <ListView x:Name="list_Coins" Margin="10" SelectionMode="None" IsItemClickEnabled="True">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"></Setter>
@@ -201,7 +212,8 @@
                     </ListView.ItemTemplate>
 
 
-                </ListView>
+                    </ListView>
+                </Grid>
             </PivotItem>
         </Pivot>
    

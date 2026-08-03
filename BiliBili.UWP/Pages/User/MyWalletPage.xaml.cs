@@ -44,6 +44,7 @@ namespace BiliBili.UWP.Pages
                 list_Recharge.Items.Clear();
                 list_Quan.Items.Clear();
                 list_Coins.ItemsSource = null;
+                txt_CoinsEmpty.Visibility = Visibility.Collapsed;
                 pivot.SelectedIndex = 0;
                 LoadWallet();
                 LoadCoins();
@@ -54,21 +55,16 @@ namespace BiliBili.UWP.Pages
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
-                string uri = string.Format("https://pay.bilibili.com/user/info/v2");
-                //uri += "&sign=" + ApiHelper.GetSign(uri);
-
-                //string uri = string.Format("https://pay.bilibili.com/wallet/api/v1/info?access_key={0}&appkey={1}&build=433000&mobi_app=android&platform=android&ts={2}000",ApiHelper.access_key,ApiHelper._appKey_Android2,ApiHelper.GetTimeSpan);
-                //uri += "&sign=" + ApiHelper.GetSign_Android2(uri);
-
-                string results = await WebClientClass.GetResults(new Uri(uri));
+                string uri = "https://pay.bilibili.com/paywallet/wallet/getUserWallet";
+                string results = await WebClientClass.PostResultsJson(new Uri(uri), "{\"platformType\":\"3\"}");
                 WalletModel model = JsonConvert.DeserializeObject<WalletModel>(results);
-                if (model.code == 0)
+                if (model != null && model.errno == 0 && model.data != null)
                 {
-                    this.DataContext = model.data.wallet;
+                    this.DataContext = model.data;
                 }
                 else
                 {
-                    Utils.ShowMessageToast(model.message, 3000);
+                    Utils.ShowMessageToast(model?.showMsg ?? model?.msg ?? model?.message ?? "读取B币余额失败", 3000);
                 }
             }
             catch (Exception ex)
@@ -92,12 +88,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
-                string uri = string.Format("https://account.bilibili.com/home/userInfo");
-
-
-                //string uri = string.Format("https://pay.bilibili.com/wallet/api/v1/info?access_key={0}&appkey={1}&build=433000&mobi_app=android&platform=android&ts={2}000",ApiHelper.access_key,ApiHelper._appKey_Android2,ApiHelper.GetTimeSpan);
-                //uri += "&sign=" + ApiHelper.GetSign_Android2(uri);
-                //string i = "mid=" + ApiHelper.GetUserId() + "&_=" + ApiHelper.GetTimeSpan_2;
+                string uri = "https://account.bilibili.com/site/getCoin";
                 string results = await WebClientClass.GetResults(new Uri(uri));
 
                 _UserInfoModel model = JsonConvert.DeserializeObject<_UserInfoModel>(results);
@@ -153,37 +144,9 @@ namespace BiliBili.UWP.Pages
 
         private void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            switch (pivot.SelectedIndex)
+            if (pivot.SelectedIndex == 4 && list_Coins.ItemsSource == null)
             {
-                case 1:
-                    if (list_Orders.Items.Count==0)
-                    {
-                        page_Orders = 1;
-                        GetOrders();
-                    }
-                    break;
-                case 2:
-                    if (list_Recharge.Items.Count == 0)
-                    {
-                        page_Recharge = 1;
-                        GetRechargeOrders();
-                    }
-                    break;
-                case 3:
-                    if (list_Quan.Items.Count == 0)
-                    {
-                        page_Quan = 1;
-                        GetQuan();
-                    }
-                    break;
-                case 4:
-                    if (list_Coins.ItemsSource==null)
-                    {
-                        GetCoins();
-                    }
-                    break;
-                default:
-                    break;
+                GetCoins();
             }
         }
         int page_Orders =1;
@@ -390,20 +353,22 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-              
                 pr_Load.Visibility = Visibility.Visible;
-                string uri = string.Format("https://account.bilibili.com/log/getMoneyLog?page=1");
+                txt_CoinsEmpty.Visibility = Visibility.Collapsed;
+                string uri = "https://api.bilibili.com/x/member/web/coin/log";
                 string results = await WebClientClass.GetResults(new Uri(uri));
 
                 CoinsModel model = JsonConvert.DeserializeObject<CoinsModel>(results);
 
-                if (model.code == 0)
+                if (model != null && model.code == 0 && model.data != null)
                 {
-                    list_Coins.ItemsSource = model.data.result;
+                    var list = model.data.list ?? new List<CoinsModel>();
+                    list_Coins.ItemsSource = list;
+                    txt_CoinsEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
                 }
                 else
                 {
-                    Utils.ShowMessageToast(model.message, 3000);
+                    Utils.ShowMessageToast(model?.message ?? "读取硬币记录失败", 3000);
                 }
             }
             catch (Exception ex)
@@ -428,7 +393,10 @@ namespace BiliBili.UWP.Pages
     public class WalletModel
     {
         public int code { get; set; }
+        public int errno { get; set; }
         public string message { get; set; }
+        public string msg { get; set; }
+        public string showMsg { get; set; }
 
         public WalletModel coupon_info { get; set; }
         public WalletModel data { get; set; }
@@ -446,6 +414,7 @@ namespace BiliBili.UWP.Pages
         public int code { get; set; }
         public string message { get; set; }
         public _UserInfoModel data { get; set; }
+        [JsonProperty("money")]
         public string coins { get; set; }
        
     }
@@ -533,6 +502,7 @@ namespace BiliBili.UWP.Pages
         public int code { get; set; }
         public string message { get; set; }
         public CoinsModel data { get; set; }
+        public List<CoinsModel> list { get; set; }
         public List<CoinsModel> result { get; set; }
 
         public string time { get; set; }
