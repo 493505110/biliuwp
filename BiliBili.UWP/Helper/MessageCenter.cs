@@ -97,7 +97,7 @@ namespace BiliBili.UWP
                 case NavigateMode.Play:
                     if (!page.FullName.Contains("MusicMiniPlayerPage"))
                     {
-                        MusicHelper.Pause();
+                        MusicHelper.PauseAndReleaseSystemMediaTransportControls();
                     }
                     //&&SettingHelper.IsPc()
                     if (page==typeof(LiveRoomPage))
@@ -225,6 +225,7 @@ namespace BiliBili.UWP
             var live = Utils.RegexMatch(url.Replace("h5", "live").Replace("live.bilibili.com", "live").Replace("/", ""), @"live(\d+)");
             if (live != "")
             {
+                MusicHelper.PauseAndReleaseSystemMediaTransportControls();
                 if (!SettingHelper.IsPc())
                 {
                     PlayNavigateToEvent(typeof(LiveRoomPage), live);

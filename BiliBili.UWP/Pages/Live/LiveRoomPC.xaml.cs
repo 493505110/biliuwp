@@ -45,10 +45,6 @@ namespace BiliBili.UWP.Pages.Live
             this.InitializeComponent();
             this.Loaded += delegate { this.Focus(FocusState.Programmatic); };
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
-            _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
-            _systemMediaTransportControls.IsPlayEnabled = true;
-            _systemMediaTransportControls.IsPauseEnabled = true;
-            _systemMediaTransportControls.ButtonPressed += _systemMediaTransportControls_ButtonPressed;
             danmu.danmakuMode = NSDanmaku.Model.DanmakuMode.Live;
             MessageCenter.Logined += MessageCenter_Logined;
             account = new Account();
@@ -87,6 +83,32 @@ namespace BiliBili.UWP.Pages.Live
             }
         }
         SystemMediaTransportControls _systemMediaTransportControls;
+
+        private void RegisterSystemMediaTransportControls()
+        {
+            _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
+            _systemMediaTransportControls.ButtonPressed -= _systemMediaTransportControls_ButtonPressed;
+            _systemMediaTransportControls.IsEnabled = true;
+            _systemMediaTransportControls.IsPlayEnabled = true;
+            _systemMediaTransportControls.IsPauseEnabled = true;
+            _systemMediaTransportControls.ButtonPressed += _systemMediaTransportControls_ButtonPressed;
+        }
+
+        private void ReleaseSystemMediaTransportControls()
+        {
+            var controls = _systemMediaTransportControls;
+            _systemMediaTransportControls = null;
+            if (controls == null)
+            {
+                return;
+            }
+
+            controls.ButtonPressed -= _systemMediaTransportControls_ButtonPressed;
+            controls.PlaybackStatus = MediaPlaybackStatus.Closed;
+            controls.DisplayUpdater.ClearAll();
+            controls.IsEnabled = false;
+        }
+
         BiliLiveDanmu _biliLiveDanmu;
         LiveRoom liveRoom;
         LiveCenter liveCenter;
@@ -132,6 +154,7 @@ namespace BiliBili.UWP.Pages.Live
         {
             this.Frame.Visibility = Visibility.Visible;
             base.OnNavigatedTo(e);
+            RegisterSystemMediaTransportControls();
             //if (e.NavigationMode == NavigationMode.New)
             //{
             roomId = Convert.ToInt32((e.Parameter as object[])[0]);
@@ -150,6 +173,7 @@ namespace BiliBili.UWP.Pages.Live
 
         protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
         {
+            ReleaseSystemMediaTransportControls();
             if (e.NavigationMode == NavigationMode.Back||e.SourcePageType==typeof(BlankPage))
             {
                 try

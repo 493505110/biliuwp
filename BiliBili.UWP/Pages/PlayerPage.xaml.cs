@@ -77,6 +77,7 @@ namespace BiliBili.UWP.Pages
             this.InitializeComponent();
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
             mediaPlayer = new MediaPlayer();
+            mediaPlayer.CommandManager.IsEnabled = false;
             mediaPlayer.PlaybackSession.PositionChanged += PlaybackSession_PositionChanged;
             mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
             mediaPlayer.VolumeChanged += MediaPlayer_VolumeChanged;
@@ -88,13 +89,6 @@ namespace BiliBili.UWP.Pages
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
             MTC.DanmuLoaded += MTC_DanmuLoaded;
-            if (SettingHelper.Get_BackPlay())
-            {
-                _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
-                _systemMediaTransportControls.IsPlayEnabled = true;
-                _systemMediaTransportControls.IsPauseEnabled = true;
-                _systemMediaTransportControls.ButtonPressed += _systemMediaTransportControls_ButtonPressed;
-            }
         }
 
         private void MediaPlayer_VolumeChanged(MediaPlayer sender, object args)
@@ -463,10 +457,42 @@ namespace BiliBili.UWP.Pages
 
 
         SystemMediaTransportControls _systemMediaTransportControls;
+
+        private void RegisterSystemMediaTransportControls()
+        {
+            if (!SettingHelper.Get_BackPlay())
+            {
+                return;
+            }
+
+            _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
+            _systemMediaTransportControls.ButtonPressed -= _systemMediaTransportControls_ButtonPressed;
+            _systemMediaTransportControls.IsEnabled = true;
+            _systemMediaTransportControls.IsPlayEnabled = true;
+            _systemMediaTransportControls.IsPauseEnabled = true;
+            _systemMediaTransportControls.ButtonPressed += _systemMediaTransportControls_ButtonPressed;
+        }
+
+        private void ReleaseSystemMediaTransportControls()
+        {
+            var controls = _systemMediaTransportControls;
+            _systemMediaTransportControls = null;
+            if (controls == null)
+            {
+                return;
+            }
+
+            controls.ButtonPressed -= _systemMediaTransportControls_ButtonPressed;
+            controls.PlaybackStatus = MediaPlaybackStatus.Closed;
+            controls.DisplayUpdater.ClearAll();
+            controls.IsEnabled = false;
+        }
+
         private DisplayRequest dispRequest = null;//保持屏幕常亮
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
+            RegisterSystemMediaTransportControls();
             CoreWindow.GetForCurrentThread().KeyDown += PlayerPage_KeyDown;
             this.Frame.Visibility = Visibility.Visible;
             int flag = 1;
@@ -505,6 +531,7 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
+                ReleaseSystemMediaTransportControls();
                 ClosePlayer();
                 //Debug.WriteLine("开始返回");
                 CoreWindow.GetForCurrentThread().KeyDown -= PlayerPage_KeyDown;
@@ -575,17 +602,6 @@ namespace BiliBili.UWP.Pages
             danmu = MTC.myDanmaku;
 
             UpdateSetting();
-            if (SettingHelper.Get_BackPlay())
-            {
-                //_mediaPlayer = new MediaPlayer();
-                // _systemMediaTransportControls = _mediaPlayer.SystemMediaTransportControls;
-                //_mediaPlayer.CommandManager.IsEnabled = true;
-
-                _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
-                _systemMediaTransportControls.IsPlayEnabled = true;
-                _systemMediaTransportControls.IsPauseEnabled = true;
-                _systemMediaTransportControls.ButtonPressed += _systemMediaTransportControls_ButtonPressed;
-            }
             //if (timer == null)
             //{
             //    timer = new DispatcherTimer();
@@ -677,12 +693,6 @@ namespace BiliBili.UWP.Pages
                 //_mediaPlayer.Source = null;
                 //_mediaPlayer = null;
 
-                if (_systemMediaTransportControls != null)
-                {
-                    _systemMediaTransportControls.DisplayUpdater.ClearAll();
-                    _systemMediaTransportControls.IsEnabled = false;
-                    _systemMediaTransportControls = null;
-                }
                 //  mediaElement.Stop();
                 //  gv_play.ItemsSource = null;
                 // mediaElement.Source = null;
@@ -1538,6 +1548,7 @@ namespace BiliBili.UWP.Pages
                 if (mediaPlayer_audio == null)
                 {
                     mediaPlayer_audio = new MediaPlayer();
+                    mediaPlayer_audio.CommandManager.IsEnabled = false;
                     mediaPlayer_audio.Volume = mediaPlayer.Volume;
                     mediaPlayer_audio.Source = MediaSource.CreateFromStream(await audio.OpenReadAsync(), audio.ContentType);
                 }
@@ -1885,7 +1896,16 @@ namespace BiliBili.UWP.Pages
                 updater.VideoProperties.Subtitle = playNow.VideoTitle;
                 updater.VideoProperties.Title = playNow.Title;
 
-                updater.Thumbnail = RandomAccessStreamReference.CreateFromUri(new Uri("ms-appx:///Assets/Logo.png"));
+                var imageSource = playNow.ImageSrc;
+                if (!string.IsNullOrWhiteSpace(imageSource) && imageSource.StartsWith("//"))
+                {
+                    imageSource = "https:" + imageSource;
+                }
+                if (!Uri.TryCreate(imageSource, UriKind.Absolute, out Uri thumbnailUri))
+                {
+                    thumbnailUri = new Uri("ms-appx:///Assets/Logo.png");
+                }
+                updater.Thumbnail = RandomAccessStreamReference.CreateFromUri(thumbnailUri);
 
                 updater.Update();
                 var timelineProperties = new SystemMediaTransportControlsTimelineProperties();

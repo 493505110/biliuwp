@@ -31,6 +31,9 @@ namespace BiliBili.UWP.Helper
         //public static MusicPlayMode musicPlayMode;
         public static MediaPlayer _mediaPlayer;
         public static MediaPlaybackList _mediaPlaybackList;
+        private static readonly object SystemMediaTransportControlsLock = new object();
+        private static bool _ownsSystemMediaTransportControls;
+        private static bool _suppressPlaybackActivationUntilStopped;
 
         public static void InitializeMusicPlay()
         {
@@ -38,7 +41,8 @@ namespace BiliBili.UWP.Helper
             _mediaPlayer = new MediaPlayer();
             _mediaPlayer.AutoPlay = true;
             _mediaPlayer.AudioCategory = MediaPlayerAudioCategory.Media;
-            _mediaPlayer.CommandManager.IsEnabled = true;
+            _mediaPlayer.CommandManager.IsEnabled = false;
+            _mediaPlayer.PlaybackSession.PlaybackStateChanged += PlaybackSession_PlaybackStateChanged;
             
 
            
@@ -47,6 +51,115 @@ namespace BiliBili.UWP.Helper
             _mediaPlaybackList.CurrentItemChanged += _mediaPlaybackList_CurrentItemChanged;
 
             _mediaPlayer.Source = _mediaPlaybackList;
+        }
+
+        private static bool TryGetCurrentMusic(out MusicPlayModel music)
+        {
+            music = null;
+            if (_mediaPlaybackList == null || playList == null || _mediaPlaybackList.Items.Count == 0)
+            {
+                return false;
+            }
+
+            var index = Convert.ToInt32(_mediaPlaybackList.CurrentItemIndex);
+            if (index < 0 || index >= playList.Count)
+            {
+                return false;
+            }
+
+            music = playList[index];
+            return true;
+        }
+
+        private static void UpdateSystemMediaTransportControlsMetadata(MusicPlayModel music)
+        {
+            var controls = _mediaPlayer.SystemMediaTransportControls;
+            var updater = controls.DisplayUpdater;
+            updater.Type = MediaPlaybackType.Music;
+            updater.MusicProperties.Artist = music.artist;
+            updater.MusicProperties.Title = music.title;
+            updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromUri(new Uri(music.pic));
+            updater.Update();
+
+            var timelineProperties = new SystemMediaTransportControlsTimelineProperties
+            {
+                StartTime = TimeSpan.FromSeconds(0),
+                MinSeekTime = TimeSpan.FromSeconds(0),
+                Position = _mediaPlayer.PlaybackSession.Position,
+                MaxSeekTime = _mediaPlayer.PlaybackSession.NaturalDuration,
+                EndTime = _mediaPlayer.PlaybackSession.NaturalDuration
+            };
+            controls.UpdateTimelineProperties(timelineProperties);
+        }
+
+        private static void ActivateSystemMediaTransportControls(bool takeOwnership)
+        {
+            lock (SystemMediaTransportControlsLock)
+            {
+                if (_mediaPlayer == null || !TryGetCurrentMusic(out var music))
+                {
+                    return;
+                }
+
+                if (takeOwnership)
+                {
+                    _ownsSystemMediaTransportControls = true;
+                    _suppressPlaybackActivationUntilStopped = false;
+                }
+
+                if (!_ownsSystemMediaTransportControls)
+                {
+                    return;
+                }
+
+                _mediaPlayer.CommandManager.IsEnabled = true;
+                _mediaPlayer.SystemMediaTransportControls.IsEnabled = true;
+                UpdateSystemMediaTransportControlsMetadata(music);
+            }
+        }
+
+        private static void ReleaseSystemMediaTransportControls()
+        {
+            lock (SystemMediaTransportControlsLock)
+            {
+                _ownsSystemMediaTransportControls = false;
+                if (_mediaPlayer == null)
+                {
+                    return;
+                }
+
+                var controls = _mediaPlayer.SystemMediaTransportControls;
+                controls.DisplayUpdater.ClearAll();
+                controls.PlaybackStatus = MediaPlaybackStatus.Closed;
+                controls.IsEnabled = false;
+                _mediaPlayer.CommandManager.IsEnabled = false;
+            }
+        }
+
+        private static void PlaybackSession_PlaybackStateChanged(MediaPlaybackSession sender, object args)
+        {
+            if (sender.PlaybackState != MediaPlaybackState.Playing)
+            {
+                if (sender.PlaybackState == MediaPlaybackState.Paused ||
+                    sender.PlaybackState == MediaPlaybackState.None)
+                {
+                    lock (SystemMediaTransportControlsLock)
+                    {
+                        _suppressPlaybackActivationUntilStopped = false;
+                    }
+                }
+                return;
+            }
+
+            lock (SystemMediaTransportControlsLock)
+            {
+                if (_suppressPlaybackActivationUntilStopped)
+                {
+                    return;
+                }
+
+                ActivateSystemMediaTransportControls(true);
+            }
         }
 
         
@@ -61,6 +174,7 @@ namespace BiliBili.UWP.Helper
                 UpdateList(null, playList);
             }
 
+            ActivateSystemMediaTransportControls(true);
             _mediaPlayer.Play();
 
         }
@@ -84,6 +198,7 @@ namespace BiliBili.UWP.Helper
             }
             _mediaPlaybackList.Items.Clear();
             playList.Clear();
+            ReleaseSystemMediaTransportControls();
 
             if (DisplayEvent != null)
             {
@@ -120,6 +235,7 @@ namespace BiliBili.UWP.Helper
             {
                 return;
             }
+            ActivateSystemMediaTransportControls(false);
             if (MediaChanged!=null)
             {
                 MediaChanged(sender,playList[Convert.ToInt32(_mediaPlaybackList.CurrentItemIndex)]);
@@ -128,36 +244,32 @@ namespace BiliBili.UWP.Helper
             {
                 DisplayEvent(null, Visibility.Visible);
             }
-
-
-            var _systemMediaTransportControls = _mediaPlayer.SystemMediaTransportControls;
-
-            var timelineProperties = new SystemMediaTransportControlsTimelineProperties();
-            // _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
-            // Fill in the data, using the media elements properties 
-            SystemMediaTransportControlsDisplayUpdater updater = _systemMediaTransportControls.DisplayUpdater;
-            updater.Type = MediaPlaybackType.Music;
-            updater.MusicProperties.Artist = playList[Convert.ToInt32(_mediaPlaybackList.CurrentItemIndex)].artist;
-            updater.MusicProperties.Title = playList[Convert.ToInt32(_mediaPlaybackList.CurrentItemIndex)].title;
-            updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromUri(new Uri(playList[Convert.ToInt32(_mediaPlaybackList.CurrentItemIndex)].pic));
-
-            updater.Update();
-
-            timelineProperties.StartTime = TimeSpan.FromSeconds(0);
-            timelineProperties.MinSeekTime = TimeSpan.FromSeconds(0);
-            timelineProperties.Position = _mediaPlayer.PlaybackSession.Position;
-            timelineProperties.MaxSeekTime = _mediaPlayer.PlaybackSession.NaturalDuration;
-            timelineProperties.EndTime = _mediaPlayer.PlaybackSession.NaturalDuration;
-
-            // Update the System Media transport Controls 
-            _systemMediaTransportControls.UpdateTimelineProperties(timelineProperties);
         }
 
 
         public static void Play()
         {
+            if (_mediaPlaybackList == null || _mediaPlaybackList.Items.Count == 0)
+            {
+                return;
+            }
+
+            ActivateSystemMediaTransportControls(true);
             _mediaPlayer.Play();
         }
+
+        public static void PauseAndReleaseSystemMediaTransportControls()
+        {
+            lock (SystemMediaTransportControlsLock)
+            {
+                _ownsSystemMediaTransportControls = false;
+                _suppressPlaybackActivationUntilStopped =
+                    _mediaPlayer != null && _mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+            }
+            Pause();
+            ReleaseSystemMediaTransportControls();
+        }
+
         public static void Pause()
         {
             try
