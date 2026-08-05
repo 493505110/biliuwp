@@ -87,7 +87,7 @@ namespace BiliBili.UWP.Helper
         public static string verStr = string.Format(@"Ver {0} 2026-08-04
 所有功能完成修复！
 
-Ver 3.12.0 2026-07-29
+/Ver 3.12.0 2026-07-29
 01、修复CC字幕加载
 02、修复在加载无回复的评论时的报错
 03、修复在切换视频时评论区滚动位置不重置的问题
