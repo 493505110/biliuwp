@@ -167,7 +167,7 @@
                                                 <Run Text="{x:Bind Path=userCenterVM.UserCenterDetail.card.level_info.current_level,Mode=OneWay}"></Run>
                         </TextBlock>
                     </Border>
-                    <TextBlock VerticalAlignment="Center" Foreground="White" Margin="4,0" FontSize="12">
+                    <TextBlock Visibility="{x:Bind Path=userCenterVM.is_self,Mode=OneWay}" VerticalAlignment="Center" Foreground="White" Margin="4,0" FontSize="12">
                                                 <Run>经验</Run>
                                                 <Run Text="{x:Bind Path=userCenterVM.UserCenterDetail.card.level_info.current_exp,Mode=OneWay}"></Run>
                                                   <Run>/</Run>

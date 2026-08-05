@@ -20,7 +20,12 @@ namespace BiliBili.UWP.Modules
     {
         readonly Api.User.UserCenterAPI userCenterAPI;
         public string mid { get; set; }
-        public bool is_self { get; set; } = false;
+        private bool _is_self;
+        public bool is_self
+        {
+            get { return _is_self; }
+            set { _is_self = value; DoPropertyChanged("is_self"); }
+        }
         public UserCenterVM(string mid)
         {
             userCenterAPI = new Api.User.UserCenterAPI();
