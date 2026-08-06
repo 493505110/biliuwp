@@ -74,11 +74,7 @@ namespace BiliBili.UWP.Modules.Home
                             }
                             items.Remove(banner);
                         }
-                        for (int i = items.Count - 1; i >= 0; i--)
-                        {
-                            if (items[i].card_goto.Contains("ad_web") || (SettingHelper.Get_HidePortraitRecommendations() && items[i].IsPortrait))
-                                items.Remove(items[i]);
-                        }
+                        items = await RecommendItemFilter.RemovePortraitAsync(items);
 
                         Items = new IncrementalLoadingCollection<RecommendItemSource, RecommendItemModel>(new RecommendItemSource(items, lastIdx));
                     }
@@ -187,11 +183,7 @@ namespace BiliBili.UWP.Modules.Home
                         var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["items"].ToString());
                         last_idx = items.LastOrDefault()?.idx ?? last_idx;
                       
-                        for (int i = items.Count - 1; i >= 0; i--)
-                        {
-                            if (items[i].card_goto.Contains("ad_web") || items[i].card_goto.Contains("banner") || (SettingHelper.Get_HidePortraitRecommendations() && items[i].IsPortrait))
-                                items.Remove(items[i]);
-                        }
+                        items = await RecommendItemFilter.RemovePortraitAsync(items, includeBanner: true);
                         return items;
                     }
                     else
@@ -221,6 +213,29 @@ namespace BiliBili.UWP.Modules.Home
                 return recommends;
             }
             return await GetRecommend();
+        }
+    }
+
+    internal static class RecommendItemFilter
+    {
+        public static async Task<List<RecommendItemModel>> RemovePortraitAsync(List<RecommendItemModel> items, bool includeBanner = false)
+        {
+            for (int i = items.Count - 1; i >= 0; i--)
+            {
+                var item = items[i];
+                if (item.card_goto.Contains("ad_web") || (includeBanner && item.card_goto.Contains("banner")))
+                {
+                    items.RemoveAt(i);
+                    continue;
+                }
+
+                if (SettingHelper.Get_HidePortraitRecommendations() && await item.IsPortraitAsync())
+                {
+                    items.RemoveAt(i);
+                }
+            }
+
+            return items;
         }
     }
 
@@ -293,7 +308,7 @@ namespace BiliBili.UWP.Modules.Home
                     }
 
                     var rotate = GetUriNumber("player_rotate");
-                    if (rotate == 90 || rotate == 270)
+                    if (rotate == 1 || rotate == 90 || rotate == 270)
                     {
                         var value = width;
                         width = height;
@@ -302,6 +317,66 @@ namespace BiliBili.UWP.Modules.Home
 
                     return height > width;
                 }
+            }
+
+            public async Task<bool> IsPortraitAsync()
+            {
+                if (IsPortrait)
+                {
+                    return true;
+                }
+
+                if (!string.IsNullOrEmpty(uri) && HasUriDimensions())
+                {
+                    return false;
+                }
+
+                if (card_goto != "av")
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrEmpty(param) || !long.TryParse(param, out _))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    var result = await new VideoAPI().Detail(param, false).Request();
+                    if (!result.status)
+                    {
+                        return false;
+                    }
+
+                    var obj = await result.GetData<JObject>();
+                    if (obj.code != 0)
+                    {
+                        return false;
+                    }
+
+                    var dimension = obj.data?["dimension"];
+                    var width = dimension?["width"]?.ToObject<int>() ?? 0;
+                    var height = dimension?["height"]?.ToObject<int>() ?? 0;
+                    var rotate = dimension?["rotate"]?.ToObject<int>() ?? 0;
+                    if (rotate == 1 || rotate == 90 || rotate == 270)
+                    {
+                        var value = width;
+                        width = height;
+                        height = value;
+                    }
+
+                    return width > 0 && height > width;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            private bool HasUriDimensions()
+            {
+                return GetUriNumber("player_width") > 0 && GetUriNumber("player_height") > 0;
             }
 
             private int GetUriNumber(string name)
