@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Windows.Foundation;
 
 namespace BiliBili.UWP.Modules.Home
 {
@@ -63,6 +64,7 @@ namespace BiliBili.UWP.Modules.Home
                     if (obj.code == 0)
                     {
                         var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["items"].ToString());
+                        var lastIdx = items.LastOrDefault()?.idx ?? "0";
                         var banner = items.FirstOrDefault(x => x.card_goto == "banner");
                         if (banner != null)
                         {
@@ -74,11 +76,11 @@ namespace BiliBili.UWP.Modules.Home
                         }
                         for (int i = items.Count - 1; i >= 0; i--)
                         {
-                            if (items[i].card_goto.Contains("ad_web"))
+                            if (items[i].card_goto.Contains("ad_web") || (SettingHelper.Get_HidePortraitRecommendations() && items[i].IsPortrait))
                                 items.Remove(items[i]);
                         }
 
-                        Items = new IncrementalLoadingCollection<RecommendItemSource, RecommendItemModel>(new RecommendItemSource(items));
+                        Items = new IncrementalLoadingCollection<RecommendItemSource, RecommendItemModel>(new RecommendItemSource(items, lastIdx));
                     }
                     else
                     {
@@ -162,10 +164,10 @@ namespace BiliBili.UWP.Modules.Home
     public class RecommendItemSource :  IIncrementalSource<RecommendItemModel>
     {
         readonly Api.Home.RecommendAPI recommendAPI;
-        public RecommendItemSource(List<RecommendItemModel> items)
+        public RecommendItemSource(List<RecommendItemModel> items, string lastIdx = "0")
         {
             recommendAPI = new Api.Home.RecommendAPI();
-            last_idx = items.LastOrDefault().idx ?? "0";
+            last_idx = lastIdx;
             this.recommends = items;
         }
         string last_idx = "0";
@@ -183,13 +185,13 @@ namespace BiliBili.UWP.Modules.Home
                     if (obj.code == 0)
                     {
                         var items = JsonConvert.DeserializeObject<List<RecommendItemModel>>(obj.data["items"].ToString());
+                        last_idx = items.LastOrDefault()?.idx ?? last_idx;
                       
                         for (int i = items.Count - 1; i >= 0; i--)
                         {
-                            if (items[i].card_goto.Contains("ad_web")|| items[i].card_goto.Contains("banner"))
+                            if (items[i].card_goto.Contains("ad_web") || items[i].card_goto.Contains("banner") || (SettingHelper.Get_HidePortraitRecommendations() && items[i].IsPortrait))
                                 items.Remove(items[i]);
                         }
-                        last_idx = items.LastOrDefault()?.idx??"0";
                         return items;
                     }
                     else
@@ -273,6 +275,52 @@ namespace BiliBili.UWP.Modules.Home
             public string uri { get; set; }
             public string param { get; set; }
             public string card_goto { get; set; }
+
+            public bool IsPortrait
+            {
+                get
+                {
+                    if (string.IsNullOrEmpty(uri))
+                    {
+                        return false;
+                    }
+
+                    var width = GetUriNumber("player_width");
+                    var height = GetUriNumber("player_height");
+                    if (width <= 0 || height <= 0)
+                    {
+                        return false;
+                    }
+
+                    var rotate = GetUriNumber("player_rotate");
+                    if (rotate == 90 || rotate == 270)
+                    {
+                        var value = width;
+                        width = height;
+                        height = value;
+                    }
+
+                    return height > width;
+                }
+            }
+
+            private int GetUriNumber(string name)
+            {
+                if (!Uri.TryCreate(uri, UriKind.Absolute, out var videoUri))
+                {
+                    return 0;
+                }
+
+                try
+                {
+                    var value = new WwwFormUrlDecoder(videoUri.Query).GetFirstValueByName(name);
+                    return int.TryParse(value, out var number) ? number : 0;
+                }
+                catch (ArgumentException)
+                {
+                    return 0;
+                }
+            }
 
             public string idx { get; set; }
 

@@ -102,6 +102,24 @@ namespace BiliBili.UWP
             container.Values["ColunmHome"] = value;
         }
 
+        public static bool Get_HidePortraitRecommendations()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["HidePortraitRecommendations"] != null)
+            {
+                return (bool)container.Values["HidePortraitRecommendations"];
+            }
+
+            Set_HidePortraitRecommendations(false);
+            return false;
+        }
+
+        public static void Set_HidePortraitRecommendations(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["HidePortraitRecommendations"] = value;
+        }
+
 
         public static void Set_Rigth(int value)
         {

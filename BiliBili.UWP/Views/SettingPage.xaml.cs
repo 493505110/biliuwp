@@ -88,6 +88,7 @@ namespace BiliBili.UWP.Views
                 sw_PriorityBiliPlus.IsOn = SettingHelper.Get_PriorityBiliPlus();
 
                 sw_ColunmHome.IsOn=SettingHelper.Get_ColunmHome();
+                sw_HidePortraitRecommendations.IsOn = SettingHelper.Get_HidePortraitRecommendations();
 
                 sw_LoadSe.IsOn = SettingHelper.Get_LoadSplash();
                 sw_CloseAD.IsOn = SettingHelper.Get_HideAD();
@@ -839,6 +840,11 @@ namespace BiliBili.UWP.Views
         private void sw_ColunmHome_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_ColunmHome(sw_ColunmHome.IsOn);
+        }
+
+        private void sw_HidePortraitRecommendations_Toggled(object sender, RoutedEventArgs e)
+        {
+            SettingHelper.Set_HidePortraitRecommendations(sw_HidePortraitRecommendations.IsOn);
         }
 
         private void sw_SkipToHistory_Toggled(object sender, RoutedEventArgs e)
