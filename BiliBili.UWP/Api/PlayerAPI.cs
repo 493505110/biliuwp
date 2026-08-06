@@ -153,31 +153,60 @@ namespace BiliBili.UWP.Api
         /// <returns></returns>
         public ApiModel GetDanmuFilterWords()
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = $"https://api.bilibili.com/x/dm/filter/user",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidVideoKey, true)
+                baseUrl = "https://api.bilibili.com/x/dm/filter/user",
+                parameter = "jsonp=jsonp",
+                headers = GetDanmuFilterHeaders()
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidVideoKey);
-            return api;
+        }
+
+        private IDictionary<string, string> GetDanmuFilterHeaders()
+        {
+            var headers = ApiUtils.GetDefaultHeaders();
+            var cookies = ApiHelper.GetCookies();
+            if (!string.IsNullOrEmpty(cookies))
+            {
+                headers["Cookie"] = cookies;
+            }
+            return headers;
         }
         /// <summary>
         /// 添加弹幕屏蔽关键词
         /// </summary>
         /// <param name="word">关键词</param>
         /// <param name="type">类型，0=关键字，1=正则，2=用户</param>
+        /// <param name="csrf">Cookie 中的 bili_jct</param>
         /// <returns></returns>
-        public ApiModel AddDanmuFilterWord(string word, int type)
+        public ApiModel AddDanmuFilterWord(string word, int type, string csrf)
         {
-            ApiModel api = new ApiModel()
+            return new ApiModel()
             {
                 method = HttpMethod.POST,
-                baseUrl = $"https://api.bilibili.com/x/dm/filter/user/add",
-                body = ApiUtils.MustParameter(ApiUtils.AndroidVideoKey, true) + $"&filter={Uri.EscapeDataString(word)}&type={type}"
+                baseUrl = "https://api.bilibili.com/x/dm/filter/user/add",
+                parameter = string.Empty,
+                body = $"type={type}&filter={Uri.EscapeDataString(word)}&jsonp=jsonp&csrf={Uri.EscapeDataString(csrf ?? string.Empty)}&csrf_token={Uri.EscapeDataString(csrf ?? string.Empty)}",
+                headers = GetDanmuFilterHeaders()
             };
-            api.body += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidVideoKey);
-            return api;
+        }
+
+        /// <summary>
+        /// 删除弹幕屏蔽规则
+        /// </summary>
+        /// <param name="id">云端规则 ID</param>
+        /// <param name="csrf">Cookie 中的 bili_jct</param>
+        /// <returns></returns>
+        public ApiModel DeleteDanmuFilterWord(int id, string csrf)
+        {
+            return new ApiModel()
+            {
+                method = HttpMethod.POST,
+                baseUrl = "https://api.bilibili.com/x/dm/filter/user/del",
+                parameter = string.Empty,
+                body = $"ids={id}&csrf={Uri.EscapeDataString(csrf ?? string.Empty)}&csrf_token={Uri.EscapeDataString(csrf ?? string.Empty)}&jsonp=jsonp",
+                headers = GetDanmuFilterHeaders()
+            };
         }
 
 

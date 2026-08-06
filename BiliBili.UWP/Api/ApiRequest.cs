@@ -171,7 +171,9 @@ namespace BiliBili.UWP.Api
         {
             try
             {
-                using (var client = new HttpClient())
+                HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
+                fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
+                using (var client = new HttpClient(fiter))
                 {
                     if (headers != null)
                     {
