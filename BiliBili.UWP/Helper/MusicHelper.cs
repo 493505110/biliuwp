@@ -61,35 +61,46 @@ namespace BiliBili.UWP.Helper
                 return false;
             }
 
-            var index = Convert.ToInt32(_mediaPlaybackList.CurrentItemIndex);
-            if (index < 0 || index >= playList.Count)
+            var index = _mediaPlaybackList.CurrentItemIndex;
+            if (index == uint.MaxValue || index >= (uint)playList.Count)
             {
                 return false;
             }
 
-            music = playList[index];
+            music = playList[(int)index];
             return true;
         }
 
         private static void UpdateSystemMediaTransportControlsMetadata(MusicPlayModel music)
         {
-            var controls = _mediaPlayer.SystemMediaTransportControls;
-            var updater = controls.DisplayUpdater;
-            updater.Type = MediaPlaybackType.Music;
-            updater.MusicProperties.Artist = music.artist;
-            updater.MusicProperties.Title = music.title;
-            updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromUri(new Uri(music.pic));
-            updater.Update();
-
-            var timelineProperties = new SystemMediaTransportControlsTimelineProperties
+            try
             {
-                StartTime = TimeSpan.FromSeconds(0),
-                MinSeekTime = TimeSpan.FromSeconds(0),
-                Position = _mediaPlayer.PlaybackSession.Position,
-                MaxSeekTime = _mediaPlayer.PlaybackSession.NaturalDuration,
-                EndTime = _mediaPlayer.PlaybackSession.NaturalDuration
-            };
-            controls.UpdateTimelineProperties(timelineProperties);
+                var controls = _mediaPlayer.SystemMediaTransportControls;
+                var updater = controls.DisplayUpdater;
+                updater.Type = MediaPlaybackType.Music;
+                updater.MusicProperties.Artist = music.artist;
+                updater.MusicProperties.Title = music.title;
+                if (!string.IsNullOrWhiteSpace(music.pic) &&
+                    Uri.TryCreate(music.pic, UriKind.Absolute, out Uri picUri))
+                {
+                    updater.Thumbnail = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromUri(picUri);
+                }
+                updater.Update();
+
+                var timelineProperties = new SystemMediaTransportControlsTimelineProperties
+                {
+                    StartTime = TimeSpan.FromSeconds(0),
+                    MinSeekTime = TimeSpan.FromSeconds(0),
+                    Position = _mediaPlayer.PlaybackSession.Position,
+                    MaxSeekTime = _mediaPlayer.PlaybackSession.NaturalDuration,
+                    EndTime = _mediaPlayer.PlaybackSession.NaturalDuration
+                };
+                controls.UpdateTimelineProperties(timelineProperties);
+            }
+            catch (Exception)
+            {
+                // 元数据更新失败不应影响播放
+            }
         }
 
         private static void ActivateSystemMediaTransportControls(bool takeOwnership)
@@ -287,6 +298,11 @@ namespace BiliBili.UWP.Helper
                 //throw;
             }
 
+        }
+
+        public static void ActivatePausedMusic()
+        {
+            ActivateSystemMediaTransportControls(true);
         }
 
 

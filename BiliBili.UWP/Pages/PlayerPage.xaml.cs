@@ -77,7 +77,6 @@ namespace BiliBili.UWP.Pages
             this.InitializeComponent();
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
             mediaPlayer = new MediaPlayer();
-            mediaPlayer.CommandManager.IsEnabled = false;
             mediaPlayer.PlaybackSession.PositionChanged += PlaybackSession_PositionChanged;
             mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
             mediaPlayer.VolumeChanged += MediaPlayer_VolumeChanged;
@@ -174,10 +173,6 @@ namespace BiliBili.UWP.Pages
                         danmu.PauseDanmaku();
                         break;
                     case MediaPlaybackState.Playing:
-                        if (_systemMediaTransportControls != null)
-                        {
-                            _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Playing;
-                        }
                         mediaPlayer_audio?.Play();
                         progress.Visibility = Visibility.Collapsed;
                         danmu.ResumeDanmaku();
@@ -190,11 +185,6 @@ namespace BiliBili.UWP.Pages
 
                         break;
                     case MediaPlaybackState.Paused:
-                        if (_systemMediaTransportControls != null)
-                        {
-                            _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Paused;
-                        }
-
                         progress.Visibility = Visibility.Collapsed;
                         danmu.PauseDanmaku();
                         if (timer != null)
@@ -303,27 +293,6 @@ namespace BiliBili.UWP.Pages
             if (e != null)
             {
                 danmu = e;
-            }
-        }
-
-        private async void _systemMediaTransportControls_ButtonPressed(SystemMediaTransportControls sender, SystemMediaTransportControlsButtonPressedEventArgs args)
-        {
-            switch (args.Button)
-            {
-                case SystemMediaTransportControlsButton.Play:
-                    await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-                    {
-                        mediaElement.MediaPlayer.Play();
-                    });
-                    break;
-                case SystemMediaTransportControlsButton.Pause:
-                    await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-                    {
-                        mediaElement.MediaPlayer.Pause();
-                    });
-                    break;
-                default:
-                    break;
             }
         }
 
@@ -456,43 +425,22 @@ namespace BiliBili.UWP.Pages
 
 
 
-        SystemMediaTransportControls _systemMediaTransportControls;
-
-        private void RegisterSystemMediaTransportControls()
-        {
-            if (!SettingHelper.Get_BackPlay())
-            {
-                return;
-            }
-
-            _systemMediaTransportControls = SystemMediaTransportControls.GetForCurrentView();
-            _systemMediaTransportControls.ButtonPressed -= _systemMediaTransportControls_ButtonPressed;
-            _systemMediaTransportControls.IsEnabled = true;
-            _systemMediaTransportControls.IsPlayEnabled = true;
-            _systemMediaTransportControls.IsPauseEnabled = true;
-            _systemMediaTransportControls.ButtonPressed += _systemMediaTransportControls_ButtonPressed;
-        }
-
         private void ReleaseSystemMediaTransportControls()
         {
-            var controls = _systemMediaTransportControls;
-            _systemMediaTransportControls = null;
-            if (controls == null)
+            if (mediaPlayer != null)
             {
-                return;
+                mediaPlayer.CommandManager.IsEnabled = false;
+                var controls = mediaPlayer.SystemMediaTransportControls;
+                controls.PlaybackStatus = MediaPlaybackStatus.Closed;
+                controls.DisplayUpdater.ClearAll();
+                controls.IsEnabled = false;
             }
-
-            controls.ButtonPressed -= _systemMediaTransportControls_ButtonPressed;
-            controls.PlaybackStatus = MediaPlaybackStatus.Closed;
-            controls.DisplayUpdater.ClearAll();
-            controls.IsEnabled = false;
         }
 
         private DisplayRequest dispRequest = null;//保持屏幕常亮
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-            RegisterSystemMediaTransportControls();
             CoreWindow.GetForCurrentThread().KeyDown += PlayerPage_KeyDown;
             this.Frame.Visibility = Visibility.Visible;
             int flag = 1;
@@ -532,6 +480,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 ReleaseSystemMediaTransportControls();
+                MusicHelper.ActivatePausedMusic();
                 ClosePlayer();
                 //Debug.WriteLine("开始返回");
                 CoreWindow.GetForCurrentThread().KeyDown -= PlayerPage_KeyDown;
@@ -1887,11 +1836,8 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-                if (_systemMediaTransportControls == null)
-                {
-                    return;
-                }
-                SystemMediaTransportControlsDisplayUpdater updater = _systemMediaTransportControls.DisplayUpdater;
+                var controls = mediaPlayer.SystemMediaTransportControls;
+                SystemMediaTransportControlsDisplayUpdater updater = controls.DisplayUpdater;
                 updater.Type = MediaPlaybackType.Video;
                 updater.VideoProperties.Subtitle = playNow.VideoTitle;
                 updater.VideoProperties.Title = playNow.Title;
@@ -1916,7 +1862,7 @@ namespace BiliBili.UWP.Pages
                 timelineProperties.MaxSeekTime = mediaElement.MediaPlayer.PlaybackSession.NaturalDuration;
                 timelineProperties.EndTime = mediaElement.MediaPlayer.PlaybackSession.NaturalDuration;
 
-                _systemMediaTransportControls.UpdateTimelineProperties(timelineProperties);
+                controls.UpdateTimelineProperties(timelineProperties);
             }
             catch (Exception ex)
             {
@@ -2798,76 +2744,6 @@ namespace BiliBili.UWP.Pages
             pr.Text = mediaElement.MediaPlayer.PlaybackSession.BufferingProgress.ToString("P");
         }
         bool buffering = false;
-        private void mediaElement_CurrentStateChanged(object sender, RoutedEventArgs e)
-        {
-            buffering = false;
-            switch (mediaElement.MediaPlayer.PlaybackSession.PlaybackState)
-            {
-                //case  MediaPlaybackState.Closed:
-                //    if (_systemMediaTransportControls != null)
-                //    {
-                //        _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Closed;
-                //    }
-
-
-                //    break;
-                case MediaPlaybackState.Opening:
-
-                    progress.Visibility = Visibility.Visible;
-
-                    break;
-                case MediaPlaybackState.Buffering:
-                    buffering = true;
-                    progress.Visibility = Visibility.Visible;
-                    danmu.PauseDanmaku();
-                    break;
-                case MediaPlaybackState.Playing:
-                    if (_systemMediaTransportControls != null)
-                    {
-                        _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Playing;
-                    }
-
-                    progress.Visibility = Visibility.Collapsed;
-                    danmu.ResumeDanmaku();
-
-                    if (timer != null)
-                    {
-                        timer.Start();
-                    }
-                    mediaElement.MediaPlayer.PlaybackSession.PlaybackRate = slider_Rate.Value;
-
-                    break;
-                case MediaPlaybackState.Paused:
-                    if (_systemMediaTransportControls != null)
-                    {
-                        _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Paused;
-                    }
-
-                    progress.Visibility = Visibility.Collapsed;
-                    danmu.PauseDanmaku();
-                    if (timer != null)
-                    {
-                        timer.Stop();
-                    }
-                    break;
-                //case MediaPlaybackState.Stopped:
-                //    if (_systemMediaTransportControls != null)
-                //    {
-                //        _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Stopped;
-                //    }
-
-                //    progress.Visibility = Visibility.Collapsed;
-                //    danmu.ClearAll();
-                //    if (timer != null)
-                //    {
-                //        timer.Stop();
-                //    }
-
-                //    break;
-                default:
-                    break;
-            }
-        }
         private void mediaElement_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
             Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Arrow, 0);

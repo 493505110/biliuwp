@@ -141,8 +141,9 @@ namespace BiliBili.UWP.Pages
                 }
 
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("读取歌曲信息或加入播放列表失败，song_id=" + id, LogType.ERROR, ex);
                 Utils.ShowMessageToast("读取歌曲信息错误");
             }
 
