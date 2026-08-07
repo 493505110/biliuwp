@@ -384,8 +384,14 @@ namespace BiliBili.UWP.Pages
 
         private void Hy_Click(object sender, RoutedEventArgs e)
         {
+            var button = sender as HyperlinkButton;
+            var keyword = button?.Content?.ToString();
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                return;
+            }
 
-            this.Frame.Navigate(typeof(DynamicTopicPage), new object[] { (sender as HyperlinkButton).Content.ToString() });
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(SearchV2Page), new object[] { keyword });
         }
 
         private void btn_Back_Click(object sender, RoutedEventArgs e)
