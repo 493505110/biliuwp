@@ -126,6 +126,23 @@
             <MenuFlyoutItem  Click="btn_DeleteComment_Click" Visibility="{Binding showDelete}">删除</MenuFlyoutItem>
             <MenuFlyoutItem>举报</MenuFlyoutItem>
         </MenuFlyout>
+        <ItemsPanelTemplate x:Key="commentPictureItemsPanel">
+            <StackPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+        <DataTemplate x:Key="commentPictureTemplate">
+            <Button Click="btn_CommentPicture_Click"
+                    HorizontalAlignment="Left"
+                    Margin="0 0 4 0"
+                    Padding="0"
+                    BorderThickness="0"
+                    Background="Transparent">
+                <Image Source="{Binding img_src}"
+                       Width="100"
+                       Height="100"
+                       Stretch="UniformToFill"
+                       HorizontalAlignment="Left" />
+            </Button>
+        </DataTemplate>
         <DataTemplate x:Key="commentTemplate">
             <Grid>
                 <Grid.RowDefinitions>
@@ -160,9 +177,12 @@
                 <AppBarButton Grid.Column="1" Flyout="{StaticResource ResourceKey=menu}" HorizontalAlignment="Right" Icon="More" Grid.RowSpan="2" Width="48" Height="48"></AppBarButton>
                 <TextBlock Grid.Column="1" Grid.Row="1" ToolTipService.ToolTip="{Binding Path=time_str}" FontSize="14" Foreground="Gray" Margin="4 0" VerticalAlignment="Top"><!--#<Run Text="{Binding Path=floor}"></Run>--> <Run Text="{Binding Path=time}"></Run> <Run Text="{Binding Path=content.plat_str}"></Run></TextBlock>
 
-                <ContentControl  Grid.Row="2" Grid.Column="1" Margin="4 0" Content="{Binding Path=content.text}">
-                   
-                </ContentControl>
+                <StackPanel Grid.Row="2" Grid.Column="1" Margin="4 0">
+                    <ContentControl Content="{Binding Path=content.text}" />
+                    <ItemsControl ItemsSource="{Binding Path=content.pictures}"
+                                  ItemsPanel="{StaticResource commentPictureItemsPanel}"
+                                  ItemTemplate="{StaticResource commentPictureTemplate}" />
+                </StackPanel>
 
                 <StackPanel Orientation="Horizontal"  Grid.Column="1" Grid.Row="3">
 
@@ -228,9 +248,12 @@
                                     </HyperlinkButton>
 
                                     <!--<TextBlock Text="{Binding Path=content.message}" IsTextSelectionEnabled="True" TextWrapping="Wrap"></TextBlock>-->
-                                    <ContentControl Content="{Binding Path=content.text}">
-
-                                    </ContentControl>
+                                    <StackPanel>
+                                        <ContentControl Content="{Binding Path=content.text}" />
+                                        <ItemsControl ItemsSource="{Binding Path=content.pictures}"
+                                                      ItemsPanel="{StaticResource commentPictureItemsPanel}"
+                                                      ItemTemplate="{StaticResource commentPictureTemplate}" />
+                                    </StackPanel>
                                    
                                     <Grid>
                                         <StackPanel Margin="0 4" Orientation="Horizontal">

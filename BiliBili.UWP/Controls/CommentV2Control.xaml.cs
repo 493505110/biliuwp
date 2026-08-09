@@ -24,6 +24,7 @@ using Windows.UI.Xaml.Documents;
 using System.Threading.Tasks;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Pages.User;
+using BiliBili.UWP.Helper;
 
 // The User Control item template is documented at https://go.microsoft.com/fwlink/?LinkId=234236
 
@@ -88,6 +89,35 @@ namespace BiliBili.UWP.Controls
         private void btn_User_Click(object sender, RoutedEventArgs e)
         {
             MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(UserCenterPage), (sender as HyperlinkButton).Tag.ToString());
+        }
+
+        private void btn_CommentPicture_Click(object sender, RoutedEventArgs e)
+        {
+            var button = sender as Button;
+            var picture = button?.DataContext as CommentPictureModel;
+            DependencyObject parent = button;
+            while (parent != null && !(parent is ItemsControl))
+            {
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+
+            var pictures = (parent as ItemsControl)?.ItemsSource as IEnumerable<CommentPictureModel>;
+            if (picture == null || pictures == null)
+            {
+                return;
+            }
+
+            var urls = pictures
+                .Where(item => !string.IsNullOrWhiteSpace(item?.img_src))
+                .Select(item => item.img_src)
+                .ToList();
+            if (urls.Count == 0)
+            {
+                return;
+            }
+
+            var index = urls.IndexOf(picture.img_src);
+            new ImagePreview(urls, Math.Max(0, index)).Show();
         }
 
         public void ClearComment()
@@ -349,8 +379,9 @@ namespace BiliBili.UWP.Controls
 
 
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("加载评论失败", LogType.ERROR, ex);
                 Utils.ShowMessageToast("加载评论失败");
 
             }
@@ -1067,6 +1098,17 @@ namespace BiliBili.UWP.Controls
     {
 
         public string message { get; set; }
+        public List<CommentPictureModel> pictures { get; set; }
+        public string DisplayMessage
+        {
+            get
+            {
+                return Regex.Replace(
+                    message ?? string.Empty,
+                    @"(?:\[|【)?请升级到App最新(?:版|版本)查看图文评论(?:\]|】)?",
+                    string.Empty).TrimEnd();
+            }
+        }
         public int plat { get; set; }
         public string plat_str
         {
@@ -1096,7 +1138,7 @@ namespace BiliBili.UWP.Controls
                 {
                     if (message != null)
                     {
-                        string input = message;
+                        string input = DisplayMessage;
                         input = input.Replace("\r\n", "<LineBreak/>");
                         input = input.Replace("\n", "<LineBreak/>");
                         //替换表情
@@ -1144,7 +1186,7 @@ namespace BiliBili.UWP.Controls
                 {
                     var tx = new RichTextBlock();
                     Paragraph paragraph = new Paragraph();
-                    Run run = new Run() { Text = message };
+                    Run run = new Run() { Text = DisplayMessage };
                     paragraph.Inlines.Add(run);
                     tx.Blocks.Add(paragraph);
                     return tx;
@@ -1156,6 +1198,40 @@ namespace BiliBili.UWP.Controls
         }
 
         public JObject emote { get; set; }
+    }
+
+    public class CommentPictureModel
+    {
+        public string img_src { get; set; }
+        public int img_width { get; set; }
+        public int img_height { get; set; }
+        public double img_size { get; set; }
+
+        public double DisplayWidth
+        {
+            get
+            {
+                if (img_width <= 0)
+                {
+                    return 0;
+                }
+
+                return Math.Min(img_width, 600);
+            }
+        }
+
+        public double DisplayHeight
+        {
+            get
+            {
+                if (img_width <= 0 || img_height <= 0)
+                {
+                    return 0;
+                }
+
+                return DisplayWidth * img_height / img_width;
+            }
+        }
     }
 
 

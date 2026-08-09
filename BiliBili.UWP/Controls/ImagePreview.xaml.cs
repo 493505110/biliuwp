@@ -29,6 +29,8 @@ namespace BiliBili.UWP.Controls
 
         private List<string> _ImgUrl;
         private int _index;
+        private const double ImageHorizontalPadding = 32;
+        private const double ImageVerticalPadding = 128;
         public ImagePreview()
         {
             this.InitializeComponent();
@@ -57,7 +59,8 @@ namespace BiliBili.UWP.Controls
                 Image image = new Image() {
                     Source=new BitmapImage(new Uri(item.Replace("@300w_300h_1e_1c.jpg", "").Replace("@300w.jpg",""))),
                     HorizontalAlignment= HorizontalAlignment.Center,
-                    VerticalAlignment= VerticalAlignment.Center
+                    VerticalAlignment= VerticalAlignment.Center,
+                    Stretch = Stretch.Uniform
                 };
             
                 ls.Add(new ImageModel() {
@@ -68,8 +71,25 @@ namespace BiliBili.UWP.Controls
 
             imgs.ItemsSource = ls;
             imgs.SelectedIndex = index;
+            UpdateImageBounds();
 
 
+        }
+        private void UpdateImageBounds()
+        {
+            var maxWidth = Math.Max(1, Width - ImageHorizontalPadding);
+            var maxHeight = Math.Max(1, Height - ImageVerticalPadding);
+            foreach (var item in imgs.Items)
+            {
+                var imageModel = item as ImageModel;
+                if (imageModel?.image == null)
+                {
+                    continue;
+                }
+
+                imageModel.image.MaxWidth = maxWidth;
+                imageModel.image.MaxHeight = maxHeight;
+            }
         }
         private void SbOut_Completed(object sender, object e)
         {
@@ -79,6 +99,7 @@ namespace BiliBili.UWP.Controls
         {
             this.Width = e.Size.Width;
             this.Height = e.Size.Height;
+            UpdateImageBounds();
         }
 
         private void NotifyPopup_Unloaded(object sender, RoutedEventArgs e)
