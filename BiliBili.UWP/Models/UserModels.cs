@@ -28,17 +28,186 @@ namespace BiliBili.UWP.Models
             get; set;
         }
     }
-    public class MessageModel
+    public class MessageFeedUnreadModel
     {
-        public int code { get; set; }
-        public object data { get; set; }
-        public string message { get; set; }
-
-        public int reply_me { get; set; }
-        public int praise_me { get; set; }
-        public int notify_me { get; set; }
-        public int at_me { get; set; }
-        public int chat_me { get; set; }
+        public int at { get; set; }
+        public int recv_like { get; set; }
+        public int recv_reply { get; set; }
+        public int sys_msg { get; set; }
+    }
+    public class MessagePrivateUnreadModel
+    {
+        public int unfollow_unread { get; set; }
+        public int follow_unread { get; set; }
+        public int unfollow_push_msg { get; set; }
+        public int dustbin_push_msg { get; set; }
+        public int dustbin_unread { get; set; }
+        public int biz_msg_unfollow_unread { get; set; }
+        public int biz_msg_follow_unread { get; set; }
+        public int custom_unread { get; set; }
+        public int Total
+        {
+            get
+            {
+                return unfollow_unread + follow_unread + unfollow_push_msg + dustbin_push_msg
+                    + dustbin_unread + biz_msg_unfollow_unread + biz_msg_follow_unread + custom_unread;
+            }
+        }
+    }
+    public class MessageGroupUnreadModel
+    {
+        public int unread_count { get; set; }
+    }
+    public class MessageFeedCursorModel
+    {
+        public long id { get; set; }
+        public long time { get; set; }
+        public bool is_end { get; set; }
+    }
+    public class MessageFeedUserModel
+    {
+        public long mid { get; set; }
+        public string nickname { get; set; }
+        public string avatar { get; set; }
+    }
+    public class MessageFeedContentModel
+    {
+        public long subject_id { get; set; }
+        public long root_id { get; set; }
+        public long source_id { get; set; }
+        public long target_id { get; set; }
+        public string type { get; set; }
+        public long business_id { get; set; }
+        public string business { get; set; }
+        public string title { get; set; }
+        public string uri { get; set; }
+        public string native_uri { get; set; }
+        public string root_reply_content { get; set; }
+        public string source_content { get; set; }
+        public string target_reply_content { get; set; }
+    }
+    public class MessageFeedReplyDataModel
+    {
+        public MessageFeedCursorModel cursor { get; set; }
+        public List<MessageFeedReplyItemModel> items { get; set; }
+        public long last_view_at { get; set; }
+    }
+    public class MessageFeedReplyItemModel
+    {
+        public long id { get; set; }
+        public MessageFeedUserModel user { get; set; }
+        public MessageFeedContentModel item { get; set; }
+        public int counts { get; set; }
+        public int is_multi { get; set; }
+        public long reply_time { get; set; }
+    }
+    public class MessageFeedAtDataModel
+    {
+        public MessageFeedCursorModel cursor { get; set; }
+        public List<MessageFeedAtItemModel> items { get; set; }
+    }
+    public class MessageFeedAtItemModel
+    {
+        public long id { get; set; }
+        public MessageFeedUserModel user { get; set; }
+        public MessageFeedContentModel item { get; set; }
+        public long at_time { get; set; }
+    }
+    public class MessageFeedLikeDataModel
+    {
+        public MessageFeedLikeBucketModel latest { get; set; }
+        public MessageFeedLikeBucketModel total { get; set; }
+    }
+    public class MessageFeedLikeBucketModel
+    {
+        public MessageFeedCursorModel cursor { get; set; }
+        public List<MessageFeedLikeItemModel> items { get; set; }
+    }
+    public class MessageFeedLikeItemModel
+    {
+        public long id { get; set; }
+        public List<MessageFeedUserModel> users { get; set; }
+        public MessageFeedContentModel item { get; set; }
+        public int counts { get; set; }
+        public long like_time { get; set; }
+        public int notice_state { get; set; }
+    }
+    public class MessageSystemNoticeModel
+    {
+        public long id { get; set; }
+        public long cursor { get; set; }
+        public string title { get; set; }
+        public string content { get; set; }
+        public string time_at { get; set; }
+    }
+    public class MessageSessionListModel
+    {
+        public List<MessageSessionModel> session_list { get; set; }
+        public int has_more { get; set; }
+    }
+    public class MessageSessionModel
+    {
+        public long talker_id { get; set; }
+        public int session_type { get; set; }
+        public string group_name { get; set; }
+        public string group_cover { get; set; }
+        public long session_ts { get; set; }
+        public int unread_count { get; set; }
+        public long max_seqno { get; set; }
+        public int system_msg_type { get; set; }
+        public MessageSessionMessageModel last_msg { get; set; }
+        public MessageSessionAccountModel account_info { get; set; }
+    }
+    public class MessageSessionAccountModel
+    {
+        public string name { get; set; }
+        public string pic_url { get; set; }
+        public string face { get; set; }
+        public string Avatar
+        {
+            get { return string.IsNullOrEmpty(pic_url) ? face : pic_url; }
+        }
+    }
+    public class MessageSessionMessageModel
+    {
+        public long sender_uid { get; set; }
+        public int receiver_type { get; set; }
+        public long receiver_id { get; set; }
+        public int msg_type { get; set; }
+        public string content { get; set; }
+        public long msg_seqno { get; set; }
+        public long timestamp { get; set; }
+        public long msg_key { get; set; }
+        public int msg_status { get; set; }
+    }
+    public class MessageHistoryModel
+    {
+        public List<MessageHistoryItemModel> messages { get; set; }
+        public int has_more { get; set; }
+        public long max_seqno { get; set; }
+    }
+    public class MessageHistoryItemModel
+    {
+        public long sender_uid { get; set; }
+        public int receiver_type { get; set; }
+        public long receiver_id { get; set; }
+        public int msg_type { get; set; }
+        public string content { get; set; }
+        public long msg_seqno { get; set; }
+        public long timestamp { get; set; }
+        public long msg_key { get; set; }
+        public int msg_status { get; set; }
+        public bool sys_cancel { get; set; }
+    }
+    public class MessageUserCardDataModel
+    {
+        public MessageUserCardModel card { get; set; }
+    }
+    public class MessageUserCardModel
+    {
+        public string mid { get; set; }
+        public string name { get; set; }
+        public string face { get; set; }
     }
     public class MessageReplyModel
     {
@@ -122,6 +291,9 @@ namespace BiliBili.UWP.Models
         public string message { get; set; }
 
         public string rid { get; set; }
+        public string mid { get; set; }
+        public int session_type { get; set; } = 1;
+        public long max_seqno { get; set; }
         public string room_name { get; set; }
         public string avatar_url { get; set; }
         public int msg_count { get; set; }
@@ -132,11 +304,11 @@ namespace BiliBili.UWP.Models
         {
             get
             {
-                DateTime dtStart = new DateTime(1970, 1, 1);
-                long lTime = long.Parse(last_time + "0000");
-                //long lTime = long.Parse(textBox1.Text);
-                TimeSpan toNow = new TimeSpan(lTime);
-                DateTime dt = dtStart.Add(toNow).ToLocalTime();
+                if (last_time <= 0)
+                {
+                    return string.Empty;
+                }
+                DateTime dt = DateTimeOffset.FromUnixTimeSeconds(last_time).LocalDateTime;
                 TimeSpan span = DateTime.Now - dt;
                 if (span.TotalDays > 7)
                 {

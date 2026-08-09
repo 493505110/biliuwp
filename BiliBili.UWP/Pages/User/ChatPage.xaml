@@ -30,7 +30,7 @@
                     </Ellipse>
                     <Grid Grid.Column="1" Margin="0 5 48 0">
                         <Border CornerRadius="5" VerticalAlignment="Center" HorizontalAlignment="Left" Background="White">
-                            <TextBlock Margin="5" TextWrapping="Wrap" Foreground="Black">
+                            <TextBlock Margin="5" TextWrapping="Wrap" Foreground="Black" IsTextSelectionEnabled="True">
 									<Run Text="{Binding message}"/>
                             </TextBlock>
                         </Border>
@@ -57,7 +57,7 @@
 
                     <Grid  Margin="48 5 0 0">
                         <Border CornerRadius="5" HorizontalAlignment="Right" VerticalAlignment="Center"  Background="{ThemeResource Bili-ForeColor}">
-                            <TextBlock Margin="5" TextWrapping="Wrap" Foreground="White">
+                            <TextBlock Margin="5" TextWrapping="Wrap" Foreground="White" IsTextSelectionEnabled="True">
 									<Run Text="{Binding message}"/>
                             </TextBlock>
                         </Border>
@@ -92,7 +92,7 @@
         </Grid>
         <ScrollViewer x:Name="sc" VerticalScrollBarVisibility="Auto"  Grid.Row="1">
             <StackPanel >
-                <ListView x:Name="list_view" ItemClick="list_view_ItemClick" ScrollViewer.VerticalScrollMode="Disabled" ItemTemplateSelector="{StaticResource MessageItemDataTemplateSelector}" SelectionMode="None" IsItemClickEnabled="True" >
+                <ListView x:Name="list_view" ScrollViewer.VerticalScrollMode="Disabled" ItemTemplateSelector="{StaticResource MessageItemDataTemplateSelector}" SelectionMode="None" IsItemClickEnabled="False" >
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"></Setter>

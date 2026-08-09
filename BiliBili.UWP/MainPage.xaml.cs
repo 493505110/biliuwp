@@ -1,4 +1,6 @@
 ﻿using BiliBili.UWP.Controls;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.User;
 using BiliBili.UWP.Helper;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
@@ -715,64 +717,107 @@ namespace BiliBili.UWP
         /// <param name="e"></param>
         private async void Timer_Tick(object sender, object e)
         {
-            //if (ApiHelper.IsLogin())
-            //{
-            if (await HasMessage())
+            if (checkingMessages)
             {
-                await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
-                {
-                    //menu_bor_HasMessage
-
-                    bor_TZ.Visibility = Visibility.Visible;
-                });
+                return;
             }
-            else
-            {
 
-                await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            checkingMessages = true;
+            try
+            {
+                //if (ApiHelper.IsLogin())
+                //{
+                if (await HasMessage())
                 {
-                    bor_TZ.Visibility = Visibility.Collapsed;
-                });
+                    await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        //menu_bor_HasMessage
+
+                        bor_TZ.Visibility = Visibility.Visible;
+                    });
+                }
+                else
+                {
+
+                    await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        bor_TZ.Visibility = Visibility.Collapsed;
+                    });
+                }
+            }
+            finally
+            {
+                checkingMessages = false;
             }
         }
 
-        MessageModel message = new MessageModel();
+        readonly MessageAPI messageAPI = new MessageAPI();
+        MessageFeedUnreadModel messageFeedUnread = new MessageFeedUnreadModel();
+        MessagePrivateUnreadModel privateMessageUnread = new MessagePrivateUnreadModel();
+        MessageGroupUnreadModel groupMessageUnread = new MessageGroupUnreadModel();
+        DateTimeOffset lastPrivateUnreadCheck = DateTimeOffset.MinValue;
+        bool checkingMessages;
         private async Task<bool> HasMessage()
         {
             try
             {
-                if (!ApiHelper.IsLogin())
+                if (!ApiHelper.IsLogin() || string.IsNullOrEmpty(Account.GetCookieValue("SESSDATA")))
                 {
+                    messageFeedUnread = new MessageFeedUnreadModel();
+                    privateMessageUnread = new MessagePrivateUnreadModel();
+                    groupMessageUnread = new MessageGroupUnreadModel();
+                    lastPrivateUnreadCheck = DateTimeOffset.MinValue;
                     return false;
                 }
-                // http://message.bilibili.com/api/msg/query.room.list.do?access_key=a36a84cc8ef4ea2f92c416951c859a25&actionKey=appkey&appkey=c1b107428d337928&build=414000&page_size=100&platform=android&ts=1461404884000&sign=5e212e424761aa497a75b0fb7fbde775
-                string url = string.Format("http://message.bilibili.com/api/notify/query.notify.count.do?_device=wp&_ulv=10000&access_key={0}&actionKey=appkey&appkey={1}&build=5250000&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                MessageModel model = JsonConvert.DeserializeObject<MessageModel>(results);
 
-                if (model.code == 0)
+                var feedResponse = await messageAPI.UnreadFeed().Request();
+                if (feedResponse != null && feedResponse.status)
                 {
-                    MessageModel list = JsonConvert.DeserializeObject<MessageModel>(model.data.ToString());
-                    message = list;
-                    if (list.reply_me != 0 || list.chat_me != 0 || list.notify_me != 0 || list.praise_me != 0 || list.at_me != 0)
+                    var feedResult = await feedResponse.GetData<MessageFeedUnreadModel>();
+                    if (feedResult != null && feedResult.success && feedResult.data != null)
                     {
-                        return true;
-                    }
-                    else
-                    {
-                        return false;
+                        messageFeedUnread = feedResult.data;
                     }
                 }
-                else
+
+                if (DateTimeOffset.Now - lastPrivateUnreadCheck >= TimeSpan.FromMinutes(2))
                 {
-                    return false;
+                    lastPrivateUnreadCheck = DateTimeOffset.Now;
+                    var privateRequest = messageAPI.PrivateUnread().Request();
+                    var groupRequest = messageAPI.GroupUnread().Request();
+                    await Task.WhenAll(privateRequest, groupRequest);
+
+                    var privateResponse = privateRequest.Result;
+                    if (privateResponse != null && privateResponse.status)
+                    {
+                        var privateResult = await privateResponse.GetData<MessagePrivateUnreadModel>();
+                        if (privateResult != null && privateResult.success && privateResult.data != null)
+                        {
+                            privateMessageUnread = privateResult.data;
+                        }
+                    }
+
+                    var groupResponse = groupRequest.Result;
+                    if (groupResponse != null && groupResponse.status)
+                    {
+                        var groupResult = await groupResponse.GetData<MessageGroupUnreadModel>();
+                        if (groupResult != null && groupResult.success && groupResult.data != null)
+                        {
+                            groupMessageUnread = groupResult.data;
+                        }
+                    }
                 }
+
+                return messageFeedUnread.recv_reply > 0
+                    || messageFeedUnread.at > 0
+                    || messageFeedUnread.recv_like > 0
+                    || messageFeedUnread.sys_msg > 0
+                    || privateMessageUnread.Total > 0
+                    || groupMessageUnread.unread_count > 0;
             }
             catch (Exception)
             {
                 return false;
-                //Utils.ShowMessageToast("读取通知失败", 3000);
             }
         }
 

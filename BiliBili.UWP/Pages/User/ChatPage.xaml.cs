@@ -1,326 +1,311 @@
-﻿using System;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.User;
+using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules;
+using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
-using Windows.UI.Xaml;
-using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
-using Windows.UI.Xaml.Navigation;
-using Newtonsoft.Json;
-using System.Threading.Tasks;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using Newtonsoft.Json.Linq;
-using System.Text.RegularExpressions;
-
-// “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
+using System.Linq;
+using System.Threading.Tasks;
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Navigation;
 
 namespace BiliBili.UWP.Pages
 {
-    /// <summary>
-    /// 可用于自身或导航至 Frame 内部的空白页。
-    /// </summary>
     public sealed partial class ChatPage : Page
     {
+        private readonly MessageAPI _messageAPI = new MessageAPI();
+        private readonly string _deviceId = Guid.NewGuid().ToString();
+        private DispatcherTimer _timer;
+        private long _talkerId;
+        private long _ownId;
+        private int _sessionType = 1;
+        private string _peerAvatar = string.Empty;
+        private string _selfAvatar = string.Empty;
+        private bool _loadingMessages;
+
         public event PropertyChangedEventHandler PropertyChanged;
+
+        public ObservableCollection<ChatModel> messages { get; private set; }
+
         public ChatPage()
         {
-            this.InitializeComponent();
-            this.NavigationCacheMode = NavigationCacheMode.Required;
+            InitializeComponent();
+            NavigationCacheMode = NavigationCacheMode.Required;
         }
 
-        private void btn_back_Click(object sender, RoutedEventArgs e)
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            
-            if (this.Frame.CanGoBack)
-            {
-                this.Frame.GoBack();
+            messages = new ObservableCollection<ChatModel>();
+            list_view.ItemsSource = messages;
+            _ownId = ParseId(ApiHelper.GetUserId());
 
+            var parameters = e.Parameter as object[];
+            if (parameters == null || parameters.Length == 0)
+            {
+                Utils.ShowMessageToast("无法读取私信会话", 2000);
+                return;
             }
-           
+
+            var session = parameters[0] as MessageChatModel;
+            if (session != null)
+            {
+                _talkerId = ParseId(session.rid);
+                _sessionType = session.session_type;
+                _peerAvatar = session.avatar_url ?? string.Empty;
+                top_txt_Header.Text = string.IsNullOrEmpty(session.room_name) ? "私聊" : session.room_name;
+            }
+            else
+            {
+                _talkerId = ParseId(parameters[0]?.ToString());
+                _sessionType = 1;
+            }
+
+            if (_talkerId <= 0)
+            {
+                Utils.ShowMessageToast("私信会话参数无效", 2000);
+                return;
+            }
+
+            pr_Load.Visibility = Visibility.Visible;
+            await LoadParticipantInfo();
+            await GetRoomMessage();
+            pr_Load.Visibility = Visibility.Collapsed;
+
+            if (_timer == null)
+            {
+                _timer = new DispatcherTimer();
+                _timer.Interval = TimeSpan.FromSeconds(10);
+                _timer.Tick += Timer_Tick;
+            }
+            _timer.Start();
         }
+
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            timer.Stop();
-        }
-
-        DispatcherTimer timer;
-        protected async override void OnNavigatedTo(NavigationEventArgs e)
-        {
-           
-            messages = new ObservableCollection<ChatModel>();
-            timer = new DispatcherTimer();
-            timer.Interval = new TimeSpan(0, 0, 3);
-            timer.Tick += Timer_Tick;
-
-            list_view.ItemsSource = messages;
-            await Task.Delay(200);
-            object[] ob = e.Parameter as object[];
-            await GetCaptchaKey();
-            switch ((ChatType)ob[1])
-            {
-                case ChatType.New:
-                    pr_Load.Visibility = Visibility.Visible;
-                    await CreateRoom(ob[0].ToString());
-                    if (room != null)
-                    {
-                        await GetRoomMessage(room.rid);
-                    }
-                    timer.Start();
-                    pr_Load.Visibility = Visibility.Collapsed;
-                    break;
-                case ChatType.Old:
-                    pr_Load.Visibility = Visibility.Visible;
-                    room = new CreateRoomModel() { rid = ob[0].ToString() };
-                    await GetRoomMessage(room.rid);
-                    pr_Load.Visibility = Visibility.Collapsed;
-                    timer.Start();
-                    break;
-                default:
-                    break;
-            }
+            _timer?.Stop();
         }
 
         private async void Timer_Tick(object sender, object e)
         {
-            await GetRoomMessage(room.rid);
+            await GetRoomMessage();
         }
 
-        CreateRoomModel room;
-        private async Task CreateRoom(string mid)
+        private void btn_back_Click(object sender, RoutedEventArgs e)
         {
-            try
+            if (Frame.CanGoBack)
             {
-                string url = string.Format("http://message.bilibili.com/api/msg/query.double.room.do?access_key={0}&actionKey=appkey&appkey={1}&build=422000&data_type=1&mobi_app=android&platform=android&mid={2}&ts={3}000", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, mid, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                CreateRoomModel m = JsonConvert.DeserializeObject<CreateRoomModel>(results);
-                if (m.code == 0)
-                {
-                    top_txt_Header.Text = m.data.room_name;
-                    room = m.data;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("创建聊天失败", 2000);
-                }
+                Frame.GoBack();
             }
-            catch (Exception ex)
+        }
+
+        private async Task LoadParticipantInfo()
+        {
+            var peerTask = GetUserCard(_talkerId);
+            var selfTask = GetUserCard(_ownId);
+            await Task.WhenAll(peerTask, selfTask);
+
+            var peer = peerTask.Result;
+            if (peer != null)
             {
-                Utils.ShowMessageToast("创建聊天失败\r\n" + ex.Message, 2000);
-                //throw;
+                top_txt_Header.Text = string.IsNullOrEmpty(peer.name) ? top_txt_Header.Text : peer.name;
+                _peerAvatar = NormalizeImageUrl(peer.face);
             }
 
-        }
-        private void RaisePropertChanged(string pName)
-        {
-            if (PropertyChanged != null)
+            var self = selfTask.Result;
+            if (self != null)
             {
-                PropertyChanged(this, new PropertyChangedEventArgs(pName));
+                _selfAvatar = NormalizeImageUrl(self.face);
             }
         }
-        private ObservableCollection<ChatModel> _messages;
-        public ObservableCollection<ChatModel> messages
+
+        private async Task<MessageUserCardModel> GetUserCard(long mid)
         {
-            get { return _messages; }
-            set { _messages = value; RaisePropertChanged("messages"); }
+            if (mid <= 0)
+            {
+                return null;
+            }
+            var response = await _messageAPI.UserCard(mid).Request();
+            if (response == null || !response.status)
+            {
+                return null;
+            }
+            var result = await response.GetData<MessageUserCardDataModel>();
+            return result != null && result.success ? result.data?.card : null;
         }
-        private async Task GetRoomMessage(string rid)
+
+        private async Task GetRoomMessage()
         {
+            if (_loadingMessages)
+            {
+                return;
+            }
+
+            _loadingMessages = true;
             try
             {
-                string url = string.Format("http://message.bilibili.com/api/msg/query.msg.list.do?access_key={0}&actionKey=appkey&appkey={1}&build=422000&data_type=1&mobi_app=android&platform=android&rid={2}&ts={3}000", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, rid, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                ChatModel m = JsonConvert.DeserializeObject<ChatModel>(results);
-                m.data = m.data.OrderBy(x => x.send_time).ToList();
-                foreach (var item in m.data)
+                var response = await _messageAPI.SessionMessages(_talkerId, _sessionType).Request();
+                if (response == null || !response.status)
                 {
-                    if (messages.Where(x => x.id == item.id).ToList().Count == 0)
+                    Utils.ShowMessageToast(response?.message ?? "读取信息失败", 2000);
+                    return;
+                }
+
+                var result = await response.GetData<MessageHistoryModel>();
+                if (result == null || !result.success)
+                {
+                    Utils.ShowMessageToast("读取信息失败" + (result?.message ?? string.Empty), 2000);
+                    return;
+                }
+
+                var history = result.data;
+                var items = history?.messages ?? new List<MessageHistoryItemModel>();
+                foreach (var item in items.OrderBy(message => message.timestamp))
+                {
+                    if (messages.Any(message => message.id == item.msg_key))
                     {
-
-                        messages.Add(item);
-                        if (item.is_me == 2)
-                        {
-                            top_txt_Header.Text = item.uname;
-                        }
-
+                        continue;
                     }
+
+                    var isPeer = item.sender_uid != _ownId;
+                    messages.Add(new ChatModel()
+                    {
+                        id = item.msg_key,
+                        mid = item.sender_uid.ToString(),
+                        avatar_url = isPeer ? _peerAvatar : _selfAvatar,
+                        is_me = isPeer ? 2 : 1,
+                        message = item.msg_status == 1 || item.sys_cancel
+                            ? "[消息已撤回]"
+                            : MyMessagePage.ParseMessagePreview(item.content, item.msg_type),
+                        send_time = item.timestamp
+                    });
+                }
+
+                if (history != null && history.max_seqno > 0)
+                {
+                    await MarkAsRead(history.max_seqno);
                 }
 
                 sc.ChangeView(null, sc.ExtentHeight, null);
-                //RaisePropertChanged("messages");
             }
-            catch (Exception ex)
+            finally
             {
-                Utils.ShowMessageToast("读取信息失败\r\n" + ex.Message, 2000);
-                //throw;
+                _loadingMessages = false;
             }
+        }
 
+        private async Task MarkAsRead(long sequenceNumber)
+        {
+            var csrf = Account.GetCookieValue("bili_jct");
+            if (string.IsNullOrEmpty(csrf))
+            {
+                return;
+            }
+            await _messageAPI.MarkSessionRead(_talkerId, _sessionType, sequenceNumber, csrf).Request();
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e)
         {
-            txt_Content.Text += ((Button)sender).Content.ToString();
+            txt_Content.Text += (sender as Button)?.Content?.ToString();
         }
 
-        private void btn_Send_Click(object sender, RoutedEventArgs e)
+        private async void btn_Send_Click(object sender, RoutedEventArgs e)
         {
-            if (txt_Content.Text.Length == 0)
+            var content = txt_Content.Text?.Trim();
+            if (string.IsNullOrEmpty(content))
             {
                 Utils.ShowMessageToast("内容不能为空", 2000);
                 return;
             }
-            SendMessage(room.rid);
-        }
-        string captcha_key = "";
-        private async Task GetCaptchaKey()
-        {
+
+            var csrf = Account.GetCookieValue("bili_jct");
+            if (_ownId <= 0 || string.IsNullOrEmpty(csrf))
+            {
+                Utils.ShowMessageToast("登录 Cookie 无效，请重新登录", 2000);
+                return;
+            }
+
+            btn_Send.IsEnabled = false;
             try
             {
-                string results =await WebClientClass.GetResults(new Uri("http://www.bilibili.com/plus/widget/ajaxGetCaptchaKey.php?js"));
-                captcha_key = Regex.Match(results, @"""(.*?)""").Groups[1].Value;
-            }
-            catch
-            {
-
-            }
-        }
-        private async void SendMessage(string rid)
-        {
-            try
-            {
-                string url = "https://api.vc.bilibili.com/web_im/v1/web_im/send_msg";
-                // url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.PostResults(new Uri(url), 
-                    string.Format("platform=pc&msg%5Bsender_uid%5D={0}&msg%5Breceiver_id%5D={1}&msg%5Breceiver_type%5D=1&msg%5Bmsg_type%5D=1&msg%5Bcontent%5D=%7B%22content%22%3A%22{2}%22%7D&msg%5Btimestamp%5D={3}&captcha={4}", 
-                    ApiHelper.GetUserId(),
-                    rid, 
-                    Uri.EscapeDataString(txt_Content.Text),
-                    ApiHelper.GetTimeSpan,
-                    captcha_key));
-                JObject o = JObject.Parse(results);
-                //ChatModel m = JsonConvert.DeserializeObject<ChatModel>(results);
-                if ((int)o["code"] != 0)
+                var response = await _messageAPI.SendMessage(
+                    _ownId,
+                    _talkerId,
+                    _sessionType,
+                    content,
+                    _deviceId,
+                    csrf).Request();
+                if (response == null || !response.status)
                 {
-                    Utils.ShowMessageToast("发送失败," + o["message"].ToString(), 2000);
+                    Utils.ShowMessageToast(response?.message ?? "发送失败", 2000);
+                    return;
                 }
-                else
+
+                var result = await response.GetData<object>();
+                if (result == null || !result.success)
                 {
-                    txt_Content.Text = "";
+                    Utils.ShowMessageToast("发送失败," + (result?.message ?? string.Empty), 2000);
+                    return;
                 }
-                sc.ChangeView(null, sc.ExtentHeight, null);
-                //RaisePropertChanged("messages");
+
+                txt_Content.Text = string.Empty;
+                await GetRoomMessage();
             }
-            catch (Exception ex)
+            finally
             {
-                Utils.ShowMessageToast("发送失败\r\n" + ex.Message, 2000);
-                //throw;
+                btn_Send.IsEnabled = true;
             }
         }
 
-        private void list_view_ItemClick(object sender, ItemClickEventArgs e)
+        private static long ParseId(string value)
         {
-            Windows.ApplicationModel.DataTransfer.DataPackage pack = new Windows.ApplicationModel.DataTransfer.DataPackage();
-            pack.SetText((e.ClickedItem as ChatModel).message);
-            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pack); // 保存 DataPackage 对象到剪切板
-            Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
-            Utils.ShowMessageToast("已将内容复制到剪切板", 3000);
+            long result;
+            return long.TryParse(value, out result) ? result : 0;
         }
 
+        private static string NormalizeImageUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return string.Empty;
+            }
+            return url.StartsWith("//") ? "https:" + url : url.Replace("http://", "https://");
+        }
     }
 
-    public class CreateRoomModel
-    {
-        public int code { get; set; }
-        public CreateRoomModel data { get; set; }
-        public string avatar_url { get; set; }
-        public string mid { get; set; }
-        public string rid { get; set; }
-        public string room_name { get; set; }
-        public int status { get; set; }
-
-        public long ts { get; set; }
-    }
     public class ChatModel
     {
-        public int code { get; set; }
-        public List<ChatModel> data { get; set; }
-        public string message { get; set; }
-
-
-        public int id { get; set; }
+        public long id { get; set; }
         public string mid { get; set; }
         public string uname { get; set; }
         public string avatar_url { get; set; }
-
         public int is_me { get; set; }
-        public string cursor { get; set; }
+        public string message { get; set; }
         public long send_time { get; set; }
 
         public string Send_time
         {
             get
             {
-                DateTime dtStart = new DateTime(1970, 1, 1);
-                long lTime = long.Parse(send_time + "0000");
-                //long lTime = long.Parse(textBox1.Text);
-                TimeSpan toNow = new TimeSpan(lTime);
-                DateTime dt = dtStart.Add(toNow).ToLocalTime();
-                TimeSpan span = DateTime.Now - dt;
-                return dt.ToString();
-                //if (span.TotalDays > 7)
-                // {
-                //return dt.ToString("MM-dd");
-                //}
-                //else
-                //if (span.TotalDays > 1)
-                //{
-                //    return string.Format("{0}天前", (int)Math.Floor(span.TotalDays));
-                //}
-                //else
-                //if (span.TotalHours > 1)
-                //{
-                //    return string.Format("{0}小时前", (int)Math.Floor(span.TotalHours));
-                //}
-                //else
-                //if (span.TotalMinutes > 1)
-                //{
-                //    return string.Format("{0}分钟前", (int)Math.Floor(span.TotalMinutes));
-                //}
-                //else
-                //if (span.TotalSeconds >= 1)
-                //{
-                //    return string.Format("{0}秒前", (int)Math.Floor(span.TotalSeconds));
-                //}
-                //else
-                //{
-                //    return "1秒前";
-                //}
-
+                if (send_time <= 0)
+                {
+                    return string.Empty;
+                }
+                return DateTimeOffset.FromUnixTimeSeconds(send_time).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
             }
         }
     }
+
     public class MessageItemDataTemplateSelector : DataTemplateSelector
     {
         public DataTemplate Chat1 { get; set; }
         public DataTemplate Chat2 { get; set; }
+
         protected override DataTemplate SelectTemplateCore(object item, DependencyObject container)
         {
-            if ((item as ChatModel).is_me == 2)
-            {
-                return Chat1;
-            }
-            else
-            {
-                return Chat2;
-            }
+            return (item as ChatModel)?.is_me == 2 ? Chat1 : Chat2;
         }
     }
 }

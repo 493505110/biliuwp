@@ -53,7 +53,7 @@
                                     <ColumnDefinition Width="auto"/>
                                     <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                <HyperlinkButton Grid.RowSpan="2" Click="HyperlinkButton_Click">
+                                <HyperlinkButton Grid.RowSpan="2" Tag="{Binding mid}" Click="HyperlinkButton_Click">
                                     <Ellipse Width="48" Height="48" >
                                         <Ellipse.Fill>
                                             <ImageBrush ImageSource="{Binding face}"/>
@@ -101,7 +101,7 @@
                                     <ColumnDefinition Width="auto"/>
                                     <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                <HyperlinkButton Grid.RowSpan="2" Click="HyperlinkButton_Click">
+                                <HyperlinkButton Grid.RowSpan="2" Tag="{Binding mid}" Click="HyperlinkButton_Click">
                                     <Ellipse Width="48" Height="48" >
                                         <Ellipse.Fill>
                                             <ImageBrush ImageSource="{Binding face}"/>
@@ -148,7 +148,7 @@
                                     <ColumnDefinition Width="auto"/>
                                     <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                <HyperlinkButton Grid.RowSpan="2" Click="HyperlinkButton_Click">
+                                <HyperlinkButton Grid.RowSpan="2" Tag="{Binding mid}" Click="HyperlinkButton_Click">
                                     <Ellipse Width="48" Height="48" >
                                         <Ellipse.Fill>
                                             <ImageBrush ImageSource="{Binding face}"/>
@@ -224,7 +224,7 @@
                                     <ColumnDefinition Width="auto"/>
                                     <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                <HyperlinkButton Grid.RowSpan="2" Click="HyperlinkButton_Click">
+                                <HyperlinkButton Grid.RowSpan="2" Tag="{Binding mid}" Click="HyperlinkButton_Click">
                                     <Ellipse Width="48" Height="48" >
                                         <Ellipse.Fill>
                                             <ImageBrush ImageSource="{Binding avatar_url}"/>

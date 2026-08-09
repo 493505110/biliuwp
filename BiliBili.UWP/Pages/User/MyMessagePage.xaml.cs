@@ -1,22 +1,16 @@
-﻿using BiliBili.UWP.Models;
-using Newtonsoft.Json;
+using BiliBili.UWP.Api;
+using BiliBili.UWP.Api.User;
+using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules;
+using BiliBili.UWP.Pages.User;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text.RegularExpressions;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
+using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
-
-// “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
 
 namespace BiliBili.UWP.Pages
 {
@@ -25,36 +19,36 @@ namespace BiliBili.UWP.Pages
         New,
         Old
     }
-    /// <summary>
-    /// 可用于自身或导航至 Frame 内部的空白页。
-    /// </summary>
+
     public sealed partial class MyMessagePage : Page
     {
+        private readonly MessageAPI _messageAPI = new MessageAPI();
+        private readonly Dictionary<long, MessageUserCardModel> _userCards = new Dictionary<long, MessageUserCardModel>();
+        private DispatcherTimer _timer;
+        private int _activeLoads;
+        private bool _loadingUnread;
+
         public MyMessagePage()
         {
-            this.InitializeComponent();
-            this.NavigationCacheMode = NavigationCacheMode.Required;
+            InitializeComponent();
+            NavigationCacheMode = NavigationCacheMode.Required;
         }
-      
-        private void btn_Back_Click(object sender, RoutedEventArgs e)
-        {
-           
-            if (this.Frame.CanGoBack)
-            {
-                this.Frame.GoBack();
-            }
-        }
-        protected override void OnNavigatedFrom(NavigationEventArgs e)
-        {
-            timer.Stop();
-        }
+
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
-            
-            timer = new DispatcherTimer();
-            timer.Interval = new TimeSpan(0, 0, 1);
-            timer.Tick += Timer_Tick;
-            timer.Start();
+            if (_timer == null)
+            {
+                _timer = new DispatcherTimer();
+                _timer.Interval = TimeSpan.FromMinutes(2);
+                _timer.Tick += Timer_Tick;
+            }
+            _timer.Start();
+            GetMessage();
+        }
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            _timer?.Stop();
         }
 
         private void Timer_Tick(object sender, object e)
@@ -62,329 +56,418 @@ namespace BiliBili.UWP.Pages
             GetMessage();
         }
 
-        DispatcherTimer timer;
-        
+        private void btn_Back_Click(object sender, RoutedEventArgs e)
+        {
+            if (Frame.CanGoBack)
+            {
+                Frame.GoBack();
+            }
+        }
+
         private void btn_HF_Click(object sender, RoutedEventArgs e)
         {
-            pivot.SelectedIndex = Convert.ToInt32((sender as Button).Tag);
+            pivot.SelectedIndex = Convert.ToInt32((sender as Button)?.Tag);
         }
 
         private void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-           
             switch (pivot.SelectedIndex)
             {
                 case 0:
                     GetReply();
                     break;
                 case 1:
-                    GetAtme();
+                    GetAtMe();
                     break;
                 case 2:
-                    GetZan();
+                    GetLikes();
                     break;
                 case 3:
-                    GetNotify();
+                    GetNotices();
                     break;
                 case 4:
-                    GetChatMe();
-                    break;
-                default:
+                    GetSessions();
                     break;
             }
         }
 
         private async void GetReply()
         {
+            BeginLoad();
             try
             {
-                pr_Load.Visibility = Visibility.Visible;
-             
-                string url = string.Format("http://message.bilibili.com/api/notify/query.replyme.list.do?_device=wp&&_ulv=10000&access_key={0}&actionKey=appkey&appkey={1}&build=410005&data_type=1&page_size=40&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                MessageReplyModel model = JsonConvert.DeserializeObject<MessageReplyModel>(results);
-                if (model.code == 0)
-                {
-                    List<MessageReplyModel> list = JsonConvert.DeserializeObject<List<MessageReplyModel>>(model.data.ToString());
-                    foreach (var item in list)
-                    {
-                        MessageReplyModel models = JsonConvert.DeserializeObject<MessageReplyModel>(item.publisher.ToString());
-                        item.mid = models.mid;
-                        item.name = models.name;
-                        item.face = models.face;
-                    }
-                    list_Reply.ItemsSource = list;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("读取失败" + model.message, 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("读取失败", 3000);
+                var data = await RequestData<MessageFeedReplyDataModel>(_messageAPI.ReplyFeed(), "读取回复失败");
+                var items = data?.items ?? new List<MessageFeedReplyItemModel>();
+                list_Reply.ItemsSource = items.Select(item => ToDisplayItem(
+                    item.user,
+                    item.item,
+                    item.reply_time,
+                    FirstText(item.item?.source_content, item.item?.root_reply_content, item.item?.target_reply_content)))
+                    .ToList();
             }
             finally
             {
-                pr_Load.Visibility = Visibility.Collapsed;
-            }
-        }
-        private async void GetAtme()
-        {
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-               
-                string url = string.Format("http://message.bilibili.com/api/notify/query.atme.list.do?_device=android&&_ulv=10000&access_key={0}&actionKey=appkey&appkey={1}&build=518000&data_type=1&page_size=40&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                MessageReplyModel model = JsonConvert.DeserializeObject<MessageReplyModel>(results);
-                if (model.code == 0)
-                {
-                    List<MessageReplyModel> list = JsonConvert.DeserializeObject<List<MessageReplyModel>>(model.data.ToString());
-                    foreach (var item in list)
-                    {
-                        MessageReplyModel models = JsonConvert.DeserializeObject<MessageReplyModel>(item.publisher.ToString());
-                        item.mid = models.mid;
-                        item.name = models.name;
-                        item.face = models.face;
-                    }
-                    list_AtMe.ItemsSource = list;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("读取失败" + model.message, 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("读取失败", 3000);
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-            }
-        }
-        private async void GetZan()
-        {
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-               
-                string url = string.Format("http://message.bilibili.com/api/notify/query.praiseme.list.do?_device=android&&_ulv=10000&access_key={0}&actionKey=appkey&appkey={1}&build=518000&data_type=1&page_size=40&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                MessageReplyModel model = JsonConvert.DeserializeObject<MessageReplyModel>(results);
-                if (model.code == 0)
-                {
-                    List<MessageReplyModel> list = JsonConvert.DeserializeObject<List<MessageReplyModel>>(model.data.ToString());
-                    foreach (var item in list)
-                    {
-                        MessageReplyModel models = JsonConvert.DeserializeObject<MessageReplyModel>(item.publisher.ToString());
-                        item.mid = models.mid;
-                        item.name = models.name;
-                        item.face = models.face;
-                    }
-                    list_Zan.ItemsSource = list;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("读取失败" + model.message, 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("读取失败", 3000);
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
-            }
-        }
-        private async void GetNotify()
-        {
-            try
-            {
-                pr_Load.Visibility = Visibility.Visible;
-               
-                //http://message.bilibili.com/api/notify/query.sysnotify.list.do?_device=android&_hwid=68fc5d795c256cd1&_ulv=10000&access_key=a36a84cc8ef4ea2f92c416951c859a25&actionKey=appkey&appkey=c1b107428d337928&build=414000&data_type=1&page_size=40&platform=android&ts=1461404973000&sign=fc3b4e26348a1204e2064e7712d10179
-                string url = string.Format("https://message.bilibili.com/api/notify/query.sysnotify.list.do?_device=android&&_ulv=10000&access_key={0}&actionKey=appkey&appkey={1}&build=518000&data_type=1&page_size=40&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-                MessageReplyModel model = JsonConvert.DeserializeObject<MessageReplyModel>(results);
-                if (model.code == 0)
-                {
-                    List<MessageReplyModel> list = JsonConvert.DeserializeObject<List<MessageReplyModel>>(model.data.ToString());
-                    list_Notify.ItemsSource = list;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("读取失败" + model.message, 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("读取失败", 3000);
-            }
-            finally
-            {
-                pr_Load.Visibility = Visibility.Collapsed;
+                EndLoad();
             }
         }
 
-        private async void GetChatMe()
+        private async void GetAtMe()
         {
+            BeginLoad();
             try
             {
-                pr_Load.Visibility = Visibility.Collapsed;
-               
-                // http://message.bilibili.com/api/msg/query.room.list.do?access_key=a36a84cc8ef4ea2f92c416951c859a25&actionKey=appkey&appkey=c1b107428d337928&build=414000&page_size=100&platform=android&ts=1461404884000&sign=5e212e424761aa497a75b0fb7fbde775
-                string url = string.Format("http://message.bilibili.com/api/msg/query.room.list.do?access_key={0}&actionKey=appkey&appkey={1}&build=518000&page_size=100&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                MessageChatModel model = JsonConvert.DeserializeObject<MessageChatModel>(results);
-                if (model.code == 0)
-                {
-                    List<MessageChatModel> list = JsonConvert.DeserializeObject<List<MessageChatModel>>(model.data.ToString());
-                    list_ChatMe.ItemsSource = list;
-                }
-                else
-                {
-                    Utils.ShowMessageToast("读取失败" + model.message, 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("读取失败", 3000);
+                var data = await RequestData<MessageFeedAtDataModel>(_messageAPI.AtFeed(), "读取@消息失败");
+                var items = data?.items ?? new List<MessageFeedAtItemModel>();
+                list_AtMe.ItemsSource = items.Select(item => ToDisplayItem(
+                    item.user,
+                    item.item,
+                    item.at_time,
+                    item.item?.source_content))
+                    .ToList();
             }
             finally
             {
-                pr_Load.Visibility = Visibility.Collapsed;
+                EndLoad();
             }
         }
 
+        private async void GetLikes()
+        {
+            BeginLoad();
+            try
+            {
+                var data = await RequestData<MessageFeedLikeDataModel>(_messageAPI.LikeFeed(), "读取点赞消息失败");
+                var bucket = data?.total ?? data?.latest;
+                var items = bucket?.items ?? new List<MessageFeedLikeItemModel>();
+                list_Zan.ItemsSource = items.Select(item =>
+                {
+                    var user = item.users?.FirstOrDefault() ?? new MessageFeedUserModel();
+                    var display = ToDisplayItem(user, item.item, item.like_time, "赞了你的内容");
+                    if (item.counts > 1)
+                    {
+                        display.name = $"{display.name} 等{item.counts}人";
+                    }
+                    return display;
+                }).ToList();
+            }
+            finally
+            {
+                EndLoad();
+            }
+        }
+
+        private async void GetNotices()
+        {
+            BeginLoad();
+            try
+            {
+                var data = await RequestData<List<MessageSystemNoticeModel>>(_messageAPI.SystemNotices(), "读取通知失败");
+                list_Notify.ItemsSource = (data ?? new List<MessageSystemNoticeModel>()).Select(item => new MessageReplyModel()
+                {
+                    id = item.id.ToString(),
+                    cursor = item.cursor.ToString(),
+                    title = item.title,
+                    content = ParseNoticeContent(item.content),
+                    time_at = item.time_at
+                }).ToList();
+            }
+            finally
+            {
+                EndLoad();
+            }
+        }
+
+        private async void GetSessions()
+        {
+            BeginLoad();
+            try
+            {
+                var data = await RequestData<MessageSessionListModel>(_messageAPI.Sessions(), "读取私信失败");
+                var sessions = data?.session_list ?? new List<MessageSessionModel>();
+                await LoadUserCards(sessions);
+                list_ChatMe.ItemsSource = sessions.Select(ToChatDisplayItem).ToList();
+            }
+            finally
+            {
+                EndLoad();
+            }
+        }
 
         private async void GetMessage()
         {
+            if (_loadingUnread)
+            {
+                return;
+            }
+
+            if (!ApiHelper.IsLogin() || string.IsNullOrEmpty(Account.GetCookieValue("SESSDATA")))
+            {
+                SetUnreadVisibility(bor_HF, 0);
+                SetUnreadVisibility(bor_At, 0);
+                SetUnreadVisibility(bor_Zan, 0);
+                SetUnreadVisibility(bor_TZ, 0);
+                SetUnreadVisibility(bor_SX, 0);
+                return;
+            }
+
+            _loadingUnread = true;
             try
             {
-                pr_Load.Visibility = Visibility.Visible;
-               
-                // http://message.bilibili.com/api/msg/query.room.list.do?access_key=a36a84cc8ef4ea2f92c416951c859a25&actionKey=appkey&appkey=c1b107428d337928&build=414000&page_size=100&platform=android&ts=1461404884000&sign=5e212e424761aa497a75b0fb7fbde775
-                string url = string.Format("https://message.bilibili.com/api/notify/query.notify.count.do?_device=android&_ulv=10000&access_key={0}&actionKey=appkey&appkey={1}&build=518000&platform=android&ts={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                string results = await WebClientClass.GetResults(new Uri(url));
-                MessageModel model = JsonConvert.DeserializeObject<MessageModel>(results);
-                if (model.code == 0)
+                var feedRequest = _messageAPI.UnreadFeed().Request();
+                var privateRequest = _messageAPI.PrivateUnread().Request();
+                var groupRequest = _messageAPI.GroupUnread().Request();
+                await Task.WhenAll(feedRequest, privateRequest, groupRequest);
+
+                var feed = await ReadData<MessageFeedUnreadModel>(feedRequest.Result, "读取通知失败");
+                var privateUnread = await ReadData<MessagePrivateUnreadModel>(privateRequest.Result, "读取私信未读数失败");
+                var groupUnread = await ReadData<MessageGroupUnreadModel>(groupRequest.Result, "读取粉丝团未读数失败");
+                if (feed != null)
                 {
-                    MessageModel list = JsonConvert.DeserializeObject<MessageModel>(model.data.ToString());
-                    if (list.reply_me != 0)
-                    {
-                        bor_HF.Visibility = Visibility.Visible;
-                    }
-                    else
-                    {
-                        bor_HF.Visibility = Visibility.Collapsed;
-                    }
-
-                    if (list.at_me != 0)
-                    {
-                        bor_At.Visibility = Visibility.Visible;
-                    }
-                    else
-                    {
-                        bor_At.Visibility = Visibility.Collapsed;
-                    }
-
-                    if (list.praise_me != 0)
-                    {
-                        bor_Zan.Visibility = Visibility.Visible;
-                    }
-                    else
-                    {
-                        bor_Zan.Visibility = Visibility.Collapsed;
-                    }
-
-                    if (list.notify_me != 0)
-                    {
-                        bor_TZ.Visibility = Visibility.Visible;
-                    }
-                    else
-                    {
-                        bor_TZ.Visibility = Visibility.Collapsed;
-                    }
-
-                    if (list.chat_me != 0)
-                    {
-                        bor_SX.Visibility = Visibility.Visible;
-                    }
-                    else
-                    {
-                        bor_SX.Visibility = Visibility.Collapsed;
-                    }
+                    SetUnreadVisibility(bor_HF, feed.recv_reply);
+                    SetUnreadVisibility(bor_At, feed.at);
+                    SetUnreadVisibility(bor_Zan, feed.recv_like);
+                    SetUnreadVisibility(bor_TZ, feed.sys_msg);
                 }
-                else
+
+                if (privateUnread != null || groupUnread != null)
                 {
-                    Utils.ShowMessageToast("读取通知失败," + model.message, 3000);
+                    SetUnreadVisibility(bor_SX, (privateUnread?.Total ?? 0) + (groupUnread?.unread_count ?? 0));
                 }
-            }
-            catch (Exception)
-            {
-
-                Utils.ShowMessageToast("读取通知失败", 3000);
             }
             finally
             {
-                pr_Load.Visibility = Visibility.Collapsed;
+                _loadingUnread = false;
             }
         }
 
-
-        private void list_Reply_ItemClick(object sender, ItemClickEventArgs e)
+        private async Task<T> RequestData<T>(ApiModel api, string failureMessage) where T : class
         {
-            string aid = Regex.Match((e.ClickedItem as MessageReplyModel).link, @"http://www.bilibili.com/video/av(.*?)/").Groups[1].Value;
-            if (aid.Length != 0)
-            {
-                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), aid);
-                //this.Frame.Navigate(typeof(VideoInfoPage), aid);
-                return;
-            }
-            Match quan = Regex.Match((e.ClickedItem as MessageReplyModel).link, @"^http://www.im9.com/post.html\?community_id=(.*?)&post_id=(.*?)$");
-            if (quan.Groups.Count == 3)
-            {
+            return await ReadData<T>(await api.Request(), failureMessage);
+        }
 
-                //this.Frame.Navigate(typeof(QuanInfoPage), new QuanziListModel() { community_id = Convert.ToInt32(quan.Groups[1].Value), post_id = Convert.ToInt32(quan.Groups[2].Value) });
-                return;
+        private static async Task<T> ReadData<T>(HttpResults response, string failureMessage) where T : class
+        {
+            if (response == null || !response.status)
+            {
+                Utils.ShowMessageToast(response?.message ?? failureMessage, 3000);
+                return null;
             }
 
+            var result = await response.GetData<T>();
+            if (result == null || !result.success)
+            {
+                Utils.ShowMessageToast(failureMessage + (result?.message ?? string.Empty), 3000);
+                return null;
+            }
+            return result.data;
+        }
 
+        private MessageChatModel ToChatDisplayItem(MessageSessionModel session)
+        {
+            MessageUserCardModel card;
+            _userCards.TryGetValue(session.talker_id, out card);
+            var display = new MessageChatModel()
+            {
+                rid = session.talker_id.ToString(),
+                mid = session.session_type == 1 && session.system_msg_type == 0
+                    ? session.talker_id.ToString()
+                    : null,
+                session_type = session.session_type,
+                max_seqno = session.max_seqno,
+                msg_count = session.unread_count,
+                room_name = FirstText(session.group_name, session.account_info?.name, card?.name, $"用户{session.talker_id}"),
+                avatar_url = NormalizeImageUrl(FirstText(session.group_cover, session.account_info?.Avatar, card?.face)),
+                last_msg = ParseMessagePreview(session.last_msg?.content, session.last_msg?.msg_type ?? 0),
+                last_time = session.last_msg?.timestamp ?? NormalizeSessionTimestamp(session.session_ts)
+            };
+            return display;
+        }
+
+        private async Task LoadUserCards(IList<MessageSessionModel> sessions)
+        {
+            var mids = sessions
+                .Where(session => session.session_type == 1
+                    && session.system_msg_type == 0
+                    && session.talker_id > 0
+                    && (string.IsNullOrEmpty(session.account_info?.name)
+                        || string.IsNullOrEmpty(session.account_info?.Avatar))
+                    && !_userCards.ContainsKey(session.talker_id))
+                .Select(session => session.talker_id)
+                .Distinct()
+                .ToList();
+
+            for (var index = 0; index < mids.Count; index += 50)
+            {
+                var batch = mids.Skip(index).Take(50).ToList();
+                var cards = await RequestData<List<MessageUserCardModel>>(
+                    _messageAPI.UserCards(batch),
+                    "读取私信用户信息失败");
+                foreach (var card in cards ?? new List<MessageUserCardModel>())
+                {
+                    long mid;
+                    if (card != null && long.TryParse(card.mid, out mid) && mid > 0)
+                    {
+                        _userCards[mid] = card;
+                    }
+                }
+            }
+        }
+
+        private static MessageReplyModel ToDisplayItem(MessageFeedUserModel user, MessageFeedContentModel item, long timestamp, string content)
+        {
+            return new MessageReplyModel()
+            {
+                id = item?.source_id.ToString(),
+                mid = user?.mid.ToString(),
+                name = user?.nickname ?? string.Empty,
+                face = NormalizeImageUrl(user?.avatar),
+                time_at = FormatTimestamp(timestamp),
+                content = FirstText(content, item?.business),
+                title = item?.title ?? string.Empty,
+                link = FirstText(item?.native_uri, item?.uri)
+            };
+        }
+
+        private static string ParseNoticeContent(string content)
+        {
+            if (string.IsNullOrEmpty(content) || !content.TrimStart().StartsWith("{"))
+            {
+                return content ?? string.Empty;
+            }
+            try
+            {
+                var json = JObject.Parse(content);
+                return FirstText(json["web"]?.ToString(), json["text"]?.ToString(), content);
+            }
+            catch
+            {
+                return content;
+            }
+        }
+
+        internal static string ParseMessagePreview(string content, int messageType)
+        {
+            if (string.IsNullOrEmpty(content))
+            {
+                return string.Empty;
+            }
+            if (messageType == 2)
+            {
+                return "[图片]";
+            }
+            if (messageType == 5)
+            {
+                return "[消息已撤回]";
+            }
+            if (messageType == 6)
+            {
+                return "[表情]";
+            }
+
+            try
+            {
+                var json = JObject.Parse(content);
+                return FirstText(
+                    json["content"]?.ToString(),
+                    json["text"]?.ToString(),
+                    json["title"]?.ToString(),
+                    json["desc"]?.ToString(),
+                    messageType == 2 ? "[图片]" : "[消息]");
+            }
+            catch
+            {
+                return content;
+            }
+        }
+
+        private async void list_Reply_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            await NavigateMessageLink((e.ClickedItem as MessageReplyModel)?.link);
         }
 
         private void HyperlinkButton_Click(object sender, RoutedEventArgs e)
         {
-            // MessageReplyModel model = (sender as HyperlinkButton).DataContext as MessageReplyModel;
-            //this.Frame.Navigate(typeof(UserInfoPage), model.mid);
+            var button = sender as HyperlinkButton;
+            long mid;
+            if (button == null || !long.TryParse(button.Tag?.ToString(), out mid) || mid <= 0)
+            {
+                return;
+            }
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(UserCenterPage), mid.ToString());
         }
 
-        private void list_Notify_ItemClick(object sender, ItemClickEventArgs e)
+        private async void list_Notify_ItemClick(object sender, ItemClickEventArgs e)
         {
-            if ((e.ClickedItem as MessageReplyModel).link != null)
-            {
-                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), (e.ClickedItem as MessageReplyModel).link);
-                //this.Frame.Navigate(typeof(WebViewPage), (e.ClickedItem as MessageReplyModel).link);
-            }
-
+            await NavigateMessageLink((e.ClickedItem as MessageReplyModel)?.link);
         }
 
         private void list_ChatMe_ItemClick(object sender, ItemClickEventArgs e)
         {
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ChatPage), new object[] { (e.ClickedItem as MessageChatModel).rid, ChatType.Old });
-           // this.Frame.Navigate(typeof(ChatPage), new object[] { (e.ClickedItem as MessageChatModel).rid, ChatType.Old });
-            // Utils.ShowMessageToast("聊天功能待完成...",3000);
+            var session = e.ClickedItem as MessageChatModel;
+            if (session != null)
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(ChatPage), new object[] { session, ChatType.Old });
+            }
         }
 
+        private static async Task NavigateMessageLink(string link)
+        {
+            if (string.IsNullOrWhiteSpace(link))
+            {
+                return;
+            }
+            if (!await MessageCenter.HandelUrl(link))
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), link);
+            }
+        }
 
+        private void BeginLoad()
+        {
+            _activeLoads++;
+            pr_Load.Visibility = Visibility.Visible;
+        }
 
+        private void EndLoad()
+        {
+            _activeLoads = Math.Max(0, _activeLoads - 1);
+            if (_activeLoads == 0)
+            {
+                pr_Load.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private static void SetUnreadVisibility(UIElement element, int count)
+        {
+            element.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private static string FormatTimestamp(long timestamp)
+        {
+            if (timestamp <= 0)
+            {
+                return string.Empty;
+            }
+            return DateTimeOffset.FromUnixTimeSeconds(timestamp).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        }
+
+        private static long NormalizeSessionTimestamp(long timestamp)
+        {
+            return timestamp > 1000000000000 ? timestamp / 1000000 : timestamp;
+        }
+
+        private static string NormalizeImageUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return string.Empty;
+            }
+            return url.StartsWith("//") ? "https:" + url : url.Replace("http://", "https://");
+        }
+
+        private static string FirstText(params string[] values)
+        {
+            return values?.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+        }
     }
 }
