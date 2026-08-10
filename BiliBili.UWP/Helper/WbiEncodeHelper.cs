@@ -16,29 +16,33 @@ namespace BiliBili.UWP.Helper
             57, 62, 11, 36, 20, 34, 44, 52
         };
 
-        //¶Ô imgKey ºÍ subKey ½øĞĞ×Ö·ûË³Ğò´òÂÒ±àÂë
+        // å¯¹ imgKey ä¸ subKey æŒ‰æ‰“ä¹±è¡¨é‡æ’ï¼Œå–å‰ 32 ä½ä½œä¸º mixin key
         private static string GetMixinKey(string orig)
         {
             return MixinKeyEncTab.Aggregate("", (s, i) => s + orig[i]).Substring(0, 32);
         }
 
+        /// <summary>
+        /// å¯¹å‚æ•°åš Wbi ç­¾åï¼Œè¿”å›å¸¦ wts ä¸ w_rid çš„å‚æ•°è¡¨ã€‚
+        /// timestamp å¯æ³¨å…¥å›ºå®šæ—¶é—´æˆ³ï¼ˆç”¨äºå•å…ƒæµ‹è¯•ï¼‰ï¼Œé»˜è®¤ç”¨å½“å‰ Unix æ—¶é—´ã€‚
+        /// </summary>
         public static Dictionary<string, string> EncWbi(Dictionary<string, string> parameters, string imgKey,
-            string subKey)
+            string subKey, string timestamp = null)
         {
             string mixinKey = GetMixinKey(imgKey + subKey);
-            string currTime = DateTimeOffset.Now.ToUnixTimeSeconds().ToString();
-            //Ìí¼Ó wts ×Ö¶Î
+            string currTime = timestamp ?? DateTimeOffset.Now.ToUnixTimeSeconds().ToString();
+            // æ·»åŠ  wts å­—æ®µ
             parameters["wts"] = currTime;
-            // °´ÕÕ key ÖØÅÅ²ÎÊı
+            // æŒ‰ key é‡æ’å‚æ•°
             parameters = parameters.OrderBy(p => p.Key).ToDictionary(p => p.Key, p => p.Value);
-            //¹ıÂË value ÖĞµÄ "!'()*" ×Ö·û
+            // è¿‡æ»¤ value ä¸­çš„ "!'()*" å­—ç¬¦
             parameters = parameters.ToDictionary(
                 kvp => kvp.Key,
                 kvp => new string(kvp.Value.Where(chr => !"!'()*".Contains(chr)).ToArray())
             );
-            // ĞòÁĞ»¯²ÎÊı
+            // åºåˆ—åŒ–å‚æ•°
             string query = new FormUrlEncodedContent(parameters).ReadAsStringAsync().Result;
-            //¼ÆËã w_rid
+            // è®¡ç®— w_rid
             MD5 md5 = MD5.Create();
             byte[] hashBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(query + mixinKey));
             string wbiSign = BitConverter.ToString(hashBytes).Replace("-", "").ToLower();
