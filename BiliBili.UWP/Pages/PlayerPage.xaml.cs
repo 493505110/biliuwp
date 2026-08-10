@@ -76,6 +76,14 @@ namespace BiliBili.UWP.Pages
         {
             this.InitializeComponent();
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
+            InitMediaPlayer();
+            danmakuParse = new DanmakuParse();
+            playerAPI = new PlayerAPI();
+            MTC.DanmuLoaded += MTC_DanmuLoaded;
+        }
+
+        private void InitMediaPlayer()
+        {
             mediaPlayer = new MediaPlayer();
             mediaPlayer.PlaybackSession.PositionChanged += PlaybackSession_PositionChanged;
             mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
@@ -85,9 +93,25 @@ namespace BiliBili.UWP.Pages
             mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
             mediaPlayer.PlaybackSession.PlaybackStateChanged += PlaybackSession_PlaybackStateChanged;
             mediaElement.SetMediaPlayer(mediaPlayer);
-            danmakuParse = new DanmakuParse();
-            playerAPI = new PlayerAPI();
-            MTC.DanmuLoaded += MTC_DanmuLoaded;
+        }
+
+        /// <summary>重置 MediaPlayer:MediaFailed 后同一实例无法通过重设 Source 恢复,必须重建实例。</summary>
+        private void ResetMediaPlayer()
+        {
+            try
+            {
+                if (mediaPlayer != null)
+                {
+                    mediaPlayer.Pause();
+                    mediaPlayer.Source = null;
+                    mediaElement.SetMediaPlayer(null);
+                    mediaPlayer = null;
+                }
+                InitMediaPlayer();
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private void MediaPlayer_VolumeChanged(MediaPlayer sender, object args)
@@ -225,6 +249,8 @@ namespace BiliBili.UWP.Pages
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
             {
                 await new MessageDialog($"无法播放此视频 ＞﹏＜ \r\n{args.Error.ToString()}: {args.ExtendedErrorCode.Message}\r\n请尝试更换清晰度或者在播放设置中打开/关闭DASH").ShowAsync();
+                // 失败后重建 MediaPlayer,避免同一实例的失败状态污染后续所有播放
+                ResetMediaPlayer();
             });
         }
         private async void MediaPlayer_MediaEnded(MediaPlayer sender, object args)
