@@ -54,7 +54,7 @@ namespace BiliBili.UWP
         public static string access_key {
             get
             {
-                if (_access_key == "")
+                if (string.IsNullOrEmpty(_access_key))
                 {
                     return SettingHelper.Get_Access_key();
                 }

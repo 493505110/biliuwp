@@ -153,7 +153,6 @@ namespace BiliBili.UWP.Helper
                 //https://passport.bilibili.com/login?act=getkey&rnd=4928
                 HttpBaseProtocolFilter httpBaseProtocolFilter = new HttpBaseProtocolFilter();
                 httpBaseProtocolFilter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-                httpBaseProtocolFilter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Untrusted);
                 Windows.Web.Http.HttpClient httpClient = new Windows.Web.Http.HttpClient(httpBaseProtocolFilter);
                 //WebClientClass wc = new WebClientClass();
                 string stringAsync = await httpClient.GetStringAsync((new Uri("https://passport.bilibili.com/login?act=getkey&rnd=" + new Random().Next(1000, 9999), UriKind.Absolute)));
