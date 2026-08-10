@@ -1,4 +1,4 @@
-using BiliBili.UWP.Pages;
+﻿using BiliBili.UWP.Pages;
 using BiliBili.UWP.Pages.FindMore;
 using BiliBili.UWP.Pages.Music;
 using System.Threading.Tasks;

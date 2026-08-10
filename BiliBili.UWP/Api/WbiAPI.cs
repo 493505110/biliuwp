@@ -1,9 +1,9 @@
-namespace BiliBili.UWP.Api
+ï»¿namespace BiliBili.UWP.Api
 {
     public class WbiAPI
     {
         /// <summary>
-        /// »ñÈ¡wbi_keyºÍwbi_img
+        /// è·å–wbi_keyå’Œwbi_img
         /// </summary>
         /// <returns></returns>
         public ApiModel GetWbiKey()

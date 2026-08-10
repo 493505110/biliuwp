@@ -1,4 +1,4 @@
-namespace BiliBili.UWP.Api
+﻿namespace BiliBili.UWP.Api
 {
     public class ArticleAPI
     {

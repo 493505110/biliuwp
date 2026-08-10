@@ -1,4 +1,4 @@
-using BiliBili.UWP.Api;
+﻿using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.Live;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;

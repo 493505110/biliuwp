@@ -1,4 +1,4 @@
-using BiliBili.UWP.Models;
+﻿using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
 using System;
 using System.Collections.ObjectModel;

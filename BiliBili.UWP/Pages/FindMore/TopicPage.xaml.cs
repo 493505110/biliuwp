@@ -1,4 +1,4 @@
-using BiliBili.UWP.Api;
+﻿using BiliBili.UWP.Api;
 using BiliBili.UWP.Helper;
 using System;
 using System.Collections.Generic;

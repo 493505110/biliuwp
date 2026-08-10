@@ -1,4 +1,4 @@
-using BiliBili.UWP.Helper;
+﻿using BiliBili.UWP.Helper;
 using BiliBili.UWP.Modules;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
