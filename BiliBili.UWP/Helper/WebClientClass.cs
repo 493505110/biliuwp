@@ -55,75 +55,6 @@ namespace BiliBili.UWP
         }
 
 
-        public static async Task<string> GetResults_NoHeader(Uri url)
-        {
-            HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-            fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-            using (HttpClient hc = new HttpClient(fiter))
-            {
-
-                HttpResponseMessage hr = await hc.GetAsync(url);
-                hr.EnsureSuccessStatusCode();
-                string results = await hr.Content.ReadAsStringAsync();
-                return results;
-            }
-
-        }
-        public static async Task<string> GetResults_DisableAutoRedirect(Uri url)
-        {
-
-            HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-            fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-            fiter.AllowAutoRedirect = false;
-            using (HttpClient hc = new HttpClient(fiter))
-            {
-
-                HttpResponseMessage hr = await hc.GetAsync(url);
-                hr.EnsureSuccessStatusCode();
-                string results = await hr.Content.ReadAsStringAsync();
-                return results;
-            }
-        }
-
-        public static async Task<string> GetResults_Proxy(string url)
-        {
-            string area = "cn";
-            if (SettingHelper.Get_UseCN())
-            {
-                area = "cn";
-            }
-            if (SettingHelper.Get_UseHK())
-            {
-                area = "hk";
-            }
-            if (SettingHelper.Get_UseTW())
-            {
-                area = "tw";
-            }
-
-            HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-            fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-
-            using (HttpClient hc = new HttpClient(fiter))
-            {
-                //url
-                Uri uri = new Uri(string.Format("http://52uwp.com/api/BiliBili?area={0}&url={1}", area, Uri.EscapeDataString(url)));
-                HttpResponseMessage hr = await hc.GetAsync(uri);
-                hr.EnsureSuccessStatusCode();
-                string results = await hr.Content.ReadAsStringAsync();
-                JObject obj = JObject.Parse(results);
-                if ((int)obj["code"] == 0)
-                {
-                    return obj["message"].ToString();
-                }
-                else
-                {
-                    throw new NotSupportedException(obj["message"].ToString());
-                }
-            }
-        }
-
-
         public static async Task<IBuffer> GetBuffer(Uri url)
         {
             HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
@@ -229,33 +160,6 @@ namespace BiliBili.UWP
             {
                 return "";
             }
-        }
-        public static async Task<string> GetResults_Live(Uri url)
-        {
-
-            HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-            fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-            //  fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.InvalidName);
-            // fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.UnknownCriticalExtension);
-            // myClientHandler.ClientCertificateOptions = System.Net.Http.ClientCertificateOption.Automatic;
-            //   myClientHandler.AllowAutoRedirect = true;
-            //fiter.ServerCredential.
-            using (HttpClient hc = new HttpClient(fiter))
-            {
-
-                HttpResponseMessage hr = await hc.GetAsync(url);
-                hr.EnsureSuccessStatusCode();
-                string results = await hr.Content.ReadAsStringAsync();
-
-                //HttpResponseMessage hr = await hc.GetAsync(url);
-                //hr.EnsureSuccessStatusCode();
-                //var encodeResults = await hr.Content.ReadAsBufferAsync();
-                //string results = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
-
-                return results;
-            }
-
-
         }
 
         public static async Task<string> PostResults(Uri url, string PostContent, string Referer, string Home)
@@ -399,77 +303,6 @@ namespace BiliBili.UWP
 
         }
 
-        public static async Task<string> GetResults_Phone(Uri url)
-        {
-            //HttpBaseProtocolFilter hb = new HttpBaseProtocolFilter();
-            //HttpCookieCollection cookieCollection = hb.CookieManager.GetCookies(new Uri("http://bilibili.com/"));
-            ////hb.CookieManager.GetCookies(new Uri("http://bilibili.com/"));
-            //foreach (HttpCookie item in cookieCollection)
-            //{
-            //    if (item.Name == "buvid3" || item.Name == "fts")
-            //    {
-            //        hb.CookieManager.DeleteCookie(item);
-            //        // _uid = item.Value;
-            //    }
-            //}
-
-            HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-            fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-            using (HttpClient hc = new HttpClient(fiter))
-            {
-
-                // hc.DefaultRequestHeaders.Add("user-agent", "Bilibili Windows.Desktop Client/1.2.0.0 (atelier39@outlook.com)");
-                hc.DefaultRequestHeaders.Add("Referer", "http://interface.bilibili.com/");
-                HttpResponseMessage hr = await hc.GetAsync(url);
-                hr.EnsureSuccessStatusCode();
-
-
-                string results = await hr.Content.ReadAsStringAsync();
-
-                //HttpResponseMessage hr = await hc.GetAsync(url);
-                //hr.EnsureSuccessStatusCode();
-                //var encodeResults = await hr.Content.ReadAsBufferAsync();
-                //string results = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
-
-                return results;
-            }
-
-
-        }
-
-        public static async Task<IRandomAccessStream> GetImageStream(string url)
-        {
-            try
-            {
-                if (url == null || url == "")
-                {
-                    return null;
-                }
-                using (HttpClient hc = new HttpClient())
-                {
-                    hc.DefaultRequestHeaders.Add("user-agent", "Mozilla/5.0 (Linux; Android 5.0; SM-N9100 Build/LRX21V) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/37.0.0.0 Mobile Safari/537.36 MicroMessenger/6.0.2.56_r958800.520 NetType/WIFI");
-                    hc.DefaultRequestHeaders.Add("Referer", "http://www.dmzj.com/");
-                    HttpResponseMessage hr = await hc.GetAsync(new Uri(url));
-                    hr.EnsureSuccessStatusCode();
-                    IBuffer info = await hr.Content.ReadAsBufferAsync();
-                    //BitmapImage bmp = new BitmapImage();
-                    InMemoryRandomAccessStream inStream = new InMemoryRandomAccessStream();
-                    DataWriter datawriter = new DataWriter(inStream.GetOutputStreamAt(0));
-                    datawriter.WriteBuffer(info, 0, info.Length);
-                    await datawriter.StoreAsync();
-                    //IRandomAccessStream readStream = info.
-                    //bmp.SetSource(inStream);
-                    return inStream;
-                }
-            }
-            catch (Exception ex)
-            {
-
-                return null;
-            }
-
-
-        }
 
     }
 
