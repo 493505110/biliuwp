@@ -622,7 +622,7 @@ namespace BiliBili.UWP.Modules
             try
             {
 
-                string url = $"https://api.bilibili.com/x/player/playurl?avid={aid}&cid={cid}&qn={quality.qn}&type=&otype=json&appkey={ ApiHelper.WebVideoKey.Appkey}";
+                string url = $"https://api.bilibili.com/x/player/playurl?avid={aid}&cid={cid}&qn={quality.qn}&type=&otype=json&appkey={ ApiHelper.AndroidKey.Appkey}";
                 if (ApiHelper.IsLogin())
                 {
                     url += $"&access_key={ApiHelper.access_key}&mid={ApiHelper.GetUserId()}";
