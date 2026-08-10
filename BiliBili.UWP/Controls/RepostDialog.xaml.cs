@@ -536,7 +536,7 @@ namespace BiliBili.UWP.Controls
 
 
                 pr_Upload.Visibility = Visibility.Visible;
-                   var url = "http://api.vc.bilibili.com/api/v1/image/upload?access_key={0}&appkey={1}&build=5250000&platform=android&src=bilih5&ts={2}";
+                   var url = "https://api.vc.bilibili.com/api/v1/image/upload?access_key={0}&appkey={1}&build=5250000&platform=android&src=bilih5&ts={2}";
                 url = string.Format(url, ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan_2);
                 url += "&sign=" + ApiHelper.GetSign(url);
                 IRandomAccessStream fileStream = await file.OpenAsync(FileAccessMode.Read);
