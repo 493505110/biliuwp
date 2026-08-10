@@ -211,8 +211,9 @@ namespace BiliBili.UWP.Api
             {
                 return await GetJson<ApiDataModel<T>>();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("GetData 反序列化失败", LogType.ERROR, ex);
                 return null;
             }
 
@@ -223,8 +224,9 @@ namespace BiliBili.UWP.Api
             {
                 return await GetJson<ApiResultModel<T>>();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("GetResult 反序列化失败", LogType.ERROR, ex);
                 return null;
             }
 

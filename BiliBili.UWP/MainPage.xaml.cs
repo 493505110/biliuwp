@@ -1155,7 +1155,7 @@ namespace BiliBili.UWP
             frame.Navigate(typeof(MyQrPage), new object[] { new MyqrModel() {
                   name=Account.myInfo.name,
                   photo=Account.myInfo.face,
-                  qr="http://space.bilibili.com/"+ApiHelper.GetUserId(),
+                  qr="https://space.bilibili.com/"+ApiHelper.GetUserId(),
                   sex=Account.myInfo.Sex
             } });
             fy.Hide();

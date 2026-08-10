@@ -114,7 +114,7 @@ namespace BiliBili.UWP.Pages
 
             try
             {
-                string results = await WebClientClass.GetResults(new Uri("http://space.bilibili.com/ajax/fav/getBoxList?mid=" + ApiHelper.GetUserId()));
+                string results = await WebClientClass.GetResults(new Uri("https://space.bilibili.com/ajax/fav/getBoxList?mid=" + ApiHelper.GetUserId()));
                 //一层
                 GetUserFovBox model1 = JsonConvert.DeserializeObject<GetUserFovBox>(results);
                 if (model1.status)
@@ -142,7 +142,7 @@ namespace BiliBili.UWP.Pages
                 pr_Load.Visibility = Visibility.Visible;
                 try
                 {
-                    string results = await WebClientClass.PostResults(new Uri("http://space.bilibili.com/ajax/member/GetInfo"), "mid=" + Uid + "&_=" + ApiHelper.GetTimeSpan_2, "http://space.bilibili.com/" + Uid + "/");
+                    string results = await WebClientClass.PostResults(new Uri("https://space.bilibili.com/ajax/member/GetInfo"), "mid=" + Uid + "&_=" + ApiHelper.GetTimeSpan_2, "https://space.bilibili.com/" + Uid + "/");
                     JObject jObject = JObject.Parse(results);
                     img_bg.ImageSource = new BitmapImage(new Uri("https://i0.hdslb.com/" + jObject["data"]["toutu"]));
                 }
@@ -424,7 +424,7 @@ namespace BiliBili.UWP.Pages
             {
                 pr_Load.Visibility = Visibility.Visible;
                 btn_More_Video.Visibility = Visibility.Collapsed;
-                string results = await WebClientClass.GetResults(new Uri("http://space.bilibili.com/ajax/member/getSubmitVideos?mid=" + uid + "&pagesize=30" + "&page=" + getPage));
+                string results = await WebClientClass.GetResults(new Uri("https://space.bilibili.com/ajax/member/getSubmitVideos?mid=" + uid + "&pagesize=30" + "&page=" + getPage));
                 //一层
                 GetUserSubmit model1 = JsonConvert.DeserializeObject<GetUserSubmit>(results);
                 //二层
@@ -490,7 +490,7 @@ namespace BiliBili.UWP.Pages
             {
                 try
                 {
-                    Uri ReUri = new Uri("http://api.bilibili.com/x/relation/modify");
+                    Uri ReUri = new Uri("https://api.bilibili.com/x/relation/modify");
 
                     string content = string.Format(
                         "access_key={0}&act=1&appkey={1}&build=45000&fid={2}&mobi_app=android&platform=android&re_src=90&ts={3}",
@@ -533,7 +533,7 @@ namespace BiliBili.UWP.Pages
             {
                 try
                 {
-                    Uri ReUri = new Uri("http://api.bilibili.com/x/relation/modify");
+                    Uri ReUri = new Uri("https://api.bilibili.com/x/relation/modify");
 
                     string content = string.Format(
                         "access_key={0}&act=2&appkey={1}&build=45000&fid={2}&mobi_app=android&platform=android&re_src=90&ts={3}",
