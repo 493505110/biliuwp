@@ -665,9 +665,6 @@
     <Compile Include="Views\ChannelPage.xaml.cs">
       <DependentUpon>ChannelPage.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Views\LivePage.xaml.cs">
-      <DependentUpon>LivePage.xaml</DependentUpon>
-    </Compile>
     <Compile Include="Views\LiveV2Page.xaml.cs">
       <DependentUpon>LiveV2Page.xaml</DependentUpon>
     </Compile>
@@ -1227,10 +1224,6 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Views\ChannelPage.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="Views\LivePage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
