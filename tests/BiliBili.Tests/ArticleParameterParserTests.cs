@@ -1,7 +1,7 @@
 ﻿using BiliBili.UWP.Modules;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace ArticleParserTests
+namespace BiliBili.Tests
 {
     [TestClass]
     public class ArticleParameterParserTests
