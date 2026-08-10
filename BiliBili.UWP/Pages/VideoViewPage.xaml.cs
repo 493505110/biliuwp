@@ -150,6 +150,8 @@ namespace BiliBili.UWP.Pages
                         return;
                     }
                     this.DataContext = m.data;
+                    UpdateLikeButton(m.data);
+                    UpdateCoinButton(m.data);
 
                     if (m.data.movie != null)
                     {
@@ -574,6 +576,17 @@ namespace BiliBili.UWP.Pages
                     JObject jObject = JObject.Parse(result);
                     if (Convert.ToInt32(jObject["code"].ToString()) == 0)
                     {
+                        var detail = this.DataContext as VideoInfoModels;
+                        if (detail != null)
+                        {
+                            if (detail.req_user == null)
+                            {
+                                detail.req_user = new req_userModel();
+                            }
+                            detail.req_user.coin += num;
+                            UpdateCoinButton(detail);
+                        }
+                        grid_Tb.Hide();
                         Utils.ShowMessageToast("投币成功！", 3000);
                     }
                     else
@@ -654,6 +667,7 @@ namespace BiliBili.UWP.Pages
 
             if (ApiHelper.IsLogin())
             {
+                Video_ListView_Favbox.IsEnabled = true;
                 try
                 {
                     var result = await followAPI.MyCreatedFavorite(_aid).Request();
@@ -662,7 +676,10 @@ namespace BiliBili.UWP.Pages
                         var data = await result.GetJson<ApiDataModel<JObject>>();
                         if (data.success)
                         {
-                            Video_ListView_Favbox.ItemsSource = await data.data["list"].ToString().DeserializeJson<List<FavboxModel>>();
+                            var favorites = await data.data["list"].ToString().DeserializeJson<List<FavboxModel>>();
+                            Video_ListView_Favbox.ItemsSource = favorites;
+                            FavBox_Header.Text = "选择一个收藏夹";
+                            UpdateFavoriteButton(favorites);
                         }
                         else
                         {
@@ -691,30 +708,20 @@ namespace BiliBili.UWP.Pages
 
             if (ApiHelper.IsLogin())
             {
+                var favorite = (FavboxModel)e.ClickedItem;
+                var isFavorite = favorite.fav_state == 1;
+                Video_ListView_Favbox.IsEnabled = false;
                 try
                 {
-
-                    //((FavboxModel)e.ClickedItem).fid
-
-
-                    //Uri ReUri = new Uri("http://api.bilibili.com/x/v2/fav/video/add");
-
-                    //string content = string.Format(
-                    //    "access_key={0}&aid={2}&appkey={1}&build=520001&fid={3}&mobi_app=android&platform=android&re_src=90&ts={4}",
-                    //    ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _aid, ((FavboxModel)e.ClickedItem).fid, ApiHelper.GetTimeSpan_2
-                    //    );
-                    //content += "&sign=" + ApiHelper.GetSign(content);
-                    //string result = await WebClientClass.PostResults(ReUri,
-                    //    content
-                    // );
-                    var results = await followAPI.AddFavorite(new List<string>() { ((FavboxModel)e.ClickedItem).id }, _aid).Request();
+                    var addIds = isFavorite ? new List<string>() : new List<string>() { favorite.id };
+                    var delIds = isFavorite ? new List<string>() { favorite.id } : new List<string>();
+                    var results = await followAPI.AddFavorite(addIds, _aid, delIds).Request();
                     if (results.status)
                     {
                         var data = await results.GetJson<ApiDataModel<JObject>>();
                         if (data.success)
                         {
-                            Utils.ShowMessageToast("收藏成功！", 2000);
-                            GetFavBox();
+                            Utils.ShowMessageToast(isFavorite ? "已取消收藏" : "收藏成功！", 2000);
                         }
                         else
                         {
@@ -731,6 +738,10 @@ namespace BiliBili.UWP.Pages
                 catch (Exception ex)
                 {
                     Utils.ShowMessageToast("收藏失败！" + ex.Message, 2000);
+                }
+                finally
+                {
+                    await GetFavBox();
                 }
             }
             else
@@ -1250,6 +1261,18 @@ namespace BiliBili.UWP.Pages
                 var obj = JObject.Parse(results);
                 if (obj["code"].ToInt32() == 0)
                 {
+                    var detail = this.DataContext as VideoInfoModels;
+                    if (detail != null)
+                    {
+                        if (detail.req_user == null)
+                        {
+                            detail.req_user = new req_userModel();
+                        }
+                        detail.req_user.like = 1;
+                        detail.req_user.coin = Math.Max(detail.req_user.coin, 1);
+                        UpdateLikeButton(detail);
+                        UpdateCoinButton(detail);
+                    }
                     Utils.ShowMessageToast("三连完成");
                 }
                 else
@@ -1272,15 +1295,32 @@ namespace BiliBili.UWP.Pages
                 Utils.ShowMessageToast("请登录后再执行操作");
                 return;
             }
+            var detail = this.DataContext as VideoInfoModels;
+            if (detail != null && detail.req_user == null)
+            {
+                detail.req_user = new req_userModel();
+            }
+            var currentLike = detail?.req_user?.like == 1 ? 1 : 0;
+            btn_Like.IsEnabled = false;
             try
             {
-                var body = $"access_key={ApiHelper.access_key}&aid={_aid}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&platform=android&dislike=0&like=0&ts={ApiHelper.GetTimeSpan}";
+                var dislike = detail?.req_user?.dislike ?? 0;
+                var body = $"access_key={ApiHelper.access_key}&aid={_aid}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&platform=android&dislike={dislike}&like={currentLike}&ts={ApiHelper.GetTimeSpan}";
                 body += "&sign=" + ApiHelper.GetSign(body);
                 var results = await WebClientClass.PostResults(new Uri("https://app.bilibili.com/x/v2/view/like"), body);
                 var obj = JObject.Parse(results);
                 if (obj["code"].ToInt32() == 0)
                 {
-                    Utils.ShowMessageToast("点赞完成");
+                    if (detail?.req_user != null)
+                    {
+                        detail.req_user.like = currentLike == 1 ? 0 : 1;
+                        if (currentLike != 1)
+                        {
+                            detail.req_user.dislike = 0;
+                        }
+                    }
+                    UpdateLikeButton(detail);
+                    Utils.ShowMessageToast(currentLike == 1 ? "已取消点赞" : "点赞完成");
                 }
                 else
                 {
@@ -1291,6 +1331,42 @@ namespace BiliBili.UWP.Pages
             {
                 Utils.ShowMessageToast("点赞失败了啊");
             }
+            finally
+            {
+                btn_Like.IsEnabled = true;
+            }
+        }
+
+        private void UpdateLikeButton(VideoInfoModels detail)
+        {
+            var isLiked = detail?.req_user?.like == 1;
+            btn_Like.Label = isLiked ? "取消点赞" : "点赞";
+            icon_Like.UriSource = new Uri(isLiked
+                ? "ms-appx:///Assets/Bili/主要/Like/bs4.png"
+                : "ms-appx:///Assets/Bili/主要/Like/bs3.png");
+        }
+
+        private void UpdateFavoriteButton(List<FavboxModel> favorites)
+        {
+            var isFavorite = favorites.Any(item => item.fav_state == 1);
+            btn_Favbox.Label = isFavorite ? "已收藏" : "收藏";
+            icon_Favbox.UriSource = new Uri(isFavorite
+                ? "ms-appx:///Assets/Bili/主要/store/bs1.png"
+                : "ms-appx:///Assets/Bili/主要/store/bs0.png");
+            var detail = this.DataContext as VideoInfoModels;
+            if (detail?.req_user != null)
+            {
+                detail.req_user.favorite = isFavorite ? 1 : 0;
+            }
+        }
+
+        private void UpdateCoinButton(VideoInfoModels detail)
+        {
+            var hasCoin = (detail?.req_user?.coin ?? 0) > 0;
+            btn_Coin.Label = hasCoin ? "已投币" : "投币";
+            icon_Coin.UriSource = new Uri(hasCoin
+                ? "ms-appx:///Assets/Bili/主要/coin/dby.png"
+                : "ms-appx:///Assets/Bili/主要/coin/cn7.png");
         }
 
 

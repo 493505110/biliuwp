@@ -123,21 +123,17 @@ namespace BiliBili.UWP.Api.User
         /// 添加到收藏夹
         /// </summary>
         /// <returns></returns>
-        public ApiModel AddFavorite(List<string> fav_ids, string avid)
+        public ApiModel AddFavorite(List<string> fav_ids, string avid, List<string> del_fav_ids = null)
         {
-            var ids = "";
-            foreach (var item in fav_ids)
-            {
-                ids += item + ",";
-            }
-            ids = Uri.EscapeDataString(ids.TrimEnd(','));
+            var addIds = Uri.EscapeDataString(string.Join(",", fav_ids ?? new List<string>()));
+            var delIds = Uri.EscapeDataString(string.Join(",", del_fav_ids ?? new List<string>()));
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.POST,
                 baseUrl = "https://api.bilibili.com/medialist/gateway/coll/resource/deal",
-                body = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&add_media_ids={ids}&rid={avid}&type=2"
+                body = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&add_media_ids={addIds}&del_media_ids={delIds}&rid={avid}&type=2"
             };
-            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidKey);
+            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidTVKey);
             return api;
         }
 

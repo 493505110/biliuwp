@@ -18,15 +18,21 @@
             <Setter Property="Margin" Value="5"></Setter>
         </Style>
         <Flyout x:Name="flyout_Favbox">
-            <ListView Width="200" x:Name="Video_ListView_Favbox" SelectionMode="None"  IsItemClickEnabled="True" ItemClick="Video_ListView_Favbox_ItemClick">
+            <ListView Width="200" x:Name="Video_ListView_Favbox" SelectionMode="None" IsItemClickEnabled="True" ItemClick="Video_ListView_Favbox_ItemClick">
                 <ListView.Header>
                     <TextBlock x:Name="FavBox_Header" Text="选择一个收藏夹" FontSize="16" Margin="10,5" Foreground="#FF858585" />
                 </ListView.Header>
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <Grid Width="170">
-                            <TextBlock Text="{Binding title}" />
-                            <TextBlock  HorizontalAlignment="Right" Foreground="#FF898989" ><Run Text="{Binding media_count}"/>/<Run Text="{Binding privacy_str}"/></TextBlock>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <SymbolIcon Symbol="Accept" Opacity="{Binding fav_state}" />
+                            <TextBlock Grid.Column="1" Margin="4,0,8,0" Text="{Binding title}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Foreground="#FF898989"><Run Text="{Binding media_count}"/>/<Run Text="{Binding privacy_str}"/></TextBlock>
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
@@ -510,12 +516,12 @@
             </CommandBar.SecondaryCommands>
             <AppBarButton Foreground="White" Label="点赞" x:Name="btn_Like" Click="Btn_Like_Click" Holding="Btn_Like_Holding">
                 <AppBarButton.Icon>
-                    <BitmapIcon UriSource="/Assets/Bili/主要/Like/bs3.png" />
+                    <BitmapIcon x:Name="icon_Like" UriSource="/Assets/Bili/主要/Like/bs3.png" />
                 </AppBarButton.Icon>
             </AppBarButton>
-            <AppBarButton  Label="投币" Foreground="White">
+            <AppBarButton x:Name="btn_Coin" Label="投币" Foreground="White">
                 <AppBarButton.Icon>
-                    <BitmapIcon UriSource="/Assets/Bili/主要/coin/cn7.png" />
+                    <BitmapIcon x:Name="icon_Coin" UriSource="/Assets/Bili/主要/coin/cn7.png" />
                 </AppBarButton.Icon>
                 <AppBarButton.Flyout>
                     <Flyout x:Name="grid_Tb">
@@ -530,7 +536,7 @@
             </AppBarButton>
             <AppBarButton x:Name="btn_Favbox"  Label="收藏" Foreground="White" Click="btn_Favbox_Click">
                 <AppBarButton.Icon>
-                    <BitmapIcon UriSource="/Assets/Bili/主要/store/bs0.png" />
+                    <BitmapIcon x:Name="icon_Favbox" UriSource="/Assets/Bili/主要/store/bs0.png" />
                 </AppBarButton.Icon>
             </AppBarButton>
             <AppBarButton x:Name="btn_Download" Visibility="Visible" Icon="Download" Click="btn_Download_Click" Label="下载"  Foreground="White" />

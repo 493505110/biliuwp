@@ -75,7 +75,7 @@ namespace BiliBili.UWP.Api
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.POST,
-                baseUrl = $"https://app.biliapi.net/x/v2/view/coin/add",
+                baseUrl = $"https://app.bilibili.com/x/v2/view/coin/add",
                 body = ApiUtils.MustParameter(ApiHelper.AndroidKey, true) + $"&aid={aid}&multiply={num}&platform=android&select_like=0"
             };
             api.body += ApiUtils.GetSign(api.body, ApiHelper.AndroidKey);
