@@ -387,6 +387,7 @@
     <Compile Include="Helper\UserManage.cs" />
     <Compile Include="Helper\Utils.cs" />
     <Compile Include="Helper\WbiEncodeHelper.cs" />
+    <Compile Include="Helper\SignHelper.cs" />
     <Compile Include="Helper\WebView2CookieHelper.cs" />
     <Compile Include="Helper\WebClientClass.cs" />
     <Compile Include="MainPage.xaml.cs">

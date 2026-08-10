@@ -19,33 +19,11 @@ namespace BiliBili.UWP.Api
         private const string _platform = "android";
         public static string GetSign(string url, ApiKeyInfo apiKeyInfo)
         {
-            string result;
-            string str = url.Substring(url.IndexOf("?", 4) + 1);
-            List<string> list = str.Split('&').ToList();
-            list.Sort();
-            StringBuilder stringBuilder = new StringBuilder();
-            foreach (string str1 in list)
-            {
-                stringBuilder.Append((stringBuilder.Length > 0 ? "&" : string.Empty));
-                stringBuilder.Append(str1);
-            }
-            stringBuilder.Append(apiKeyInfo.Secret);
-            result = Utils.ToMD5(stringBuilder.ToString()).ToLower();
-            return "&sign=" + result;
+            return SignHelper.SignUrl(url, apiKeyInfo.Secret);
         }
         public static string GetSign(IDictionary<string, string> pars, ApiKeyInfo apiKeyInfo)
         {
-            StringBuilder sb = new StringBuilder();
-            foreach (var item in pars.OrderBy(x => x.Key))
-            {
-                sb.Append(item.Key);
-                sb.Append("=");
-                sb.Append(item.Value);
-                sb.Append("&");
-            }
-            var results = sb.ToString().TrimEnd('&');
-            results = results + apiKeyInfo.Secret;
-            return "&sign=" + Utils.ToMD5(results).ToLower();
+            return SignHelper.SignParameters(pars, apiKeyInfo.Secret);
         }
 
         /// <summary>
