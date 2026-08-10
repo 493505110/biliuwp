@@ -145,7 +145,7 @@ namespace BiliBili.UWP.Pages.Music
             {
                 try
                 {
-                    Uri ReUri = new Uri("http://api.bilibili.com/x/relation/modify");
+                    Uri ReUri = new Uri("https://api.bilibili.com/x/relation/modify");
 
                     string content = string.Format(
                         "access_key={0}&act=1&appkey={1}&build=45000&fid={2}&mobi_app=android&platform=android&re_src=90&ts={3}",
@@ -188,7 +188,7 @@ namespace BiliBili.UWP.Pages.Music
             {
                 try
                 {
-                    Uri ReUri = new Uri("http://api.bilibili.com/x/relation/modify");
+                    Uri ReUri = new Uri("https://api.bilibili.com/x/relation/modify");
 
                     string content = string.Format(
                         "access_key={0}&act=2&appkey={1}&build=45000&fid={2}&mobi_app=android&platform=android&re_src=90&ts={3}",

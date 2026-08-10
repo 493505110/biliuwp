@@ -1003,7 +1003,7 @@ namespace BiliBili.UWP.Pages
 
         //private async void GetPlayUrl(string cid)
         //{
-        //    string url = "http://interface.bilibili.com/playurl?_device=uwp&cid=" + cid + "&otype=xml&quality=" + 2 + "&appkey=" + ApiHelper.AndroidKey.Appkey + "&access_key=" + ApiHelper.access_key + "&type=mp4&mid=" + "" + "&_buvid=" + ApiHelper._buvid + "&_hwid=" + ApiHelper._hwid + "&platform=uwp_desktop" + "&ts=" + ApiHelper.GetTimeSpan;
+        //    string url = "https://interface.bilibili.com/playurl?_device=uwp&cid=" + cid + "&otype=xml&quality=" + 2 + "&appkey=" + ApiHelper.AndroidKey.Appkey + "&access_key=" + ApiHelper.access_key + "&type=mp4&mid=" + "" + "&_buvid=" + ApiHelper._buvid + "&_hwid=" + ApiHelper._hwid + "&platform=uwp_desktop" + "&ts=" + ApiHelper.GetTimeSpan;
         //    url += "&sign=" + ApiHelper.GetSign(url);
         //    string re = await WebClientClass.GetResults_Phone(new Uri(url));
         //    re = await WebClientClass.GetResults_Phone(new Uri(url));
@@ -2105,7 +2105,7 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-                string results = await WebClientClass.PostResults(new Uri("http://interface.bilibili.com/dmreport"), string.Format("reportToAdmin=0&reason=&dm_inid={0}&dmid={1}", playNow.Mid, dmid), "http://www.bilibili.com");
+                string results = await WebClientClass.PostResults(new Uri("https://interface.bilibili.com/dmreport"), string.Format("reportToAdmin=0&reason=&dm_inid={0}&dmid={1}", playNow.Mid, dmid), "https://www.bilibili.com");
                 if (results == "0")
                 {
                     Utils.ShowMessageToast("举报成功", 3000);
@@ -2293,7 +2293,7 @@ namespace BiliBili.UWP.Pages
 
         private void MTC_ShareEvent(object sender, EventArgs e)
         {
-            Utils.SetClipboard(string.Format("http://www.bilibili.com/video/av{0}", playNow.Aid));
+            Utils.SetClipboard(string.Format("https://www.bilibili.com/video/av{0}", playNow.Aid));
             Utils.ShowMessageToast("已将内容复制到剪切板", 3000);
         }
 

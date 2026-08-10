@@ -124,22 +124,22 @@ namespace BiliBili.UWP.Pages
                 {
                     gv_draw.ItemsSource = null;
                 }
-                var url = "http://api.vc.bilibili.com/link_draw/v2/doc/index?appkey={1}&page_num={1}&page_size=20&platform=android&src=bilih5&ts={2}&type=recommend";
+                var url = "https://api.vc.bilibili.com/link_draw/v2/doc/index?appkey={1}&page_num={1}&page_size=20&platform=android&src=bilih5&ts={2}&type=recommend";
                 switch (cb_draw.SelectedIndex)
                 {
                     case 0:
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _drawPage, ApiHelper.GetTimeSpan);
                         break;
                     case 1:
-                        url = "http://api.vc.bilibili.com/link_draw/v2/doc/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
+                        url = "https://api.vc.bilibili.com/link_draw/v2/doc/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _drawPage, ApiHelper.GetTimeSpan, "illustration");
                         break;
                     case 2:
-                        url = "http://api.vc.bilibili.com/link_draw/v2/doc/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
+                        url = "https://api.vc.bilibili.com/link_draw/v2/doc/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _drawPage, ApiHelper.GetTimeSpan, "comic");
                         break;
                     case 3:
-                        url = "http://api.vc.bilibili.com/link_draw/v2/doc/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
+                        url = "https://api.vc.bilibili.com/link_draw/v2/doc/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _drawPage, ApiHelper.GetTimeSpan, "draw");
                         break;
                     default:
@@ -207,18 +207,18 @@ namespace BiliBili.UWP.Pages
                 {
                     gv_cos.ItemsSource = null;
                 }
-                var url = "http://api.vc.bilibili.com/link_draw/v2/Photo/index?appkey={1}&page_num={1}&page_size=20&platform=android&src=bilih5&ts={2}&type=recommend";
+                var url = "https://api.vc.bilibili.com/link_draw/v2/Photo/index?appkey={1}&page_num={1}&page_size=20&platform=android&src=bilih5&ts={2}&type=recommend";
                 switch (cb_draw.SelectedIndex)
                 {
                     case 0:
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _cosPage, ApiHelper.GetTimeSpan);
                         break;
                     case 1:
-                        url = "http://api.vc.bilibili.com/link_draw/v2/Photo/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
+                        url = "https://api.vc.bilibili.com/link_draw/v2/Photo/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _cosPage, ApiHelper.GetTimeSpan, "cos");
                         break;
                     case 2:
-                        url = "http://api.vc.bilibili.com/link_draw/v2/Photo/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
+                        url = "https://api.vc.bilibili.com/link_draw/v2/Photo/list?appkey={0}&category={3}&page_num={1}&page_size=20&platform=android&type=hot&ts={2}";
                         url = string.Format(url, ApiHelper.AndroidKey.Appkey, _cosPage, ApiHelper.GetTimeSpan, "sifu");
                         break;
                     default:

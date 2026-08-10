@@ -10,7 +10,7 @@
 - 主目标为 `BiliBili.UWP`（`AppContainerExe`）。解决方案的 `Any CPU` 和 `ARM64` 主应用配置映射到 `x86`，不要把它们理解为真正的 AnyCPU/ARM64 主程序产物。
 - 主应用的 `Release|x86`、`Release|ARM`、`Release|x64` 启用 `.NET Native toolchain`，依赖反射的代码在 Release 下可能有不同表现；`Debug|x64` 显式关闭该工具链。
 - 工程启用了 AppX 包签名并引用 `BiliBili.UWP/BiliBili.UWP_TemporaryKey.pfx`。PFX 被 `.gitignore` 排除；新环境缺少证书时，应在 Visual Studio 中创建或选择本地测试证书，不要提交私钥文件。
-- 仓库当前无 CI、测试项目、lint 或格式化配置。XML 解析、静态检查和 `git diff --check` 只能作为补充，不能替代 Visual Studio 构建和实际页面验证。
+- 存在一个独立的测试项目 `tools/ArticleParserTests`(net8.0 + MSTest)但尚未接入解决方案与 CI;仓库无 CI、lint 或格式化配置。XML 解析、静态检查和 `git diff --check` 只能作为补充，不能替代 Visual Studio 构建和实际页面验证。
 - 不要使用 `dotnet build` 构建该旧式 UWP 工程。需要命令行自动化时只能使用 Visual Studio 自带的 MSBuild；最终验证仍以 Visual Studio 的生成、部署和运行结果为准。
 
 ## 架构

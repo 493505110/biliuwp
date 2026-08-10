@@ -51,7 +51,7 @@ namespace BiliBili.UWP.Pages
             {
                 gv_Tags.Items.Clear();
                 pr_Load.Visibility = Visibility.Visible;
-                string results = await WebClientClass.GetResults(new Uri(string.Format("http://api.bilibili.com/x/tag/hots?rid={0}&type=0&jsonp=json", rid)));
+                string results = await WebClientClass.GetResults(new Uri(string.Format("https://api.bilibili.com/x/tag/hots?rid={0}&type=0&jsonp=json", rid)));
                 AllTagsModel my = JsonConvert.DeserializeObject<AllTagsModel>(results);
                 if (my.code==0)
                 {
@@ -110,7 +110,7 @@ namespace BiliBili.UWP.Pages
             {
                 gv.Items.Clear();
                 pr_Load.Visibility = Visibility.Visible;
-                string results = await WebClientClass.GetResults(new Uri("http://space.bilibili.com/ajax/tags/getSubList?mid=" + ApiHelper.GetUserId()));
+                string results = await WebClientClass.GetResults(new Uri("https://space.bilibili.com/ajax/tags/getSubList?mid=" + ApiHelper.GetUserId()));
                 MyTagModel my = JsonConvert.DeserializeObject<MyTagModel>(results);
                 if (my.status)
                 {
@@ -138,7 +138,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 var info = e.ClickedItem as AllTagsModel;
-                string results = await WebClientClass.PostResults(new Uri("http://api.bilibili.com/x/tag/subscribe/add"), "jsonp=jsonp&tag_id="+info.tag_id, "http://www.bilibili.com/");
+                string results = await WebClientClass.PostResults(new Uri("https://api.bilibili.com/x/tag/subscribe/add"), "jsonp=jsonp&tag_id="+info.tag_id, "https://www.bilibili.com/");
                 JObject obj = JObject.Parse(results);
                 if ((int)obj["code"]==0)
                 {
@@ -163,7 +163,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 var info = e.ClickedItem as MyTagModel;
-                string results = await WebClientClass.PostResults(new Uri("http://api.bilibili.com/x/tag/subscribe/cancel"), "jsonp=jsonp&tag_id=" + info.tag_id, "http://www.bilibili.com/");
+                string results = await WebClientClass.PostResults(new Uri("https://api.bilibili.com/x/tag/subscribe/cancel"), "jsonp=jsonp&tag_id=" + info.tag_id, "https://www.bilibili.com/");
                 JObject obj = JObject.Parse(results);
                 if ((int)obj["code"] == 0)
                 {
@@ -218,7 +218,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 var info = e.ClickedItem as LikeTagsModel;
-                string results = await WebClientClass.PostResults(new Uri("http://api.bilibili.com/x/tag/subscribe/add"), "jsonp=jsonp&tag_id=" + info.tag_id, "http://www.bilibili.com/");
+                string results = await WebClientClass.PostResults(new Uri("https://api.bilibili.com/x/tag/subscribe/add"), "jsonp=jsonp&tag_id=" + info.tag_id, "https://www.bilibili.com/");
                 JObject obj = JObject.Parse(results);
                 if ((int)obj["code"] == 0)
                 {

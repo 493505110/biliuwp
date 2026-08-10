@@ -57,7 +57,7 @@ namespace BiliBili.UWP.Pages
             {
                 pr_Load.Visibility = Visibility.Visible;
                
-                string url = string.Format("http://api.bilibili.com/sp?spid={0}&type=json&appkey={1}", SPID, ApiHelper.AndroidKey.Appkey);
+                string url = string.Format("https://api.bilibili.com/sp?spid={0}&type=json&appkey={1}", SPID, ApiHelper.AndroidKey.Appkey);
                 url += "&sign=" + ApiHelper.GetSign(url);
                 string results = await WebClientClass.GetResults(new Uri(url));
                 SpInfoModel model = JsonConvert.DeserializeObject<SpInfoModel>(results);
@@ -106,12 +106,12 @@ namespace BiliBili.UWP.Pages
                 string url = string.Empty;
                 if (seasonId.Length == 0)
                 {
-                    url = string.Format("http://api.bilibili.com/spview?_device=android&appkey={0}&build=418000&mobi_app=android&platform=android&spid={1}", ApiHelper.AndroidKey.Appkey, sid);
+                    url = string.Format("https://api.bilibili.com/spview?_device=android&appkey={0}&build=418000&mobi_app=android&platform=android&spid={1}", ApiHelper.AndroidKey.Appkey, sid);
                     url += "&sign=" + ApiHelper.GetSign(url);
                 }
                 else
                 {
-                    url = string.Format(" http://api.bilibili.com/spview?_device=android&appkey={0}&bangumi=2&build=418000&mobi_app=android&platform=android&season_id={1}&spid={2}", ApiHelper.AndroidKey.Appkey, seasonId, sid);
+                    url = string.Format(" https://api.bilibili.com/spview?_device=android&appkey={0}&bangumi=2&build=418000&mobi_app=android&platform=android&season_id={1}&spid={2}", ApiHelper.AndroidKey.Appkey, seasonId, sid);
                     url += "&sign=" + ApiHelper.GetSign(url);
                 }
                 string results = await WebClientClass.GetResults(new Uri(url));
@@ -173,7 +173,7 @@ namespace BiliBili.UWP.Pages
         public int season_id { get; set; }
         public string season_name { get; set; }
         public string index_cover { get; set; }
-        //http://api.bilibili.com/spview?_device=android&_hwid=bd2e7034b953cffe&_ulv=10000&access_key=95d163e95853c1eeb96a74cbaddaa073&appkey=c1b107428d337928&build=418000&mobi_app=android&platform=android&spid=25154&sign=4cb832a0a9f0348b469c74de1c2a58df
+        //https://api.bilibili.com/spview?_device=android&_hwid=bd2e7034b953cffe&_ulv=10000&access_key=95d163e95853c1eeb96a74cbaddaa073&appkey=c1b107428d337928&build=418000&mobi_app=android&platform=android&spid=25154&sign=4cb832a0a9f0348b469c74de1c2a58df
 
     }
 

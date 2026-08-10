@@ -188,6 +188,7 @@ namespace BiliBili.UWP.Helper
             listCookies.Add(new HttpCookie("SESSDATA", ".bilibili.com", "/"));
             listCookies.Add(new HttpCookie("LIVE_LOGIN_DATA", ".bilibili.com", "/"));
             listCookies.Add(new HttpCookie("LIVE_LOGIN_DATA__ckMd5", ".bilibili.com", "/"));
+            listCookies.Add(new HttpCookie("bili_jct", ".bilibili.com", "/"));
             HttpBaseProtocolFilter filter = new HttpBaseProtocolFilter();
             foreach (HttpCookie cookie in listCookies)
             {
