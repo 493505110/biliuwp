@@ -1,4 +1,4 @@
-using BiliBili.UWP.Models;
+﻿using BiliBili.UWP.Models;
 using System;
 using Windows.UI;
 using Windows.UI.Text;

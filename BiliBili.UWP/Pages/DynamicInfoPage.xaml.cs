@@ -1,4 +1,4 @@
-using BiliBili.UWP.Controls;
+﻿using BiliBili.UWP.Controls;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.User;

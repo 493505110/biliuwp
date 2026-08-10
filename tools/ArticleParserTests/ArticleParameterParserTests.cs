@@ -1,4 +1,4 @@
-using BiliBili.UWP.Modules;
+﻿using BiliBili.UWP.Modules;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ArticleParserTests

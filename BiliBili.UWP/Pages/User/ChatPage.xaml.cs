@@ -1,4 +1,4 @@
-using BiliBili.UWP.Api;
+﻿using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.User;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;

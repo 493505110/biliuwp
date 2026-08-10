@@ -1,4 +1,4 @@
-using BiliBili.UWP.Api;
+﻿using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.Season;
 using BiliBili.UWP.Helper;
 using BiliBili.UWP.Modules.Season;
