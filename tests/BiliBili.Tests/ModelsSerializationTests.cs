@@ -2,7 +2,7 @@
 using Newtonsoft.Json;
 using BiliBili.UWP.Models;
 
-namespace ArticleParserTests
+namespace BiliBili.Tests
 {
     [TestClass]
     public class ModelsSerializationTests

@@ -5,6 +5,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <Nullable>disable</Nullable>
+    <RootNamespace>BiliBili.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

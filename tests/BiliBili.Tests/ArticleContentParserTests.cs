@@ -6,7 +6,7 @@ using BiliBili.UWP.Modules;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
-namespace ArticleParserTests
+namespace BiliBili.Tests
 {
     [TestClass]
     public class ArticleContentParserTests

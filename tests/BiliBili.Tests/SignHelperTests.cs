@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using BiliBili.UWP.Helper;
 
-namespace ArticleParserTests
+namespace BiliBili.Tests
 {
     [TestClass]
     public class SignHelperTests
