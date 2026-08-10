@@ -71,7 +71,7 @@ namespace BiliBili.UWP.Helper
                 if (model.code == 0)
                 {
                     access_key = model.access_key;
-                    Windows.Web.Http.HttpResponseMessage hr2 = await hc.GetAsync(new Uri("http://api.bilibili.com/login/sso?&access_key=" + model.access_key + "&appkey=422fd9d7289a1dd9&platform=wp"));
+                    Windows.Web.Http.HttpResponseMessage hr2 = await hc.GetAsync(new Uri("https://api.bilibili.com/login/sso?&access_key=" + model.access_key + "&appkey=422fd9d7289a1dd9&platform=wp"));
                     hr2.EnsureSuccessStatusCode();
 
                     SettingHelper.Set_Access_key(model.access_key);
@@ -116,7 +116,7 @@ namespace BiliBili.UWP.Helper
 
             Windows.Web.Http.HttpClient hc = new Windows.Web.Http.HttpClient();
             access_key = access_token;
-            Windows.Web.Http.HttpResponseMessage hr2 = await hc.GetAsync(new Uri("http://api.bilibili.com/login/sso?&access_key=" + access_token + "&appkey=422fd9d7289a1dd9&platform=wp"));
+            Windows.Web.Http.HttpResponseMessage hr2 = await hc.GetAsync(new Uri("https://api.bilibili.com/login/sso?&access_key=" + access_token + "&appkey=422fd9d7289a1dd9&platform=wp"));
             hr2.EnsureSuccessStatusCode();
 
             SettingHelper.Set_Access_key(access_token);
@@ -243,8 +243,8 @@ namespace BiliBili.UWP.Helper
             try
             {
                 //
-                string url = string.Format("http://app.bilibili.com/x/v2/space?access_key={0}&appkey={1}&platform=wp&ps=10&ts={2}000&vmid={3}&build=5250000&mobi_app=android", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan, Uid);
-                //string url = string.Format("http://api.bilibili.com/userinfo?access_key={0}&appkey={1}&mid={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, uid);
+                string url = string.Format("https://app.bilibili.com/x/v2/space?access_key={0}&appkey={1}&platform=wp&ps=10&ts={2}000&vmid={3}&build=5250000&mobi_app=android", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, ApiHelper.GetTimeSpan, Uid);
+                //string url = string.Format("https://api.bilibili.com/userinfo?access_key={0}&appkey={1}&mid={2}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, uid);
                 url += "&sign=" + ApiHelper.GetSign(url);
                 string results = await WebClientClass.GetResults(new Uri(url));
 
