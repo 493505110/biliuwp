@@ -179,9 +179,15 @@
 
                 <StackPanel Grid.Row="2" Grid.Column="1" Margin="4 0">
                     <ContentControl Content="{Binding Path=content.text}" />
-                    <ItemsControl ItemsSource="{Binding Path=content.pictures}"
-                                  ItemsPanel="{StaticResource commentPictureItemsPanel}"
-                                  ItemTemplate="{StaticResource commentPictureTemplate}" />
+                    <ScrollViewer HorizontalScrollMode="Enabled"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollMode="Disabled"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  ZoomMode="Disabled">
+                        <ItemsControl ItemsSource="{Binding Path=content.pictures}"
+                                      ItemsPanel="{StaticResource commentPictureItemsPanel}"
+                                      ItemTemplate="{StaticResource commentPictureTemplate}" />
+                    </ScrollViewer>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal"  Grid.Column="1" Grid.Row="3">
@@ -250,9 +256,15 @@
                                     <!--<TextBlock Text="{Binding Path=content.message}" IsTextSelectionEnabled="True" TextWrapping="Wrap"></TextBlock>-->
                                     <StackPanel>
                                         <ContentControl Content="{Binding Path=content.text}" />
-                                        <ItemsControl ItemsSource="{Binding Path=content.pictures}"
-                                                      ItemsPanel="{StaticResource commentPictureItemsPanel}"
-                                                      ItemTemplate="{StaticResource commentPictureTemplate}" />
+                                        <ScrollViewer HorizontalScrollMode="Enabled"
+                                                      HorizontalScrollBarVisibility="Auto"
+                                                      VerticalScrollMode="Disabled"
+                                                      VerticalScrollBarVisibility="Hidden"
+                                                      ZoomMode="Disabled">
+                                            <ItemsControl ItemsSource="{Binding Path=content.pictures}"
+                                                          ItemsPanel="{StaticResource commentPictureItemsPanel}"
+                                                          ItemTemplate="{StaticResource commentPictureTemplate}" />
+                                        </ScrollViewer>
                                     </StackPanel>
                                    
                                     <Grid>

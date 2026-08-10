@@ -60,11 +60,22 @@
             <FlipView x:Name="imgs" SelectionChanged="imgs_SelectionChanged">
                 <FlipView.ItemTemplate>
                     <DataTemplate>
-                        <Grid  Tapped="sv1_Tapped" >
-                            <ScrollViewer  ZoomMode="Enabled"  HorizontalScrollBarVisibility="Auto"   HorizontalScrollMode="Auto"  VerticalScrollBarVisibility="Auto"  VerticalScrollMode="Auto" >
-                                <ContentControl  Content="{Binding image}" HorizontalAlignment="Center" VerticalAlignment="Center"></ContentControl>
+                        <Grid>
+                            <ScrollViewer x:Name="ImageScrollViewer" ZoomMode="Enabled" MinZoomFactor="1" MaxZoomFactor="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Auto" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
+                                <Grid x:Name="ImageInteractionLayer"
+                                      Background="Transparent"
+                                      MinWidth="{Binding ViewportWidth, ElementName=ImageScrollViewer}"
+                                      MinHeight="{Binding ViewportHeight, ElementName=ImageScrollViewer}"
+                                      PointerWheelChanged="ImageContainer_PointerWheelChanged"
+                                      PointerPressed="ImageContainer_PointerPressed"
+                                      PointerMoved="ImageContainer_PointerMoved"
+                                      PointerReleased="ImageContainer_PointerReleased"
+                                      PointerCanceled="ImageContainer_PointerCanceled"
+                                      PointerCaptureLost="ImageContainer_PointerCaptureLost">
+                                    <ContentControl Content="{Binding image}" HorizontalAlignment="Center" VerticalAlignment="Center"></ContentControl>
+                                </Grid>
                             </ScrollViewer>
-                            
+
                         </Grid>
                     </DataTemplate>
                 </FlipView.ItemTemplate>
