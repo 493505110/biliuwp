@@ -194,7 +194,7 @@ namespace BiliBili.UWP.Controls
             {
                 pr_LoadUserAt.Visibility = Visibility.Visible;
                 _loadingAt = true;
-                string url = "http://api.live.bilibili.com/feed_svr/v1/feed_svr/get_user_info?access_key={0}&appkey={1}&build=5250000&page={2}&pagesize=20&platform=android&src=bilih5&ts={3}";
+                string url = "https://api.live.bilibili.com/feed_svr/v1/feed_svr/get_user_info?access_key={0}&appkey={1}&build=5250000&page={2}&pagesize=20&platform=android&src=bilih5&ts={3}";
                 url = string.Format(url, ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _userAtPage, ApiHelper.GetTimeSpan_2);
                 url += "&sign=" + ApiHelper.GetSign(url);
                 var results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));

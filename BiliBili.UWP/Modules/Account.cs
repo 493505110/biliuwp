@@ -178,7 +178,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception)
             {
-                base64String = passWord;
+                throw; // 加密失败不降级为明文密码
             }
             return base64String;
         }
@@ -343,7 +343,7 @@ namespace BiliBili.UWP.Modules
         public async Task SetLoginSuccess(string access_token, string mid)
         {
             SettingHelper.Set_Access_key(access_token);
-            SettingHelper.Set_Refresh_Token(access_token);
+            // WebView2 授权回跳仅提供 access_key,无 refresh_token,不得用 access_token 冒充
             SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(7200));
             SettingHelper.Set_UserID(long.Parse(mid));
             await SSO(access_token);

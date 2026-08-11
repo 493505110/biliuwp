@@ -517,11 +517,11 @@ namespace BiliBili.UWP.Pages
                 string url = string.Empty;
                 if (cb_Cb.SelectedIndex == 0)
                 {
-                    url = string.Format("http://bangumi.bilibili.com/sponsor/rank/get_sponsor_week_list?access_key={0}&appkey={1}&build=418000&mobi_app=android&page=1&pagesize=25&platform=android&season_id={2}&ts={3}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _banId, ApiHelper.GetTimeSpan);
+                    url = string.Format("https://bangumi.bilibili.com/sponsor/rank/get_sponsor_week_list?access_key={0}&appkey={1}&build=418000&mobi_app=android&page=1&pagesize=25&platform=android&season_id={2}&ts={3}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _banId, ApiHelper.GetTimeSpan);
                 }
                 else
                 {
-                    url = string.Format("http://bangumi.bilibili.com/sponsor/rank/get_sponsor_total?access_key={0}&appkey={1}&build=418000&mobi_app=android&page=1&pagesize=25&platform=android&season_id={2}&ts={3}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _banId, ApiHelper.GetTimeSpan);
+                    url = string.Format("https://bangumi.bilibili.com/sponsor/rank/get_sponsor_total?access_key={0}&appkey={1}&build=418000&mobi_app=android&page=1&pagesize=25&platform=android&season_id={2}&ts={3}", ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _banId, ApiHelper.GetTimeSpan);
                 }
                 url += "&sign=" + ApiHelper.GetSign(url);
                 string results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
@@ -603,12 +603,12 @@ namespace BiliBili.UWP.Pages
             {
                 pr_Load.Visibility = Visibility.Visible;
                 Utils.ShowMessageToast("开始创建订单", 2000);
-                string tokenString = await WebClientClass.GetResults(new Uri("http://bangumi.bilibili.com/web_api/get_token"));
+                string tokenString = await WebClientClass.GetResults(new Uri("https://bangumi.bilibili.com/web_api/get_token"));
                 TokenModel tokenMess = JsonConvert.DeserializeObject<TokenModel>(tokenString);
                 if (tokenMess.code == 0)
                 {
                     TokenModel token = JsonConvert.DeserializeObject<TokenModel>(tokenMess.result.ToString());
-                    string results = await WebClientClass.PostResults(new Uri("http://bangumi.bilibili.com/sponsor/payweb/create_order"), string.Format("pay_method=0&season_id={0}&amount={1}&token={2}", _banId, money, token.token));
+                    string results = await WebClientClass.PostResults(new Uri("https://bangumi.bilibili.com/sponsor/payweb/create_order"), string.Format("pay_method=0&season_id={0}&amount={1}&token={2}", _banId, money, token.token));
                     OrderModel orderMess = JsonConvert.DeserializeObject<OrderModel>(results);
                     if (orderMess.code == 0)
                     {

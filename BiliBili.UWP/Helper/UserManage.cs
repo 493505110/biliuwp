@@ -169,8 +169,7 @@ namespace BiliBili.UWP.Helper
             }
             catch (Exception)
             {
-                //throw;
-                base64String = passWord;
+                throw; // 加密失败不降级为明文密码
             }
             return base64String;
         }
