@@ -84,7 +84,16 @@ namespace BiliBili.UWP.Helper
         {
             return verStr.Split('/')[0];
         }
-        public static string verStr = string.Format(@"Ver {0} 2026-08-04
+        public static string verStr = string.Format(@"Ver {0} 2026-08-11
+01、修复登录安全问题，登录信息不再明文传输
+02、修复部分视频播放失败、切换后无法播放的问题
+03、修复视频下载清晰度选择无效
+04、修复视频互动、关注、评论图片查看等问题
+05、修复音乐与视频媒体控件切换异常
+06、修复弹幕屏蔽词云端同步
+07、优化首页竖屏推荐过滤
+
+/Ver 3.13.0 2026-08-04
 所有功能完成修复！
 
 /Ver 3.12.0 2026-07-29
