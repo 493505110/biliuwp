@@ -4,7 +4,7 @@
 
 fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已停止维护)
 
-<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/6b38a3b3-dcdb-4641-8c90-e9db9755ea49" />
+<img width="1360" height="728" alt="image" src="https://github.com/user-attachments/assets/14cc261d-f31e-492e-8500-f4c664fb1c9e" />
 
 ### TODO
 
@@ -12,9 +12,8 @@ fork自逍遥橙子大佬的[项目](https://github.com/xiaoyaocz/biliuwp)(已�
 
 ### 使用
 
-release
+releases
 
 ### 其他
 
-<img width="426" height="416" alt="image" src="https://github.com/user-attachments/assets/e0702d50-1456-459c-9e80-b3b77b2b626f" />
-
+目前使用AI进行日常维护与开发，版本[3.12.0](https://github.com/493505110/biliuwp/releases/tag/v3.12.0)是最后一个采用古法编程的版本
