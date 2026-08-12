@@ -49,7 +49,14 @@ jobs:
         run: |
           $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
           if (-not $files) { throw 'No installable packages found under AppPackages' }
-          $list = ($files | ForEach-Object { $_.FullName -replace '\\','/' }) -join ','
+          # UWP MinVersion>=17763 默认产出 .msix,与 .appx 容器内部一致,重命名即可(微软官方确认)
+          $renamed = @()
+          foreach ($f in $files) {
+            $new = $f.FullName -replace '\.msix$', '.appx'
+            if ($new -ne $f.FullName) { Copy-Item $f.FullName $new -Force }
+            $renamed += $new
+          }
+          $list = ($renamed | ForEach-Object { $_ -replace '\\','/' }) -join ','
           $cer = (Resolve-Path 'biliuwp-nightly.cer').Path -replace '\\','/'
           "files=$list,$cer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
@@ -67,16 +74,18 @@ jobs:
           tag_name: nightly
           name: Nightly Build
           body: |
-            **Nightly 自动构建(未签名)**
+            **Nightly 自动构建(自签名证书)**
 
             - 提交: `${{ github.sha }}`
-            - 配置: Release x86,未签名,关闭 .NET Native
+            - 配置: Release x86,自签名证书,关闭 .NET Native
             - 固定标签 `nightly`,每次构建覆盖更新
 
-            安装方式(需开启开发者模式):
-            1. Windows 设置 → 隐私和安全性 → 开发者选项 → 开启"开发人员模式"
-            2. 下载上方 .appx / .appxbundle 文件
-            3. PowerShell 执行: `Add-AppxPackage -AllowUnsigned <下载的文件>`
+            首次安装(只需一次):
+            1. 下载并双击 **`biliuwp-nightly.cer`** → 安装证书 → 本地计算机 → "受信任的根证书颁发机构"
+            2. 开启开发者模式(Win10):设置 → 更新和安全 → 开发者选项 → 开发人员模式
+            3. 双击下载的 .appx 安装,或 PowerShell: `Add-AppxPackage .\BiliBili.UWP_3.13.1.0_x86.appx`
+
+            之后更新直接覆盖安装,无需再次导入证书。
           files: ${{ steps.packages.outputs.files }}
           prerelease: true
           fail_on_unmatched_files: true
