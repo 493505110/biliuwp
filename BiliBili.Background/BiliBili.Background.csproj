@@ -105,7 +105,6 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- A reference to the entire .Net Framework and Windows SDK are automatically included -->
-    <AppxManifest Include="app.manifest" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BackgroundTask.cs" />

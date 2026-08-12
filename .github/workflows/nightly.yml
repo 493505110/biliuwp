@@ -1,0 +1,67 @@
+name: Nightly Build
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'   # 每天 UTC 00:00 = 北京时间 08:00
+
+jobs:
+  nightly:
+    name: Build & Publish Nightly
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet
+        run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /t:Restore /v:minimal /nologo
+
+      - name: Build UWP (Release x86, unsigned)
+        run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /t:Build /v:minimal /nologo
+
+      - name: Locate installable packages
+        id: packages
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
+          if (-not $files) { throw 'No installable packages found under AppPackages' }
+          $list = ($files | ForEach-Object { $_.FullName -replace '\\','/' }) -join ','
+          "files=$list" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Remove stale nightly release/tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          gh api -X DELETE "/repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
+
+      - name: Publish nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          body: |
+            **Nightly 自动构建(未签名)**
+
+            - 提交: `${{ github.sha }}`
+            - 配置: Release x86,未签名,关闭 .NET Native
+            - 固定标签 `nightly`,每次构建覆盖更新
+
+            安装方式(需开启开发者模式):
+            1. Windows 设置 → 隐私和安全性 → 开发者选项 → 开启"开发人员模式"
+            2. 下载上方 .appx / .appxbundle 文件
+            3. PowerShell 执行: `Add-AppxPackage -AllowUnsigned <下载的文件>`
+          files: ${{ steps.packages.outputs.files }}
+          prerelease: true
+          fail_on_unmatched_files: true
