@@ -71,7 +71,7 @@ jobs:
 
       - name: Build UWP (Release x86, signed)
         if: steps.check.outputs.skip != 'true'
-        run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:UseDotNetNativeToolchain=false /p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }} /t:Build /v:minimal /nologo
+        run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:UseDotNetNativeToolchain=false '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
 
       - name: Locate installable packages
         id: packages
