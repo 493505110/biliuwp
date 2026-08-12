@@ -15,18 +15,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check for new commits (skip if nightly is current)
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 手动触发:无条件构建
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger: building regardless of commit state"
+            exit 0
+          fi
+          # 定时触发:对比当前 HEAD 与 nightly 标签指向的 commit,相同则跳过
+          current="${{ github.sha }}"
+          prev=$(gh api "repos/${{ github.repository }}/git/ref/tags/nightly" --jq '.object.sha' 2>/dev/null || echo "none")
+          echo "current=$current prev=$prev"
+          if [ -n "$prev" ] && [ "$prev" != "none" ] && [ "$current" = "$prev" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No new commits since last nightly ($current) — skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "New commits detected (prev=$prev) — building"
+          fi
+
       - name: Setup .NET
+        if: steps.check.outputs.skip != 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Setup MSBuild
+        if: steps.check.outputs.skip != 'true'
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet
+        if: steps.check.outputs.skip != 'true'
         run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /t:Restore /v:minimal /nologo
 
       - name: Restore signing certificate (pfx)
+        if: steps.check.outputs.skip != 'true'
         shell: bash
         env:
           PFX_B64: ${{ secrets.APPX_SIGNING_PFX }}
@@ -34,6 +62,7 @@ jobs:
           echo "$PFX_B64" | base64 -d > BiliBili.UWP/BiliBili.UWP_TemporaryKey.pfx
 
       - name: Restore signing certificate (cer)
+        if: steps.check.outputs.skip != 'true'
         shell: bash
         env:
           CER_B64: ${{ secrets.APPX_SIGNING_CER }}
@@ -41,10 +70,12 @@ jobs:
           echo "$CER_B64" | base64 -d > biliuwp-nightly.cer
 
       - name: Build UWP (Release x86, signed)
+        if: steps.check.outputs.skip != 'true'
         run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:UseDotNetNativeToolchain=false /p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }} /t:Build /v:minimal /nologo
 
       - name: Locate installable packages
         id: packages
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
@@ -61,6 +92,7 @@ jobs:
           "files=$list,$cer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Remove stale nightly release/tag
+        if: steps.check.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,6 +101,7 @@ jobs:
           gh api -X DELETE "/repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
 
       - name: Publish nightly release
+        if: steps.check.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
