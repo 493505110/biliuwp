@@ -30,7 +30,8 @@ namespace BiliBili.UWP
                 HttpResponseMessage hr = await hc.GetAsync(url);
                 hr.EnsureSuccessStatusCode();
                 var encodeResults = await hr.Content.ReadAsBufferAsync();
-                string results = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
+                var bytes = encodeResults.ToArray();
+                string results = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
 
                 //string result = await response.Content.ReadAsStringAsync();
                 return results;
@@ -49,7 +50,8 @@ namespace BiliBili.UWP
                 HttpResponseMessage hr = await hc.GetAsync(url);
                 hr.EnsureSuccessStatusCode();
                 var encodeResults = await hr.Content.ReadAsBufferAsync();
-                string results = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
+                var bytes = encodeResults.ToArray();
+                string results = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
                 return results;
             }
         }
@@ -90,7 +92,8 @@ namespace BiliBili.UWP
                     response.EnsureSuccessStatusCode();
                  
                     var encodeResults = await response.Content.ReadAsBufferAsync();
-                    string result = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
+                    var bytes = encodeResults.ToArray();
+                    string result = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
                     return result;
                 }
             }
@@ -132,7 +135,8 @@ namespace BiliBili.UWP
                     response.EnsureSuccessStatusCode();
 
                     var encodeResults = await response.Content.ReadAsBufferAsync();
-                    string results = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
+                    var bytes = encodeResults.ToArray();
+                    string results = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
 
                     //string result = await response.Content.ReadAsStringAsync();
                     return results;
@@ -297,7 +301,8 @@ namespace BiliBili.UWP
                 HttpResponseMessage hr = await hc.GetAsync(url);
                 hr.EnsureSuccessStatusCode();
                 var encodeResults = await hr.Content.ReadAsBufferAsync();
-                string results = Encoding.UTF8.GetString(encodeResults.ToArray(), 0, encodeResults.ToArray().Length);
+                var bytes = encodeResults.ToArray();
+                string results = Encoding.UTF8.GetString(bytes, 0, bytes.Length);
                 return results;
             }
 
