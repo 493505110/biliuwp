@@ -26,8 +26,22 @@ jobs:
       - name: Restore NuGet
         run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /t:Restore /v:minimal /nologo
 
-      - name: Build UWP (Release x86, unsigned)
-        run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:UseDotNetNativeToolchain=false /p:AppxPackageSigningEnabled=false /t:Build /v:minimal /nologo
+      - name: Restore signing certificate (pfx)
+        shell: bash
+        env:
+          PFX_B64: ${{ secrets.APPX_SIGNING_PFX }}
+        run: |
+          echo "$PFX_B64" | base64 -d > BiliBili.UWP/BiliBili.UWP_TemporaryKey.pfx
+
+      - name: Restore signing certificate (cer)
+        shell: bash
+        env:
+          CER_B64: ${{ secrets.APPX_SIGNING_CER }}
+        run: |
+          echo "$CER_B64" | base64 -d > biliuwp-nightly.cer
+
+      - name: Build UWP (Release x86, signed)
+        run: msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:UseDotNetNativeToolchain=false /p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }} /t:Build /v:minimal /nologo
 
       - name: Locate installable packages
         id: packages
@@ -36,7 +50,8 @@ jobs:
           $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
           if (-not $files) { throw 'No installable packages found under AppPackages' }
           $list = ($files | ForEach-Object { $_.FullName -replace '\\','/' }) -join ','
-          "files=$list" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $cer = (Resolve-Path 'biliuwp-nightly.cer').Path -replace '\\','/'
+          "files=$list,$cer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Remove stale nightly release/tag
         shell: bash
