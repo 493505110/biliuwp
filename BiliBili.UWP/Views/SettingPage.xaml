@@ -640,11 +640,11 @@
                     <StackPanel Margin="10" >
                         <TextBlock FontSize="16">缓存</TextBlock>
                         <Button Foreground="White" x:Name="btn_Clear" Click="btn_Clear_Click" Background="{ThemeResource Bili-ForeColor}" Margin="0 10 0 0" HorizontalAlignment="Left">清除WebView缓存</Button>
-                        <TextBlock Foreground="Gray" Margin="0 10 0 0">登录Token</TextBlock>
+                        <TextBlock FontSize="16" Margin="0 10 0 0">登录Token</TextBlock>
                         <Button Foreground="White" x:Name="btn_ExportToken" Click="btn_ExportToken_Click" Background="{ThemeResource Bili-ForeColor}" Margin="0 10 0 0" HorizontalAlignment="Left">导出登录Token(复制到剪贴板)</Button>
 
                         <TextBlock FontSize="16" Margin="0 10 0 0">其他选项</TextBlock>
-                        <Grid Margin="0 10 0 10">
+                        <Grid Margin="0 5 0 0">
                             <TextBlock Foreground="Gray" VerticalAlignment="Center">优先使用BiliPlus</TextBlock>
                             <ToggleSwitch  x:Name="sw_PriorityBiliPlus" Toggled="Sw_PriorityBiliPlus_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
                         </Grid>
@@ -674,6 +674,11 @@
                             <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center">逍遥橙子(xiaoyaocz)</TextBlock>
 
                         </Grid>
+                        <Grid Margin="0 10 0 0">
+                            <TextBlock Foreground="Gray" VerticalAlignment="Center">维护者</TextBlock>
+                            <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center">zhou2008</TextBlock>
+
+                        </Grid>
 
                         <TextBlock FontSize="18" Margin="0 10 0 0">联系</TextBlock>
                         <HyperlinkButton Visibility="Collapsed" Click="HyperlinkButton_Click" Tag="771102271" HorizontalAlignment="Stretch" Foreground="{ThemeResource Bili-FontColor}"  HorizontalContentAlignment="Stretch" Padding="0">
@@ -686,8 +691,16 @@
                         </HyperlinkButton>
                         <HyperlinkButton Click="HyperlinkButton_Click" Tag="xiaoyaocz@52uwp.com" HorizontalAlignment="Stretch" Foreground="{ThemeResource Bili-FontColor}"  HorizontalContentAlignment="Stretch" Padding="0">
                             <Grid Margin="0 10 0 0">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">Email</TextBlock>
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">作者Email</TextBlock>
                                 <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center">xiaoyaocz@52uwp.com</TextBlock>
+
+                            </Grid>
+
+                        </HyperlinkButton>
+                        <HyperlinkButton Click="HyperlinkButton_Click" Tag="i@zhou2008.cn" HorizontalAlignment="Stretch" Foreground="{ThemeResource Bili-FontColor}"  HorizontalContentAlignment="Stretch" Padding="0">
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">维护者Email</TextBlock>
+                                <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center">i@zhou2008.cn</TextBlock>
 
                             </Grid>
 
@@ -731,6 +744,7 @@
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextSelectionEnabled="True"  TextWrapping="Wrap">bilibili-service(https://github.com/WhiteBlue/bilibili-service)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextSelectionEnabled="True"  TextWrapping="Wrap">BilibiliAPIDocs(https://github.com/fython/BilibiliAPIDocs)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextSelectionEnabled="True"  TextWrapping="Wrap">biliroku/(https://github.com/zyzsdy/biliroku)</TextBlock>
+                        <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextSelectionEnabled="True"  TextWrapping="Wrap">BililiveRecorder(https://github.com/Bililive/BililiveRecorder)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">you-get(https://github.com/soimort/you-get)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">SYEngine(https://github.com/amamiya/SYEngine)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">VLC.MediaElement(https://github.com/kakone/VLC.MediaElement)</TextBlock>
