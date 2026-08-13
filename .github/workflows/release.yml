@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # 推送 v3.14.0 这类 tag 时自动构建并发布正式版 Release
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet
+        run: |
+          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /t:Restore /v:minimal /nologo
+          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x64 /t:Restore /v:minimal /nologo
+
+      - name: Restore signing certificate (pfx)
+        shell: bash
+        env:
+          PFX_B64: ${{ secrets.APPX_SIGNING_PFX }}
+        run: |
+          echo "$PFX_B64" | base64 -d > BiliBili.UWP/appx.pfx
+
+      - name: Restore signing certificate (cer)
+        shell: bash
+        env:
+          CER_B64: ${{ secrets.APPX_SIGNING_CER }}
+        run: |
+          echo "$CER_B64" | base64 -d > biliuwp-signing.cer
+
+      - name: Build UWP (Release x86+x64, signed)
+        run: |
+          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
+          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x64 /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
+
+      - name: Locate installable packages
+        id: packages
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
+          if (-not $files) { throw 'No installable packages found under AppPackages' }
+          # UWP MinVersion>=17763 默认产出 .msix,与 .appx 容器内部一致,重命名即可(微软官方确认)
+          $renamed = @()
+          foreach ($f in $files) {
+            $new = $f.FullName -replace '\.msix$', '.appx'
+            if ($new -ne $f.FullName) { Copy-Item $f.FullName $new -Force }
+            $renamed += $new
+          }
+          $list = ($renamed | ForEach-Object { $_ -replace '\\','/' }) -join ','
+          $cer = (Resolve-Path 'biliuwp-signing.cer').Path -replace '\\','/'
+          "files=$list,$cer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          # 提取 x86/x64 文件名供 release body 安装命令引用(避免硬编码版本号)
+          $x86File = ($renamed | Where-Object { $_ -match '_x86\.appx$' } | Select-Object -First 1)
+          $x64File = ($renamed | Where-Object { $_ -match '_x64\.appx$' } | Select-Object -First 1)
+          if ($x86File) { "x86_file=$(Split-Path $x86File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
+          if ($x64File) { "x64_file=$(Split-Path $x64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
+
+      - name: Extract changelog for this version
+        id: changelog
+        shell: bash
+        run: |
+          # tag 形如 v3.14.0 -> 提取 CHANGELOG.md 中 "## 3.14.0" 段落
+          VER="${GITHUB_REF_NAME#v}"
+          echo "ver=$VER"
+          awk -v v="$VER" '
+            /^## / {
+              if (found) exit
+              if ($0 ~ "^## " v "([ (]|$)") found = 1
+            }
+            found { print }
+          ' CHANGELOG.md > changelog_section.md
+          if [ ! -s changelog_section.md ]; then
+            echo "ERROR: No CHANGELOG entry found for version $VER" >&2
+            exit 1
+          fi
+          echo "body extracted ($(wc -l < changelog_section.md) lines)"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: changelog_section.md
+          files: ${{ steps.packages.outputs.files }}
+          fail_on_unmatched_files: true
