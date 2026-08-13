@@ -138,15 +138,6 @@ namespace BiliBili.UWP.Views
                     cb_Font.SelectedIndex = fonts.IndexOf(cb_Font.FontFamily.Source);
                 }
 
-                var c = SettingHelper.Get_BiliplusCookie();
-                if (c != "")
-                {
-                    txtBPState.Text = "(已授权)";
-                }
-                else
-                {
-                    txtBPState.Text = "";
-                }
 
                 cb_PlayQuality.SelectedIndex = SettingHelper.Get_PlayQualit() - 1;
                 cb_DownQuality.SelectedIndex = SettingHelper.Get_DownQualit() - 1;
@@ -807,23 +798,6 @@ namespace BiliBili.UWP.Views
             SettingHelper.Set_BoldDanmu(sw_BoldDanmu.IsOn);
         }
 
-        private async void BrnAuthBiliPlus_Click(object sender, RoutedEventArgs e)
-        {
-            if (!ApiHelper.IsLogin() && !await Utils.ShowLoginDialog())
-            {
-                Utils.ShowMessageToast("请登录后再执行此操作");
-                return;
-            }
-            var re = await Account.AuthBiliPlus();
-            if (re != "")
-            {
-                txtBPState.Text = "(已授权)";
-            }
-            else
-            {
-                Utils.ShowMessageToast("授权失败了");
-            }
-        }
 
         private void Sw_UseDASH_Toggled(object sender, RoutedEventArgs e)
         {

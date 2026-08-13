@@ -638,45 +638,6 @@ namespace BiliBili.UWP.Modules
         }
 
         /// <summary>
-        /// 授权Biliplus
-        /// </summary>
-        /// <returns></returns>
-        public static async Task<string> AuthBiliPlus()
-        {
-            try
-            {
-                if (!ApiHelper.IsLogin())
-                {
-                    return "";
-                }
-                var url = new Uri($"https://www.biliplus.com/login?act=savekey&mid={SettingHelper.Get_UserID()}&access_key={ApiHelper.access_key}&expire=");
-                using (HttpClient httpClient = new HttpClient())
-                {
-                    var rq = await httpClient.GetAsync(url);
-                    var setCookie = rq.Headers["set-cookie"];
-                    StringBuilder stringBuilder = new StringBuilder();
-                    var matches = Regex.Matches(setCookie, "(.*?)=(.*?); ", RegexOptions.Singleline);
-                    foreach (Match match in matches)
-                    {
-                        var key = match.Groups[1].Value.Replace("HttpOnly, ", "");
-                        var value = match.Groups[2].Value;
-                        if (key != "expires" && key != "Max-Age" && key != "path" && key != "domain")
-                        {
-                            stringBuilder.Append(match.Groups[0].Value.Replace("HttpOnly, ", ""));
-                        }
-                    }
-                    SettingHelper.Set_BiliplusCookie(stringBuilder.ToString());
-                    return stringBuilder.ToString();
-                }
-            }
-            catch (Exception)
-            {
-
-                return "";
-            }
-
-        }
-        /// <summary>
         /// 申请captcha验证码，拿到极验gt/challenge与登录token
         /// </summary>
         public async Task<ReturnModel<CaptchaInfoModel>> GetCaptchaInfo()

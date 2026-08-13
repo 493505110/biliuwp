@@ -538,30 +538,7 @@ namespace BiliBili.UWP.Helper
 
                 if (obj["code"].ToInt32() == 10004)
                 {
-                    if (ApiHelper.IsLogin())
-                    {
-                        ReturnPlayModel returnPlayModel = null;
-                        MessageDialog messageDialog = new MessageDialog("读取视频地址失败了，是否授权Biliplus后再试一次?");
-                        messageDialog.Commands.Add(new UICommand("授权", async (e) =>
-                        {
-                            var _cookie = await Account.AuthBiliPlus();
-                            if (_cookie != "")
-                            {
-                                returnPlayModel = await GetBiliPlusUrl2(model);
-                            }
-                            else
-                            {
-                                Utils.ShowMessageToast("授权失败了");
-                            }
-                        }));
-                        messageDialog.Commands.Add(new UICommand("取消"));
-                        await messageDialog.ShowAsync();
-                        return returnPlayModel;
-                    }
-                    else
-                    {
-                        return null;
-                    }
+                    return null;
                 }
 
                 //是否遇到了地区限制
