@@ -375,6 +375,24 @@ namespace BiliBili.UWP
                 return false;
             }
         }
+        public static void Set_HideMainPageMessageDot(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["HideMainPageDot"] = value;
+        }
+        public static bool Get_HideMainPageMessageDot()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["HideMainPageDot"] != null)
+            {
+                return (bool)container.Values["HideMainPageDot"];
+            }
+            else
+            {
+                Set_HideMainPageMessageDot(false);
+                return false;
+            }
+        }
 
 
         public static void Set_MouseBack(bool value)

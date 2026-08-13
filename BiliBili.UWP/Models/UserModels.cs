@@ -297,6 +297,8 @@ namespace BiliBili.UWP.Models
         public string room_name { get; set; }
         public string avatar_url { get; set; }
         public int msg_count { get; set; }
+        public bool HasUnread => msg_count > 0;
+        public string UnreadCountText => msg_count > 99 ? "99+" : msg_count.ToString();
         public string last_msg { get; set; }
         public long last_time { get; set; }
 

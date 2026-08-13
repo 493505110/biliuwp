@@ -283,6 +283,10 @@
                                 <ToggleSwitch  x:Name="sw_MouseBack" Toggled="sw_MouseBack_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
 
                             </Grid>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">隐藏主页消息红点</TextBlock>
+                                <ToggleSwitch  x:Name="sw_HideMessageDot" Toggled="sw_HideMessageDot_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
+                            </Grid>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

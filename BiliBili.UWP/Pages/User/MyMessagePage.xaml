@@ -3,10 +3,14 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BiliBili.UWP.Pages"
+    xmlns:converters="using:Microsoft.Toolkit.Uwp.UI.Converters"
         xmlns:my="using:BiliBili.UWP"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
+    <Page.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </Page.Resources>
 
     <Grid Background="{ThemeResource Bili-Background}">
         <Grid.RowDefinitions>
@@ -25,6 +29,14 @@
           
         </Grid>
         <Pivot Grid.Row="1" x:Name="pivot" SelectionChanged="pivot_SelectionChanged">
+            <Pivot.RightHeader>
+                <Button x:Name="btn_MarkAllRead" Content="全部已读"
+                        Foreground="{ThemeResource Bili-ForeColor}"
+                        Background="Transparent" BorderThickness="1"
+                        BorderBrush="{ThemeResource Bili-ForeColor}"
+                        Margin="0 0 5 0" Padding="8 2" FontSize="12"
+                        Click="btn_MarkAllRead_Click"/>
+            </Pivot.RightHeader>
             <PivotItem  Margin="0">
                 <PivotItem.Header>
                     <Grid>
@@ -233,6 +245,15 @@
                                 </HyperlinkButton>
                                 <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Margin="5 0" HorizontalAlignment="Left" Text="{Binding room_name}"></TextBlock>
                                 <TextBlock Grid.Column="1" Grid.Row="1" VerticalAlignment="Top" MaxLines="1" TextTrimming="CharacterEllipsis" Foreground="Gray" Margin="5 0" HorizontalAlignment="Left" Text="{Binding last_msg}"></TextBlock>
+                                <Border Grid.Column="1" VerticalAlignment="Top" HorizontalAlignment="Right"
+                                        Margin="0 5 5 0" Background="Red" CornerRadius="10"
+                                        MinWidth="20" Height="20" Padding="4 0"
+                                        Visibility="{Binding HasUnread, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="{Binding UnreadCountText}" Foreground="White"
+                                               FontSize="12" HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Margin="5 0" HorizontalAlignment="Right" Foreground="Gray" FontSize="14" Text="{Binding Last_time}"></TextBlock>
                                 <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Margin="5 0" HorizontalAlignment="Right" Foreground="Gray" FontSize="14" Text="{Binding Last_time}"></TextBlock>
                             </Grid>
                         </DataTemplate>
@@ -242,7 +263,7 @@
             </PivotItem>
            
         </Pivot>
-        <ProgressRing x:Name="pr_Load" IsActive="True" VerticalAlignment="Center" Grid.RowSpan="2" Foreground="White" Background="#00000000"></ProgressRing>
+        <ProgressRing x:Name="pr_Load" IsActive="True" VerticalAlignment="Center" Grid.RowSpan="2" Foreground="{ThemeResource Bili-ForeColor}" Background="#00000000"></ProgressRing>
        
 
     </Grid>

@@ -86,6 +86,8 @@ namespace BiliBili.UWP.Views
                 btnOpenInstallHEVC.Visibility = Visibility.Visible;
                 sw_DASHUseHEVC.IsOn = SettingHelper.Get_DASHUseHEVC();
                 sw_PriorityBiliPlus.IsOn = SettingHelper.Get_PriorityBiliPlus();
+                sw_PriorityBiliPlus.IsOn = SettingHelper.Get_PriorityBiliPlus();
+                sw_HideMessageDot.IsOn = SettingHelper.Get_HideMainPageMessageDot();
 
                 sw_ColunmHome.IsOn=SettingHelper.Get_ColunmHome();
                 sw_HidePortraitRecommendations.IsOn = SettingHelper.Get_HidePortraitRecommendations();
@@ -829,6 +831,10 @@ namespace BiliBili.UWP.Views
         private void Sw_PriorityBiliPlus_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_PriorityBiliPlus(sw_PriorityBiliPlus.IsOn);
+        }
+        private void sw_HideMessageDot_Toggled(object sender, RoutedEventArgs e)
+        {
+            SettingHelper.Set_HideMainPageMessageDot(sw_HideMessageDot.IsOn);
         }
 
         private void sw_ColunmHome_Toggled(object sender, RoutedEventArgs e)

@@ -204,6 +204,7 @@ namespace BiliBili.UWP.Pages
                 return;
             }
             await _messageAPI.MarkSessionRead(_talkerId, _sessionType, sequenceNumber, csrf).Request();
+            MessageCenter.SendMessage($"private:{_talkerId}");
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e)

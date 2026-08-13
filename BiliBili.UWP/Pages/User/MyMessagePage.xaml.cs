@@ -1,4 +1,5 @@
 ﻿using BiliBili.UWP.Api;
+using BiliBili.UWP.Helper;
 using BiliBili.UWP.Api.User;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
@@ -32,6 +33,7 @@ namespace BiliBili.UWP.Pages
         {
             InitializeComponent();
             NavigationCacheMode = NavigationCacheMode.Required;
+            MessageCenter.HasMessaged += MessageCenter_HasMessaged;
         }
 
         protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -48,12 +50,77 @@ namespace BiliBili.UWP.Pages
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
+            MessageCenter.SendMessage("private:all");
             _timer?.Stop();
         }
 
         private void Timer_Tick(object sender, object e)
         {
             GetMessage();
+        }
+
+        private async void btn_MarkAllRead_Click(object sender, RoutedEventArgs e)
+        {
+            var csrf = Account.GetCookieValue("bili_jct");
+            if (string.IsNullOrEmpty(csrf))
+            {
+                Utils.ShowMessageToast("无法获取登录凭证", 2000);
+                return;
+            }
+            var sessions = list_ChatMe.ItemsSource as IEnumerable<MessageChatModel>;
+            if (sessions == null || !sessions.Any())
+            {
+                Utils.ShowMessageToast("没有可标记的会话", 2000);
+                return;
+            }
+            btn_MarkAllRead.IsEnabled = false;
+            var count = 0;
+            foreach (var session in sessions)
+            {
+                if (session.msg_count > 0 && long.TryParse(session.rid, out var talkerId))
+                {
+                    await _messageAPI.MarkSessionRead(talkerId, session.session_type, session.max_seqno, csrf).Request();
+                    session.msg_count = 0;
+                    count++;
+                }
+            }
+            // 乐观更新：本地清零后立即重建列表，不依赖API缓存
+            list_ChatMe.ItemsSource = sessions.ToList();
+            SetUnreadVisibility(bor_SX, 0);
+            btn_MarkAllRead.IsEnabled = true;
+            if (count > 0)
+            {
+                Utils.ShowMessageToast($"已标记{count}个会话为已读", 3000);
+                GetMessage();
+                GetSessions();
+                MessageCenter.SendMessage("private:all");
+            }
+            else
+            {
+                Utils.ShowMessageToast("没有未读的会话", 2000);
+            }
+        }
+
+
+        private void MessageCenter_HasMessaged(object sender, object e)
+        {
+            var tag = e as string;
+            if (tag != null && tag.StartsWith("private:"))
+            {
+                var rid = tag.Substring("private:".Length);
+                var sessions = list_ChatMe.ItemsSource as IEnumerable<MessageChatModel>;
+                if (sessions != null)
+                {
+                    foreach (var session in sessions)
+                    {
+                        if (session.rid == rid)
+                        {
+                            session.msg_count = 0;
+                        }
+                    }
+                    list_ChatMe.ItemsSource = sessions.ToList();
+                }
+            }
         }
 
         private void btn_Back_Click(object sender, RoutedEventArgs e)
@@ -71,6 +138,7 @@ namespace BiliBili.UWP.Pages
 
         private void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            GetMessage();
             switch (pivot.SelectedIndex)
             {
                 case 0:
@@ -233,6 +301,10 @@ namespace BiliBili.UWP.Pages
                 {
                     SetUnreadVisibility(bor_SX, (privateUnread?.Total ?? 0) + (groupUnread?.unread_count ?? 0));
                 }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("读取消息未读数失败", LogType.ERROR, ex);
             }
             finally
             {

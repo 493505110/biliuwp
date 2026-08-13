@@ -304,6 +304,7 @@ namespace BiliBili.UWP
             timer.Start();
             timer.Tick += Timer_Tick;
             MessageCenter.ChanageThemeEvent += MessageCenter_ChanageThemeEvent;
+            MessageCenter.HasMessaged += MessageCenter_HasMessaged;
             MessageCenter.MianNavigateToEvent += MessageCenter_MianNavigateToEvent;
             MessageCenter.InfoNavigateToEvent += MessageCenter_InfoNavigateToEvent;
             MessageCenter.PlayNavigateToEvent += MessageCenter_PlayNavigateToEvent;
@@ -715,6 +716,34 @@ namespace BiliBili.UWP
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
+        private void MessageCenter_HasMessaged(object sender, object e)
+        {
+            var tag = e as string;
+            if (tag != null && tag.StartsWith("private:"))
+            {
+                // 私信已读，本地清零避免API缓存延迟导致红点残留
+                privateMessageUnread = new MessagePrivateUnreadModel();
+                groupMessageUnread = new MessageGroupUnreadModel();
+                UpdateMessageDot();
+            }
+            else
+            {
+                Timer_Tick(null, null);
+            }
+        }
+        private void UpdateMessageDot()
+        {
+            var has = messageFeedUnread.recv_reply > 0
+                || messageFeedUnread.at > 0
+                || messageFeedUnread.recv_like > 0
+                || messageFeedUnread.sys_msg > 0
+                || privateMessageUnread.Total > 0
+                || groupMessageUnread.unread_count > 0;
+            bor_TZ.Visibility = has
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
         private async void Timer_Tick(object sender, object e)
         {
             if (checkingMessages)
@@ -733,7 +762,10 @@ namespace BiliBili.UWP
                     {
                         //menu_bor_HasMessage
 
-                        bor_TZ.Visibility = Visibility.Visible;
+                        //隐藏主页消息红点时,菜单内和顶部按钮的红点同时隐藏
+                        bor_TZ.Visibility = SettingHelper.Get_HideMainPageMessageDot()
+                            ? Visibility.Collapsed
+                            : Visibility.Visible;
                     });
                 }
                 else
