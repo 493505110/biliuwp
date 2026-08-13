@@ -155,6 +155,11 @@ namespace BiliBili.UWP.Controls
         private async void ContentDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
         {
             args.Cancel = true;
+            if (tokenLogin.Visibility == Visibility.Visible)
+            {
+                await DoTokenLogin();
+                return;
+            }
             if (txt_Username.Text.Length == 0)
             {
                 txt_Username.Focus(FocusState.Pointer);
@@ -359,6 +364,7 @@ namespace BiliBili.UWP.Controls
             Title = "网页登录";
             StopQRTimer();
             mode = LoginMode.Web;
+            tokenLogin.Visibility = Visibility.Collapsed;
             pwdLogin.Visibility = Visibility.Collapsed;
             qrLogin.Visibility = Visibility.Collapsed;
             webView.Visibility = Visibility.Visible;
@@ -468,6 +474,7 @@ namespace BiliBili.UWP.Controls
 
             mode = LoginMode.None;
             Title = "登录";
+            tokenLogin.Visibility = Visibility.Collapsed;
             pwdLogin.Visibility = Visibility.Collapsed;
             qrLogin.Visibility = Visibility.Visible;
             webView.Visibility = Visibility.Collapsed;
@@ -581,11 +588,43 @@ namespace BiliBili.UWP.Controls
 
         }
 
+        private async Task DoTokenLogin()
+        {
+            if (string.IsNullOrWhiteSpace(txt_Token.Text))
+            {
+                Utils.ShowMessageToast("请输入Token内容");
+                return;
+            }
+            IsPrimaryButtonEnabled = false;
+            Title = "登录中";
+            var result = await account.LoginWithToken(txt_Token.Text.Trim());
+            Title = "登录";
+            IsPrimaryButtonEnabled = true;
+            if (result.success)
+            {
+                this.Hide();
+            }
+            Utils.ShowMessageToast(result.message);
+        }
+
+        private void BtnTokenLogin_Click(object sender, RoutedEventArgs e)
+        {
+            StopQRTimer();
+            mode = LoginMode.None;
+            Title = "登录";
+            pwdLogin.Visibility = Visibility.Collapsed;
+            qrLogin.Visibility = Visibility.Collapsed;
+            tokenLogin.Visibility = Visibility.Visible;
+            webView.Visibility = Visibility.Collapsed;
+            IsPrimaryButtonEnabled = true;
+        }
+
         private void btnPasswordLogin_Click(object sender, RoutedEventArgs e)
         {
             StopQRTimer();
             mode = LoginMode.None;
             Title = "登录";
+            tokenLogin.Visibility = Visibility.Collapsed;
             pwdLogin.Visibility = Visibility.Visible;
             qrLogin.Visibility = Visibility.Collapsed;
             webView.Visibility = Visibility.Collapsed;

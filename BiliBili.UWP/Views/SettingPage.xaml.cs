@@ -697,6 +697,26 @@ namespace BiliBili.UWP.Views
             SettingHelper.Set_BanPlayer(cb_BanPlayer.SelectedIndex);
         }
 
+        private void btn_ExportToken_Click(object sender, RoutedEventArgs e)
+        {
+            if (!ApiHelper.IsLogin())
+            {
+                Utils.ShowMessageToast("请先登录");
+                return;
+            }
+            var token = Account.ExportToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                Utils.ShowMessageToast("导出失败，请确认已登录");
+                return;
+            }
+            var pack = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            pack.SetText(token);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pack);
+            Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+            Utils.ShowMessageToast("Token已复制到剪贴板", 3000);
+        }
+
         private async void btn_Clear_Click(object sender, RoutedEventArgs e)
         {
             try

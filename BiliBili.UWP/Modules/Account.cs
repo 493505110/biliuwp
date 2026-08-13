@@ -474,6 +474,86 @@ namespace BiliBili.UWP.Modules
         }
 
         /// <summary>
+        /// 导出当前登录Token(JSON格式)，用于在其他设备上登录
+        /// </summary>
+        public static string ExportToken()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(SettingHelper.Get_Access_key()))
+                {
+                    return "";
+                }
+                var expiresIn = Math.Max(0, (int)(SettingHelper.Get_LoginExpires() - DateTime.Now).TotalSeconds);
+                var token = new JObject()
+                {
+                    ["access_token"] = SettingHelper.Get_Access_key(),
+                    ["refresh_token"] = SettingHelper.Get_Refresh_Token(),
+                    ["mid"] = SettingHelper.Get_UserID(),
+                    ["expires_in"] = expiresIn
+                };
+                return token.ToString();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("导出Token失败", LogType.ERROR, ex);
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// 使用导出的Token登录(兼容本应用导出格式，须含access_token)
+        /// </summary>
+        /// <param name="tokenJson">Token JSON字符串</param>
+        /// <returns></returns>
+        public async Task<ReturnModel> LoginWithToken(string tokenJson)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(tokenJson))
+                {
+                    return new ReturnModel() { success = false, message = "Token内容为空" };
+                }
+                var obj = JObject.Parse(tokenJson);
+                var accessToken = obj["access_token"]?.ToString();
+                if (string.IsNullOrEmpty(accessToken))
+                {
+                    return new ReturnModel() { success = false, message = "Token格式无效，缺少access_token" };
+                }
+                // 校验token有效性(oauth2/info)，有效则顺便取mid
+                var url = $"https://passport.bilibili.com/api/oauth2/info?access_token={Uri.EscapeDataString(accessToken)}&appkey={ApiHelper.AndroidKey.Appkey}&ts={ApiHelper.GetTimeSpan}";
+                url += "&sign=" + ApiHelper.GetSign(url);
+                var content = await WebClientClass.GetResults(new Uri(url));
+                var info = JObject.Parse(content);
+                if (info["code"].ToInt32() != 0)
+                {
+                    return new ReturnModel() { success = false, message = "Token无效或已过期" };
+                }
+                var mid = info["data"]?["mid"]?.Value<long>() ?? obj["mid"]?.Value<long>() ?? 0;
+                var refreshToken = obj["refresh_token"]?.ToString() ?? "";
+                var expiresIn = obj["expires_in"]?.ToInt32() ?? 0;
+                SettingHelper.Set_Access_key(accessToken);
+                if (!string.IsNullOrEmpty(refreshToken))
+                {
+                    SettingHelper.Set_Refresh_Token(refreshToken);
+                }
+                if (mid > 0)
+                {
+                    SettingHelper.Set_UserID(mid);
+                }
+                SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(expiresIn > 0 ? expiresIn : 7200));
+                await SSO(accessToken);
+                MessageCenter.SendLogined();
+                return new ReturnModel() { success = true, message = "Token登录成功" };
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("Token登录失败", LogType.ERROR, ex);
+                return new ReturnModel() { success = false, message = "Token登录失败，请检查Token内容" };
+            }
+        }
+
+        /// <summary>
         /// 安全验证后保存状态
         /// </summary>
         /// <param name="access_key"></param>

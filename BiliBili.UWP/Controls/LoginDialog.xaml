@@ -61,6 +61,9 @@
             <HyperlinkButton x:Name="btnQRLogin" Click="btnQRLogin_Click">
                 <TextBlock>切换至扫码登录(推荐)</TextBlock>
             </HyperlinkButton>
+            <HyperlinkButton x:Name="btnTokenLogin" Click="BtnTokenLogin_Click">
+                <TextBlock>切换至Token登录</TextBlock>
+            </HyperlinkButton>
         </StackPanel>
         <StackPanel x:Name="qrLogin" Visibility="Visible">
             <Image x:Name="imgQR" Width="200" Height="200"></Image>
@@ -75,6 +78,19 @@
             </HyperlinkButton>
             <HyperlinkButton  Click="BtnWebLogin_Click" HorizontalAlignment="Center">
                 <TextBlock>切换至网页登录</TextBlock>
+            </HyperlinkButton>
+            <HyperlinkButton x:Name="btnTokenLoginQR" Click="BtnTokenLogin_Click" HorizontalAlignment="Center">
+                <TextBlock>切换至Token登录</TextBlock>
+            </HyperlinkButton>
+        </StackPanel>
+        <StackPanel x:Name="tokenLogin" Visibility="Collapsed">
+            <TextBlock Margin="0 4">登录Token（在已登录设备设置页-其它 中导出，可整段粘贴）</TextBlock>
+            <TextBox x:Name="txt_Token" TextWrapping="Wrap" AcceptsReturn="True" Height="120" PlaceholderText="粘贴Token JSON内容"></TextBox>
+            <HyperlinkButton x:Name="btnTokenBackPwd" Click="btnPasswordLogin_Click">
+                <TextBlock>切换至密码登录</TextBlock>
+            </HyperlinkButton>
+            <HyperlinkButton x:Name="btnTokenBackQR" Click="btnQRLogin_Click">
+                <TextBlock>切换至扫码登录(推荐)</TextBlock>
             </HyperlinkButton>
         </StackPanel>
         <muxc:WebView2 x:Name="webView" Height="360" Visibility="Collapsed"></muxc:WebView2>
