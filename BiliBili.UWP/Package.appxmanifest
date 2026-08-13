@@ -4,7 +4,7 @@
   <mp:PhoneIdentity PhoneProductId="2d940cc1-be22-408a-a657-2f755d73ff1b" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
     <DisplayName>哔哩哔哩UWP</DisplayName>
-    <PublisherDisplayName>逍遥橙子</PublisherDisplayName>
+    <PublisherDisplayName>zhou2008</PublisherDisplayName>
     <Logo>Assets\NewStoreLogo.png</Logo>
   </Properties>
   <Dependencies>
