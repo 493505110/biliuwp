@@ -100,6 +100,28 @@ jobs:
           if ($x86File) { "x86_file=$(Split-Path $x86File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
           if ($x64File) { "x64_file=$(Split-Path $x64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
 
+      - name: Get commits since latest release
+        id: commits
+        if: steps.check.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 找最新正式版 tag(非 prerelease),计算 nightly 相对其领先的提交
+          latest=$(gh api "repos/${{ github.repository }}/releases" --jq '[.[] | select(.prerelease == false) | .tag_name][0]' 2>/dev/null || echo "none")
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ "$latest" != "null" ] && [ -n "$latest" ] && git rev-parse -q --verify "$latest" >/dev/null 2>&1; then
+            count=$(git rev-list --count "$latest..HEAD")
+            list=$(git log --oneline "$latest..HEAD" | head -20)
+            echo "count=$count" >> "$GITHUB_OUTPUT"
+            echo "list<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$list" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            echo "list=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Remove stale nightly release/tag
         if: steps.check.outputs.skip != 'true'
         shell: bash
@@ -122,12 +144,10 @@ jobs:
             - 配置: Release x86 + x64,自签名证书,启用 .NET Native
             - 固定标签 `nightly`,每次构建覆盖更新
 
-            首次安装(只需一次):
-            1. 下载并双击 **`biliuwp-signing.cer`** → 安装证书 → 本地计算机 → "受信任的根证书颁发机构"
-            2. 开启开发者模式(Win10):设置 → 更新和安全 → 开发者选项 → 开发人员模式
-            3. 双击下载的 .appx 安装,或 PowerShell: `Add-AppxPackage ${{ steps.packages.outputs.x86_file }}`（x64 机器选 `${{ steps.packages.outputs.x64_file }}`）
+            **相对正式版 ${{ steps.commits.outputs.latest }} 领先 ${{ steps.commits.outputs.count }} 个提交：**
+            ${{ steps.commits.outputs.list }}
 
-            之后更新直接覆盖安装,无需再次导入证书。
+            安装说明见 [README](https://github.com/${{ github.repository }}#安装)，之后更新直接覆盖安装,无需再次导入证书。
           files: ${{ steps.packages.outputs.files }}
           prerelease: true
           fail_on_unmatched_files: true
