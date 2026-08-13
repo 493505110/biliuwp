@@ -802,6 +802,7 @@
     <None Include="appx.pfx" />
     <None Include="BiliBili.UWP_TemporaryKey.pfx" />
     <None Include="Package.xml" />
+    <Content Include="..\CHANGELOG.md" Link="CHANGELOG.md" />
     <Content Include="Assets\page.png" />
     <Content Include="Properties\Default.rd.xml" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />

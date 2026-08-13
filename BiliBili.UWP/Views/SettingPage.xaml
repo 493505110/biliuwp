@@ -744,10 +744,28 @@
                     <TextBlock FontSize="16">更新日志</TextBlock>
                 </PivotItem.Header>
                 <ScrollViewer VerticalScrollMode="Auto" >
-                    <StackPanel  Margin="10">
-                        <TextBlock TextWrapping="Wrap" x:Name="txt_Ver"></TextBlock>
-                        
-                    </StackPanel>
+                    <ItemsControl x:Name="lst_Ver" Margin="10">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,20">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontSize="18" FontWeight="Bold" Text="{Binding Version}" Foreground="{ThemeResource SystemControlForegroundAccentBrush}"></TextBlock>
+                                        <TextBlock FontSize="14" Foreground="Gray" VerticalAlignment="Bottom" Margin="10,0,0,1" Text="{Binding Date}"></TextBlock>
+                                    </StackPanel>
+                                    <ItemsControl ItemsSource="{Binding Items}" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                    <TextBlock Text="•" Foreground="Gray" Margin="0,0,6,0" VerticalAlignment="Center"></TextBlock>
+                                                    <TextBlock TextWrapping="Wrap" Text="{Binding}"></TextBlock>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </ScrollViewer>
             </PivotItem>
         </Pivot>

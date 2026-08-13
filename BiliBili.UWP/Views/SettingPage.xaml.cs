@@ -246,7 +246,8 @@ namespace BiliBili.UWP.Views
 
                 }
 
-                txt_Ver.Text = AppHelper.verStr.Replace("/", "");
+                await AppHelper.LoadChangelogAsync();
+                lst_Ver.ItemsSource = AppHelper.Changelog;
                 pr_Load.Visibility = Visibility.Collapsed;
 
 

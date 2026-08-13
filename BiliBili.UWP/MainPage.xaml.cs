@@ -39,6 +39,7 @@ using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
+using Windows.UI.Text;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
 using static BiliBili.UWP.Helper.MusicHelper;
@@ -401,19 +402,48 @@ namespace BiliBili.UWP
 
             if (SettingHelper.Get_First())
             {
-                TextBlock tx = new TextBlock()
+                await AppHelper.LoadChangelogAsync();
+                var ver = AppHelper.Changelog.FirstOrDefault();
+                if (ver != null)
                 {
-                    Text = string.Format(@"{0}", AppHelper.GetLastVersionStr()),
-                    IsTextSelectionEnabled = true,
-                    TextWrapping = TextWrapping.Wrap
-                };
-                await new ContentDialog() { Content = tx, PrimaryButtonText = "知道了" }.ShowAsync();
-
-
+                    StackPanel sp = new StackPanel();
+                    StackPanel titleRow = new StackPanel() { Orientation = Orientation.Horizontal };
+                    titleRow.Children.Add(new TextBlock()
+                    {
+                        Text = ver.Version,
+                        FontSize = 18,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = (Brush)Application.Current.Resources["SystemControlForegroundAccentBrush"]
+                    });
+                    titleRow.Children.Add(new TextBlock()
+                    {
+                        Text = ver.Date,
+                        FontSize = 14,
+                        Foreground = new SolidColorBrush(Colors.Gray),
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(10, 0, 0, 1)
+                    });
+                    sp.Children.Add(titleRow);
+                    foreach (var item in ver.Items)
+                    {
+                        StackPanel row = new StackPanel() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
+                        row.Children.Add(new TextBlock()
+                        {
+                            Text = "•",
+                            Foreground = new SolidColorBrush(Colors.Gray),
+                            Margin = new Thickness(0, 0, 6, 0),
+                            VerticalAlignment = VerticalAlignment.Center
+                        });
+                        row.Children.Add(new TextBlock() { Text = item, TextWrapping = TextWrapping.Wrap });
+                        sp.Children.Add(row);
+                    }
+                    await new ContentDialog() { Content = sp, PrimaryButtonText = "知道了" }.ShowAsync();
+                }
+                else
+                {
+                    await new ContentDialog() { Content = AppHelper.GetLastVersionStr(), PrimaryButtonText = "知道了" }.ShowAsync();
+                }
                 SettingHelper.Set_First(false);
-
-
-
             }
 
 
