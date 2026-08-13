@@ -72,6 +72,7 @@ namespace BiliBili.UWP.Pages
         MediaPlayer mediaPlayer;
         MediaPlayer mediaPlayer_audio;
         PlayerAPI playerAPI;
+        bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
             this.InitializeComponent();
@@ -303,6 +304,11 @@ namespace BiliBili.UWP.Pages
                         //mediaElement.MediaPlayer.PlaybackSession.();
                         Utils.ShowMessageToast("3秒后播放下一集", 3000);
                         await Task.Delay(3000);
+                        //等待期间用户可能已退出播放页,不再继续播放下一集
+                        if (_isExiting)
+                        {
+                            return;
+                        }
                         gv_play.SelectedIndex += 1;
                     }
                 }
@@ -505,6 +511,7 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
+                _isExiting = true;
                 ReleaseSystemMediaTransportControls();
                 MusicHelper.ActivatePausedMusic();
                 ClosePlayer();
@@ -2743,6 +2750,11 @@ namespace BiliBili.UWP.Pages
                     //mediaElement.MediaPlayer.PlaybackSession.();
                     Utils.ShowMessageToast("3秒后播放下一集", 3000);
                     await Task.Delay(3000);
+                    //等待期间用户可能已退出播放页,不再继续播放下一集
+                    if (_isExiting)
+                    {
+                        return;
+                    }
                     gv_play.SelectedIndex += 1;
                 }
             }
