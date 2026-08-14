@@ -14,7 +14,7 @@
             <RowDefinition/>
         </Grid.RowDefinitions>
        
-        <Grid Grid.Row="1" VerticalAlignment="Center" MaxWidth="400" Margin="20 0">
+        <Grid x:Name="grid_Main" Grid.Row="1" VerticalAlignment="Center" MaxWidth="400" Margin="20 0" SizeChanged="Grid_Main_SizeChanged">
             <Grid.RowDefinitions>
                 <RowDefinition Height="auto"/>
                 <RowDefinition Height="auto"/>
@@ -28,7 +28,7 @@
             </StackPanel>
 
             <AutoSuggestBox x:Name="txt_auto_Find" QuerySubmitted="autoSug_Box_QuerySubmitted" TextChanged="autoSug_Box_TextChanged" SuggestionChosen="autoSug_Box_SuggestionChosen" Grid.Row="1" Style="{StaticResource AutoSearchBox}"  BorderThickness="1" BorderBrush="Gray" QueryIcon="Find" PlaceholderText="输入关键字搜索或输入URL跳转" Margin="0 10"></AutoSuggestBox>
-            <GridView ItemClick="GridView_ItemClick" Grid.Row="2"  HorizontalAlignment="Center" IsItemClickEnabled="True" SelectionMode="None">
+            <GridView x:Name="gv_Menu1" ItemClick="GridView_ItemClick" Grid.Row="2"  HorizontalAlignment="Center" IsItemClickEnabled="True" SelectionMode="None">
                 <GridViewItem Margin="20" Foreground="{ThemeResource Bili-Highlight-TextColor}" >
                     <StackPanel Tag="yh">
                         <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE13D;" FontSize="24" Margin="0 5"/>
@@ -55,7 +55,7 @@
                 </GridViewItem>
                 
             </GridView>
-            <GridView Grid.Row="3" ItemClick="GridView_ItemClick_1" HorizontalAlignment="Center"  IsItemClickEnabled="True" SelectionMode="None">
+            <GridView x:Name="gv_Menu2" Grid.Row="3" ItemClick="GridView_ItemClick_1" HorizontalAlignment="Center"  IsItemClickEnabled="True" SelectionMode="None">
                 <GridViewItem Margin="20" Foreground="{ThemeResource Bili-Highlight-TextColor}" >
                     <StackPanel Tag="fs">
                         <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE163;" FontSize="24" Margin="0 5"/>
@@ -83,7 +83,7 @@
                 </GridViewItem>
 
             </GridView>
-            <GridView ItemClick="GridView_ItemClick_2" Grid.Row="4" HorizontalAlignment="Center" IsItemClickEnabled="True" SelectionMode="None">
+            <GridView x:Name="gv_Menu3" ItemClick="GridView_ItemClick_2" Grid.Row="4" HorizontalAlignment="Center" IsItemClickEnabled="True" SelectionMode="None">
                 <GridViewItem Margin="20" Foreground="{ThemeResource Bili-Highlight-TextColor}" >
                     <StackPanel Tag="tj">
                         <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE116;" FontSize="24" Margin="0 5"/>
@@ -111,7 +111,7 @@
                 </GridViewItem>
 
             </GridView>
-            <GridView ItemClick="GridView_ItemClick_3" Grid.Row="5" HorizontalAlignment="Center" IsItemClickEnabled="True" SelectionMode="None">
+            <GridView x:Name="gv_Menu4" ItemClick="GridView_ItemClick_3" Grid.Row="5" HorizontalAlignment="Center" IsItemClickEnabled="True" SelectionMode="None">
                 <GridViewItem Margin="20" Foreground="{ThemeResource Bili-Highlight-TextColor}" >
                     <StackPanel Tag="ht">
                         <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE134;" FontSize="24" Margin="0 5"/>

@@ -39,6 +39,17 @@ namespace BiliBili.UWP.Pages
             this.NavigationCacheMode = NavigationCacheMode.Required;
         }
 
+        private void Grid_Main_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // 4列需要约384px(内容56+边距40/项),不足则整体隐藏,避免被挤压成3列
+            const double minGridWidth = 400;
+            var vis = e.NewSize.Width >= minGridWidth ? Visibility.Visible : Visibility.Collapsed;
+            gv_Menu1.Visibility = vis;
+            gv_Menu2.Visibility = vis;
+            gv_Menu3.Visibility = vis;
+            gv_Menu4.Visibility = vis;
+        }
+
         private void MessageCenter_HideAdEvent(object sender, EventArgs e)
         {
            
