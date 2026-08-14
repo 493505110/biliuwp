@@ -94,6 +94,10 @@ namespace BiliBili.UWP.Pages
                 GetMessage();
                 GetSessions();
                 MessageCenter.SendMessage("private:all");
+                // 全部已读：回复/@/赞/通知同样本地清零，主页红点立即消失
+                MessageUnreadState.ClearAll();
+                UpdateUnreadBadges();
+                MessageCenter.SendMessage("feed:all");
             }
             else
             {
@@ -107,6 +111,9 @@ namespace BiliBili.UWP.Pages
             var tag = e as string;
             if (tag != null && tag.StartsWith("private:"))
             {
+                // 私信已读：本地清零并立即刷新本页 tab 红点
+                MessageUnreadState.ClearPrivate();
+                UpdateUnreadBadges();
                 var rid = tag.Substring("private:".Length);
                 var sessions = list_ChatMe.ItemsSource as IEnumerable<MessageChatModel>;
                 if (sessions != null)
@@ -120,6 +127,28 @@ namespace BiliBili.UWP.Pages
                     }
                     list_ChatMe.ItemsSource = sessions.ToList();
                 }
+            }
+            else if (tag != null && tag.StartsWith("feed:"))
+            {
+                switch (tag.Substring("feed:".Length))
+                {
+                    case "reply":
+                        MessageUnreadState.ClearReply();
+                        break;
+                    case "at":
+                        MessageUnreadState.ClearAt();
+                        break;
+                    case "like":
+                        MessageUnreadState.ClearLike();
+                        break;
+                    case "notice":
+                        MessageUnreadState.ClearNotice();
+                        break;
+                    case "all":
+                        MessageUnreadState.ClearAll();
+                        break;
+                }
+                UpdateUnreadBadges();
             }
         }
 
@@ -172,6 +201,13 @@ namespace BiliBili.UWP.Pages
                     item.reply_time,
                     FirstText(item.item?.source_content, item.item?.root_reply_content, item.item?.target_reply_content)))
                     .ToList();
+                if (data != null)
+                {
+                    // 查看即已读：本地清零避免未读接口缓存延迟导致红点残留
+                    MessageUnreadState.ClearReply();
+                    UpdateUnreadBadges();
+                    MessageCenter.SendMessage("feed:reply");
+                }
             }
             finally
             {
@@ -192,6 +228,12 @@ namespace BiliBili.UWP.Pages
                     item.at_time,
                     item.item?.source_content))
                     .ToList();
+                if (data != null)
+                {
+                    MessageUnreadState.ClearAt();
+                    UpdateUnreadBadges();
+                    MessageCenter.SendMessage("feed:at");
+                }
             }
             finally
             {
@@ -217,6 +259,12 @@ namespace BiliBili.UWP.Pages
                     }
                     return display;
                 }).ToList();
+                if (data != null)
+                {
+                    MessageUnreadState.ClearLike();
+                    UpdateUnreadBadges();
+                    MessageCenter.SendMessage("feed:like");
+                }
             }
             finally
             {
@@ -238,6 +286,12 @@ namespace BiliBili.UWP.Pages
                     content = ParseNoticeContent(item.content),
                     time_at = item.time_at
                 }).ToList();
+                if (data != null)
+                {
+                    MessageUnreadState.ClearNotice();
+                    UpdateUnreadBadges();
+                    MessageCenter.SendMessage("feed:notice");
+                }
             }
             finally
             {
@@ -289,17 +343,10 @@ namespace BiliBili.UWP.Pages
                 var feed = await ReadData<MessageFeedUnreadModel>(feedRequest.Result, "读取通知失败");
                 var privateUnread = await ReadData<MessagePrivateUnreadModel>(privateRequest.Result, "读取私信未读数失败");
                 var groupUnread = await ReadData<MessageGroupUnreadModel>(groupRequest.Result, "读取粉丝团未读数失败");
-                if (feed != null)
+                if (feed != null || privateUnread != null || groupUnread != null)
                 {
-                    SetUnreadVisibility(bor_HF, feed.recv_reply);
-                    SetUnreadVisibility(bor_At, feed.at);
-                    SetUnreadVisibility(bor_Zan, feed.recv_like);
-                    SetUnreadVisibility(bor_TZ, feed.sys_msg);
-                }
-
-                if (privateUnread != null || groupUnread != null)
-                {
-                    SetUnreadVisibility(bor_SX, (privateUnread?.Total ?? 0) + (groupUnread?.unread_count ?? 0));
+                    MessageUnreadState.MergeFromApi(feed, privateUnread, groupUnread);
+                    UpdateUnreadBadges();
                 }
             }
             catch (Exception ex)
@@ -507,6 +554,18 @@ namespace BiliBili.UWP.Pages
             {
                 pr_Load.Visibility = Visibility.Collapsed;
             }
+        }
+
+        /// <summary>
+        /// 从共享未读状态刷新 5 个 tab 右上角的红点
+        /// </summary>
+        private void UpdateUnreadBadges()
+        {
+            SetUnreadVisibility(bor_HF, MessageUnreadState.Feed.recv_reply);
+            SetUnreadVisibility(bor_At, MessageUnreadState.Feed.at);
+            SetUnreadVisibility(bor_Zan, MessageUnreadState.Feed.recv_like);
+            SetUnreadVisibility(bor_TZ, MessageUnreadState.Feed.sys_msg);
+            SetUnreadVisibility(bor_SX, MessageUnreadState.Private.Total + MessageUnreadState.Group.unread_count);
         }
 
         private static void SetUnreadVisibility(UIElement element, int count)

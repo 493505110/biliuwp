@@ -401,6 +401,7 @@
     <Compile Include="Models\FaceModels.cs" />
     <Compile Include="Models\HomeModels.cs" />
     <Compile Include="Models\LiveModels.cs" />
+    <Compile Include="Models\MessageUnreadState.cs" />
     <Compile Include="Models\PlayModels.cs" />
     <Compile Include="Models\ReturnModel.cs" />
     <Compile Include="Models\UserModels.cs" />

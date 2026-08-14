@@ -752,8 +752,30 @@ namespace BiliBili.UWP
             if (tag != null && tag.StartsWith("private:"))
             {
                 // 私信已读，本地清零避免API缓存延迟导致红点残留
-                privateMessageUnread = new MessagePrivateUnreadModel();
-                groupMessageUnread = new MessageGroupUnreadModel();
+                MessageUnreadState.ClearPrivate();
+                UpdateMessageDot();
+            }
+            else if (tag != null && tag.StartsWith("feed:"))
+            {
+                // 消息中心查看列表后按类别本地清零，主页红点立即刷新
+                switch (tag.Substring("feed:".Length))
+                {
+                    case "reply":
+                        MessageUnreadState.ClearReply();
+                        break;
+                    case "at":
+                        MessageUnreadState.ClearAt();
+                        break;
+                    case "like":
+                        MessageUnreadState.ClearLike();
+                        break;
+                    case "notice":
+                        MessageUnreadState.ClearNotice();
+                        break;
+                    case "all":
+                        MessageUnreadState.ClearAll();
+                        break;
+                }
                 UpdateMessageDot();
             }
             else
@@ -763,12 +785,7 @@ namespace BiliBili.UWP
         }
         private void UpdateMessageDot()
         {
-            var has = messageFeedUnread.recv_reply > 0
-                || messageFeedUnread.at > 0
-                || messageFeedUnread.recv_like > 0
-                || messageFeedUnread.sys_msg > 0
-                || privateMessageUnread.Total > 0
-                || groupMessageUnread.unread_count > 0;
+            var has = MessageUnreadState.HasUnread();
             bor_TZ.Visibility = has
                 ? Visibility.Visible
                 : Visibility.Collapsed;
@@ -814,9 +831,6 @@ namespace BiliBili.UWP
         }
 
         readonly MessageAPI messageAPI = new MessageAPI();
-        MessageFeedUnreadModel messageFeedUnread = new MessageFeedUnreadModel();
-        MessagePrivateUnreadModel privateMessageUnread = new MessagePrivateUnreadModel();
-        MessageGroupUnreadModel groupMessageUnread = new MessageGroupUnreadModel();
         DateTimeOffset lastPrivateUnreadCheck = DateTimeOffset.MinValue;
         bool checkingMessages;
         private async Task<bool> HasMessage()
@@ -825,9 +839,7 @@ namespace BiliBili.UWP
             {
                 if (!ApiHelper.IsLogin() || string.IsNullOrEmpty(Account.GetCookieValue("SESSDATA")))
                 {
-                    messageFeedUnread = new MessageFeedUnreadModel();
-                    privateMessageUnread = new MessagePrivateUnreadModel();
-                    groupMessageUnread = new MessageGroupUnreadModel();
+                    MessageUnreadState.Reset();
                     lastPrivateUnreadCheck = DateTimeOffset.MinValue;
                     return false;
                 }
@@ -838,7 +850,7 @@ namespace BiliBili.UWP
                     var feedResult = await feedResponse.GetData<MessageFeedUnreadModel>();
                     if (feedResult != null && feedResult.success && feedResult.data != null)
                     {
-                        messageFeedUnread = feedResult.data;
+                        MessageUnreadState.MergeFromApi(feedResult.data, null, null);
                     }
                 }
 
@@ -855,7 +867,7 @@ namespace BiliBili.UWP
                         var privateResult = await privateResponse.GetData<MessagePrivateUnreadModel>();
                         if (privateResult != null && privateResult.success && privateResult.data != null)
                         {
-                            privateMessageUnread = privateResult.data;
+                            MessageUnreadState.MergeFromApi(null, privateResult.data, null);
                         }
                     }
 
@@ -865,17 +877,12 @@ namespace BiliBili.UWP
                         var groupResult = await groupResponse.GetData<MessageGroupUnreadModel>();
                         if (groupResult != null && groupResult.success && groupResult.data != null)
                         {
-                            groupMessageUnread = groupResult.data;
+                            MessageUnreadState.MergeFromApi(null, null, groupResult.data);
                         }
                     }
                 }
 
-                return messageFeedUnread.recv_reply > 0
-                    || messageFeedUnread.at > 0
-                    || messageFeedUnread.recv_like > 0
-                    || messageFeedUnread.sys_msg > 0
-                    || privateMessageUnread.Total > 0
-                    || groupMessageUnread.unread_count > 0;
+                return MessageUnreadState.HasUnread();
             }
             catch (Exception)
             {
