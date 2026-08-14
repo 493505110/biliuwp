@@ -462,10 +462,23 @@ namespace BiliBili.UWP.Controls
                 return false;
             }
 
+            if (IsOnlyMention(message))
+            {
+                return true;
+            }
+
             return SettingHelper.Get_CommentFilterWords()
                 .Split('|')
                 .Where(word => !string.IsNullOrEmpty(word))
                 .Any(message.Contains);
+        }
+
+        /// <summary>
+        /// 判断评论内容是否仅包含 @用户名（如 "@风澪"、"@a @b"），无实质文字内容
+        /// </summary>
+        private static bool IsOnlyMention(string message)
+        {
+            return Regex.IsMatch(message.Trim(), @"^(@\S+\s*)+$");
         }
 
         private async void doLike(CommentModel data)
