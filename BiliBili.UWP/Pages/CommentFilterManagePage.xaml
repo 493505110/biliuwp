@@ -1,0 +1,41 @@
+﻿<Page
+    x:Class="BiliBili.UWP.Pages.CommentFilterManagePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Grid Background="{ThemeResource Bili-Background}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48"/>
+            <RowDefinition/>
+        </Grid.RowDefinitions>
+        <Grid Background="{ThemeResource Bili-ForeColor}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="auto"/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <AppBarButton x:Name="btn_Back" Click="btn_Back_Click" Foreground="White" Width="48" Icon="Back" Height="48"/>
+            <TextBlock Grid.Column="1" Text="评论屏蔽词" TextTrimming="CharacterEllipsis" Margin="5 0" VerticalAlignment="Center" Foreground="White"/>
+        </Grid>
+        <Grid Grid.Row="1" Margin="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="auto"/>
+                <RowDefinition Height="auto"/>
+                <RowDefinition/>
+                <RowDefinition Height="auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock FontSize="18" Margin="5">评论屏蔽关键词管理</TextBlock>
+            <Grid Grid.Row="1" Margin="5 0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox BorderThickness="0" x:Name="txt_FilterWord"/>
+                <Button Grid.Column="1" x:Name="btn_AddFilterWord" Click="btn_AddFilterWord_Click" Content="添加"/>
+            </Grid>
+            <ListView x:Name="list_FilterWord" SelectionMode="Multiple" Grid.Row="2"/>
+            <Button Margin="5" Grid.Row="3" x:Name="btn_DeleteFilterWord" Click="btn_DeleteFilterWord_Click" Content="删除选中" HorizontalAlignment="Left"/>
+        </Grid>
+    </Grid>
+</Page>

@@ -455,6 +455,10 @@
                                 <HyperlinkButton Padding="0 10" x:Name="btn_GoManage" Click="btn_GoManage_Click">进入管理</HyperlinkButton>
                               
                             </StackPanel>
+                            <TextBlock FontSize="16" Margin="0 10 0 0">评论屏蔽词</TextBlock>
+                            <StackPanel Orientation="Horizontal">
+                                <HyperlinkButton Padding="0 10" x:Name="btn_GoCommentFilterManage" Click="btn_GoCommentFilterManage_Click">进入管理</HyperlinkButton>
+                            </StackPanel>
                             <TextBlock FontSize="16" Margin="0 10 0 0">弹幕</TextBlock>
                           
                             <Grid Margin="0 10 0 0" >

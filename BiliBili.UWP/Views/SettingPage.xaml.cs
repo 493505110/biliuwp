@@ -477,6 +477,11 @@ namespace BiliBili.UWP.Views
             this.Frame.Navigate(typeof(DMHideManagePage));
         }
 
+        private void btn_GoCommentFilterManage_Click(object sender, RoutedEventArgs e)
+        {
+            this.Frame.Navigate(typeof(CommentFilterManagePage));
+        }
+
         private void sw_RefreshButton_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_RefreshButton(sw_RefreshButton.IsOn);

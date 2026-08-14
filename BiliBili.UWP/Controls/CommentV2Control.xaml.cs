@@ -308,14 +308,21 @@ namespace BiliBili.UWP.Controls
                 dataCommentModel m = JsonConvert.DeserializeObject<dataCommentModel>(re);
                 if (m.code == 0)
                 {
+                    var replyCount = m.data.replies?.Count ?? 0;
+                    if (m.data.replies != null)
+                    {
+                        m.data.replies = new ObservableCollection<CommentModel>(
+                            m.data.replies.Where(item => !IsCommentFiltered(item)));
+                    }
 
 
-                    if (m.data.replies != null && m.data.replies.Count != 0)
+                    if (m.data.replies != null && (m.data.replies.Count != 0
+                        || (_page == 1 && m.data.upper.top != null && !IsCommentFiltered(m.data.upper.top))))
                     {
                         var topRpid = 0L;
                         if (_page == 1)
                         {
-                            if (m.data.upper.top != null)
+                            if (m.data.upper.top != null && !IsCommentFiltered(m.data.upper.top))
                             {
                                 m.data.upper.top.showTop = Visibility.Visible;
                                 m.data.replies.Insert(0, m.data.upper.top);
@@ -340,12 +347,15 @@ namespace BiliBili.UWP.Controls
                         {
                             foreach (var item in m.data.replies)
                             {
-                                (ls_new.ItemsSource as ObservableCollection<CommentModel>).Add(item);
+                                if (!IsCommentFiltered(item))
+                                {
+                                    (ls_new.ItemsSource as ObservableCollection<CommentModel>).Add(item);
+                                }
                             }
                         }
                         _page++;
 
-                        if (m.data.replies.Count >= 20)
+                        if (replyCount >= 20)
                         {
                             btn_LoadMore.Visibility = Visibility.Visible;
                         }
@@ -420,7 +430,10 @@ namespace BiliBili.UWP.Controls
                         }
                         foreach (var item in m.data.replies)
                         {
-                            data.replies.Add(item);
+                            if (!IsCommentFiltered(item))
+                            {
+                                data.replies.Add(item);
+                            }
                         }
                         data.loadpage++;
                     }
@@ -439,6 +452,20 @@ namespace BiliBili.UWP.Controls
             {
                 data.showLoading = Visibility.Collapsed;
             }
+        }
+
+        private bool IsCommentFiltered(CommentModel comment)
+        {
+            var message = comment?.content?.message;
+            if (string.IsNullOrEmpty(message))
+            {
+                return false;
+            }
+
+            return SettingHelper.Get_CommentFilterWords()
+                .Split('|')
+                .Where(word => !string.IsNullOrEmpty(word))
+                .Any(message.Contains);
         }
 
         private async void doLike(CommentModel data)

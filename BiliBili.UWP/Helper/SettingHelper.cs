@@ -1077,6 +1077,25 @@ namespace BiliBili.UWP
             }
         }
 
+        public static void Set_CommentFilterWords(string value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["CommentFilterWords"] = value;
+        }
+
+        public static string Get_CommentFilterWords()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["CommentFilterWords"] != null)
+            {
+                return (string)container.Values["CommentFilterWords"];
+            }
+            else
+            {
+                return string.Empty;
+            }
+        }
+
         public static void Set_Yonghu(string value)
         {
             container = ApplicationData.Current.LocalSettings;

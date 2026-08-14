@@ -446,6 +446,9 @@
     <Compile Include="Pages\DMHideManagePage.xaml.cs">
       <DependentUpon>DMHideManagePage.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Pages\CommentFilterManagePage.xaml.cs">
+      <DependentUpon>CommentFilterManagePage.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Pages\Download2Page.xaml.cs">
       <DependentUpon>Download2Page.xaml</DependentUpon>
     </Compile>
@@ -903,6 +906,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\DMHideManagePage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Pages\CommentFilterManagePage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
