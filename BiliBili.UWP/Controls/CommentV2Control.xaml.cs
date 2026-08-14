@@ -859,6 +859,11 @@ namespace BiliBili.UWP.Controls
         public CommentModel top { get; set; }
 
     }
+    public class ReplyControlModel
+    {
+        public string location { get; set; }
+    }
+
     public class CommentModel : INotifyPropertyChanged
     {
 
@@ -891,6 +896,22 @@ namespace BiliBili.UWP.Controls
             }
         }
 
+
+        public ReplyControlModel reply_control { get; set; }
+
+        /// <summary>IP属地(reply_control.location,格式"IP属地：xx");老评论无此字段时返回空</summary>
+        public string location_text
+        {
+            get
+            {
+                var loc = reply_control?.location;
+                if (string.IsNullOrEmpty(loc))
+                {
+                    return "";
+                }
+                return loc.Replace("IP属地：", "").Replace("IP属地:", "");
+            }
+        }
 
         public long rpid { get; set; }
         public long oid { get; set; }
