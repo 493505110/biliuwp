@@ -3,7 +3,7 @@ name: Nightly Build
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'   # 每天北京时间 00:00
+    - cron: '30 23 * * *'   # 每天北京时间 23:30
       timezone: Asia/Shanghai
 
 jobs:
@@ -132,7 +132,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete nightly --repo "${{ github.repository }}" --yes 2>/dev/null || true
-          gh api -X DELETE "/repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
+          # 强制把 nightly tag 移到当前 HEAD:本地 git 操作最可靠
+          # (gh api PATCH 有参数类型/权限坑,曾导致 tag 停在旧提交、release 指向旧代码)
+          git tag -f nightly "$GITHUB_SHA"
+          # URL 内嵌 token 认证(extraheader 构造方式在 runner 上返回 400)
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" nightly --force
 
       - name: Publish nightly release
         if: steps.check.outputs.skip != 'true'
