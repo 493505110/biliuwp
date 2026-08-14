@@ -30,7 +30,7 @@
         <Pivot Grid.Row="1">
             <PivotItem Margin="0">
                 <PivotItem.Header>
-                    <TextBlock FontSize="16">关键字</TextBlock>
+                    <TextBlock FontSize="16">关键词</TextBlock>
                 </PivotItem.Header>
                 <Grid x:Name="grid_Guanjianzi" Margin="10">
                     <Grid.RowDefinitions>
@@ -40,7 +40,7 @@
                         <RowDefinition Height="auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock FontSize="18" Margin="5">
-								<Run Text="弹幕屏蔽关键字管理"/>
+								<Run Text="弹幕屏蔽关键词管理"/>
                     </TextBlock>
                     <Grid Grid.Row="1" Margin="5 0">
                         <Grid.ColumnDefinitions>
