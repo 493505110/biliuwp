@@ -426,15 +426,22 @@ namespace BiliBili.UWP
                     sp.Children.Add(titleRow);
                     foreach (var item in ver.Items)
                     {
-                        StackPanel row = new StackPanel() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
-                        row.Children.Add(new TextBlock()
+                        // 用 Grid 替代横向 StackPanel,给条目 TextBlock 限定宽度,长条目才能换行显示
+                        Grid row = new Grid() { Margin = new Thickness(0, 3, 0, 0) };
+                        row.ColumnDefinitions.Add(new ColumnDefinition() { Width = GridLength.Auto });
+                        row.ColumnDefinitions.Add(new ColumnDefinition() { Width = new GridLength(1, GridUnitType.Star) });
+                        var bullet = new TextBlock()
                         {
                             Text = "•",
                             Foreground = new SolidColorBrush(Colors.Gray),
                             Margin = new Thickness(0, 0, 6, 0),
                             VerticalAlignment = VerticalAlignment.Center
-                        });
-                        row.Children.Add(new TextBlock() { Text = item, TextWrapping = TextWrapping.Wrap });
+                        };
+                        Grid.SetColumn(bullet, 0);
+                        var itemText = new TextBlock() { Text = item, TextWrapping = TextWrapping.Wrap };
+                        Grid.SetColumn(itemText, 1);
+                        row.Children.Add(bullet);
+                        row.Children.Add(itemText);
                         sp.Children.Add(row);
                     }
                     await new ContentDialog() { Content = sp, PrimaryButtonText = "知道了" }.ShowAsync();
