@@ -123,14 +123,18 @@ namespace BiliBili.UWP.Views
             }
         }
 
-        private void autoSug_Box_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+        private async void autoSug_Box_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
             if (string.IsNullOrEmpty(txt_auto_Find.Text))
             {
                 Utils.ShowMessageToast("关键字不能为空");
                 return;
             }
-            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(SearchV2Page), new object[] { txt_auto_Find .Text});
+            if (await MessageCenter.HandelUrl(txt_auto_Find.Text))
+            {
+                return;
+            }
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(SearchV2Page), new object[] { txt_auto_Find.Text });
         }
 
         private void Find_btn_Rank_Click(object sender, RoutedEventArgs e)

@@ -147,12 +147,22 @@ namespace BiliBili.UWP
                 InfoNavigateToEvent(typeof(VideoViewPage), video);
                 return true;
             }
-            //video = Utils.RegexMatch(url.Replace("aid", "av").Replace("/","").Replace("=",""), @"av(\d+)");
-            //if (video!="")
-            //{
-            //    InfoNavigateToEvent(typeof(VideoViewPage), video);
-            //    return true;
-            //}
+            // av号精确匹配:纯输入"av170001"/"AV170001"、URL参数"?av=123"/"?aid=123"、URL路径"/av123"
+            // 不能用全串搜 av(\d+),会误匹配 "inav2" 等子串导致跳到 av2
+            video = Utils.RegexMatch(url.Trim(), @"^[aA][vV](\d+)$");
+            if (video == "")
+            {
+                video = Utils.RegexMatch(url, @"(?:^|[?&])(?:av|aid)=(\d+)");
+            }
+            if (video == "")
+            {
+                video = Utils.RegexMatch(url, @"/av(\d+)");
+            }
+            if (video != "")
+            {
+                InfoNavigateToEvent(typeof(VideoViewPage), video);
+                return true;
+            }
             video = Utils.RegexMatch(url, @"avid=(\d+)");
             if (video != "")
             {
