@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check for new commits (skip if nightly is current)
         id: check
@@ -147,8 +149,6 @@ jobs:
 
             **相对正式版 ${{ steps.commits.outputs.latest }} 领先 ${{ steps.commits.outputs.count }} 个提交：**
             ${{ steps.commits.outputs.list }}
-
-            安装说明见 [README](https://github.com/${{ github.repository }}#安装)，之后更新直接覆盖安装,无需再次导入证书。
           files: ${{ steps.packages.outputs.files }}
           prerelease: true
           fail_on_unmatched_files: true
