@@ -73,13 +73,14 @@ jobs:
         id: changelog
         shell: bash
         run: |
-          # tag 形如 v3.14.0 -> 提取 CHANGELOG.md 中 "## 3.14.0" 段落
+          # tag 形如 v3.14.0 -> 提取 CHANGELOG.md 中 "## 3.14.0" 段落（跳过版本标题行，仅保留条目）
           VER="${GITHUB_REF_NAME#v}"
           echo "ver=$VER"
           awk -v v="$VER" '
             /^## / {
               if (found) exit
               if ($0 ~ "^## " v "([ (]|$)") found = 1
+              next
             }
             found { print }
           ' CHANGELOG.md > changelog_section.md
