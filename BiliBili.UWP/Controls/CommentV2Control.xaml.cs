@@ -462,7 +462,7 @@ namespace BiliBili.UWP.Controls
                 return false;
             }
 
-            if (IsOnlyMention(message))
+            if (SettingHelper.Get_OnlyMentionFilter() && IsOnlyMention(message))
             {
                 return true;
             }

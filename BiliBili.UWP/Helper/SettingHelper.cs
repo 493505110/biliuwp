@@ -1096,6 +1096,25 @@ namespace BiliBili.UWP
             }
         }
 
+        public static void Set_OnlyMentionFilter(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["OnlyMentionFilter"] = value;
+        }
+
+        public static bool Get_OnlyMentionFilter()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["OnlyMentionFilter"] != null)
+            {
+                return (bool)container.Values["OnlyMentionFilter"];
+            }
+            else
+            {
+                return false;
+            }
+        }
+
         public static void Set_Yonghu(string value)
         {
             container = ApplicationData.Current.LocalSettings;

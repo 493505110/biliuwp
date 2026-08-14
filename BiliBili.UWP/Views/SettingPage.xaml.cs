@@ -99,6 +99,7 @@ namespace BiliBili.UWP.Views
                 sw_DanmuBorder.IsOn = SettingHelper.Get_DMBorder();
                 sw_Use4GDown.IsOn = SettingHelper.Get_Use4GDown();
                 sw_RefreshButton.IsOn = SettingHelper.Get_RefreshButton();
+                sw_OnlyMentionFilter.IsOn = SettingHelper.Get_OnlyMentionFilter();
 
                 sw_Play4G.IsOn = SettingHelper.Get_Use4GPlay();
                 sw_BackgroundPlay.IsOn = SettingHelper.Get_BackPlay();
@@ -480,6 +481,11 @@ namespace BiliBili.UWP.Views
         private void btn_GoCommentFilterManage_Click(object sender, RoutedEventArgs e)
         {
             this.Frame.Navigate(typeof(CommentFilterManagePage));
+        }
+
+        private void sw_OnlyMentionFilter_Toggled(object sender, RoutedEventArgs e)
+        {
+            SettingHelper.Set_OnlyMentionFilter(sw_OnlyMentionFilter.IsOn);
         }
 
         private void sw_RefreshButton_Toggled(object sender, RoutedEventArgs e)
