@@ -238,6 +238,14 @@
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">首页推荐不显示竖屏视频</TextBlock>
                                 <ToggleSwitch x:Name="sw_HidePortraitRecommendations" Toggled="sw_HidePortraitRecommendations_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
                             </Grid>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">推荐视频时长范围(分钟,0=不限)</TextBlock>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBox x:Name="tb_DurationMin" Width="34" MinWidth="0" Height="30" MinHeight="0" Padding="6,4" FontSize="13" InputScope="Number" TextAlignment="Center" BorderThickness="1" TextChanged="tb_Duration_TextChanged"/>
+                                    <TextBlock Text="~" FontSize="18" VerticalAlignment="Center" Margin="4,0"/>
+                                    <TextBox x:Name="tb_DurationMax" Width="34" MinWidth="0" Height="30" MinHeight="0" Padding="6,4" FontSize="13" InputScope="Number" TextAlignment="Center" BorderThickness="1" TextChanged="tb_Duration_TextChanged"/>
+                                </StackPanel>
+                            </Grid>
                             <Grid Margin="0 10 0 0" >
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">PC右侧显示(重启生效)</TextBlock>
                                 <ComboBox  x:Name="cb_Rigth" SelectionChanged="cb_Rigth_SelectionChanged" Margin="2 0" HorizontalAlignment="Right"  Grid.Column="0"  VerticalAlignment="Center" Background="#00424959"  BorderThickness="0"  >

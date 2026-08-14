@@ -120,6 +120,42 @@ namespace BiliBili.UWP
             container.Values["HidePortraitRecommendations"] = value;
         }
 
+        public static int Get_RecommendDurationMin()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["RecommendDurationMin"] != null)
+            {
+                return (int)container.Values["RecommendDurationMin"];
+            }
+
+            Set_RecommendDurationMin(0);
+            return 0;
+        }
+
+        public static void Set_RecommendDurationMin(int value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["RecommendDurationMin"] = value;
+        }
+
+        public static int Get_RecommendDurationMax()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["RecommendDurationMax"] != null)
+            {
+                return (int)container.Values["RecommendDurationMax"];
+            }
+
+            Set_RecommendDurationMax(0);
+            return 0;
+        }
+
+        public static void Set_RecommendDurationMax(int value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["RecommendDurationMax"] = value;
+        }
+
 
         public static void Set_Rigth(int value)
         {

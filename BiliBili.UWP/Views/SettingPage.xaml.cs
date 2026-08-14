@@ -91,6 +91,8 @@ namespace BiliBili.UWP.Views
 
                 sw_ColunmHome.IsOn=SettingHelper.Get_ColunmHome();
                 sw_HidePortraitRecommendations.IsOn = SettingHelper.Get_HidePortraitRecommendations();
+                tb_DurationMin.Text = SettingHelper.Get_RecommendDurationMin().ToString();
+                tb_DurationMax.Text = SettingHelper.Get_RecommendDurationMax().ToString();
 
                 sw_LoadSe.IsOn = SettingHelper.Get_LoadSplash();
                 sw_CloseAD.IsOn = SettingHelper.Get_HideAD();
@@ -857,6 +859,23 @@ namespace BiliBili.UWP.Views
         private void sw_HidePortraitRecommendations_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_HidePortraitRecommendations(sw_HidePortraitRecommendations.IsOn);
+        }
+
+        private void tb_Duration_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender == tb_DurationMin)
+            {
+                SettingHelper.Set_RecommendDurationMin(ParseMinutes(tb_DurationMin.Text));
+            }
+            else if (sender == tb_DurationMax)
+            {
+                SettingHelper.Set_RecommendDurationMax(ParseMinutes(tb_DurationMax.Text));
+            }
+        }
+
+        private static int ParseMinutes(string text)
+        {
+            return int.TryParse(text?.Trim(), out var v) && v > 0 ? v : 0;
         }
 
         private void sw_SkipToHistory_Toggled(object sender, RoutedEventArgs e)

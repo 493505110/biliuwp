@@ -220,6 +220,8 @@ namespace BiliBili.UWP.Modules.Home
     {
         public static async Task<List<RecommendItemModel>> RemovePortraitAsync(List<RecommendItemModel> items, bool includeBanner = false)
         {
+            int minMinutes = SettingHelper.Get_RecommendDurationMin();
+            int maxMinutes = SettingHelper.Get_RecommendDurationMax();
             for (int i = items.Count - 1; i >= 0; i--)
             {
                 var item = items[i];
@@ -232,11 +234,36 @@ namespace BiliBili.UWP.Modules.Home
                 if (SettingHelper.Get_HidePortraitRecommendations() && await item.IsPortraitAsync())
                 {
                     items.RemoveAt(i);
+                    continue;
+                }
+
+                if ((minMinutes > 0 || maxMinutes > 0) && !string.IsNullOrEmpty(item.cover_right_text))
+                {
+                    int seconds = ParseDurationToSeconds(item.cover_right_text);
+                    if (seconds > 0)
+                    {
+                        int minutes = seconds / 60;
+                        if ((minMinutes > 0 && minutes < minMinutes) || (maxMinutes > 0 && minutes > maxMinutes))
+                        {
+                            items.RemoveAt(i);
+                        }
+                    }
                 }
             }
 
             return items;
         }
+
+        private static int ParseDurationToSeconds(string duration)
+        {
+            var parts = duration.Split(':');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var m) && int.TryParse(parts[1], out var s))
+                return m * 60 + s;
+            if (parts.Length == 3 && int.TryParse(parts[0], out var h) && int.TryParse(parts[1], out var m2) && int.TryParse(parts[2], out var s2))
+                return h * 3600 + m2 * 60 + s2;
+            return 0;
+        }
+
     }
 
 
