@@ -3,7 +3,8 @@ name: Nightly Build
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'   # 每天 UTC 00:00 = 北京时间 08:00
+    - cron: '0 0 * * *'   # 每天北京时间 00:00
+      timezone: Asia/Shanghai
 
 jobs:
   nightly:
