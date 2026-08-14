@@ -16,7 +16,7 @@
                 <ColumnDefinition/>
             </Grid.ColumnDefinitions>
             <AppBarButton x:Name="btn_Back" Click="btn_Back_Click" Foreground="White" Width="48" Icon="Back" Height="48"/>
-            <TextBlock Grid.Column="1" Text="评论屏蔽词" TextTrimming="CharacterEllipsis" Margin="5 0" VerticalAlignment="Center" Foreground="White"/>
+            <TextBlock Grid.Column="1" Text="评论屏蔽" TextTrimming="CharacterEllipsis" Margin="5 0" VerticalAlignment="Center" Foreground="White"/>
         </Grid>
         <Grid Grid.Row="1" Margin="10">
             <Grid.RowDefinitions>

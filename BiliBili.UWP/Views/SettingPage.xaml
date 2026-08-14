@@ -455,14 +455,6 @@
                                 <HyperlinkButton Padding="0 10" x:Name="btn_GoManage" Click="btn_GoManage_Click">进入管理</HyperlinkButton>
                               
                             </StackPanel>
-                            <TextBlock FontSize="16" Margin="0 10 0 0">评论屏蔽词</TextBlock>
-                            <StackPanel Orientation="Horizontal">
-                                <HyperlinkButton Padding="0 10" x:Name="btn_GoCommentFilterManage" Click="btn_GoCommentFilterManage_Click">进入管理</HyperlinkButton>
-                            </StackPanel>
-                            <Grid Margin="0 10 0 0">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">屏蔽仅@用户的评论</TextBlock>
-                                <ToggleSwitch x:Name="sw_OnlyMentionFilter" Toggled="sw_OnlyMentionFilter_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
-                            </Grid>
                             <TextBlock FontSize="16" Margin="0 10 0 0">弹幕</TextBlock>
                           
                             <Grid Margin="0 10 0 0" >
@@ -556,6 +548,25 @@
                                 </Grid>
                                 <Slider x:Name="slider_Num" ValueChanged="slider_Num_ValueChanged" Width="300" HorizontalAlignment="Left"  Maximum="100" />
                             </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </PivotItem>
+            <PivotItem Margin="0">
+                <PivotItem.Header>
+                    <TextBlock FontSize="16">评论</TextBlock>
+                </PivotItem.Header>
+                <ScrollViewer  VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="10">
+                        <StackPanel Margin="0 0 0 10">
+                            <TextBlock FontSize="16" Margin="0 10 0 0">评论屏蔽</TextBlock>
+                            <StackPanel Orientation="Horizontal">
+                                <HyperlinkButton Padding="0 10" x:Name="btn_GoCommentFilterManage" Click="btn_GoCommentFilterManage_Click">进入管理</HyperlinkButton>
+                            </StackPanel>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">屏蔽仅@用户的评论</TextBlock>
+                                <ToggleSwitch x:Name="sw_OnlyMentionFilter" Toggled="sw_OnlyMentionFilter_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
+                            </Grid>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
