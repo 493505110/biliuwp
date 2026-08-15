@@ -202,8 +202,8 @@
                                     <RowDefinition/>
                                     <RowDefinition/>
                                 </Grid.RowDefinitions>
-                                <TextBlock Margin="0 5" Text="{Binding title}"></TextBlock>
-                                <TextBlock Grid.Row="1" FontSize="14" TextWrapping="Wrap" Text="{Binding Content_Notiy}"></TextBlock>
+                                <TextBlock Margin="0 5" Text="{Binding title}" IsTextSelectionEnabled="True"></TextBlock>
+                                <TextBlock Grid.Row="1" FontSize="14" TextWrapping="Wrap" Text="{Binding Content_Notiy}" IsTextSelectionEnabled="True"></TextBlock>
                                 <TextBlock Grid.Row="2" FontSize="12" TextWrapping="Wrap" Foreground="Gray" HorizontalAlignment="Right" Margin="0 5" Text="{Binding time_at}"></TextBlock>
                             </Grid>
                         </DataTemplate>
