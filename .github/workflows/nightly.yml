@@ -6,6 +6,10 @@ on:
     - cron: '30 23 * * *'   # 每天北京时间 23:30
       timezone: Asia/Shanghai
 
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   nightly:
     name: Build & Publish Nightly
@@ -51,6 +55,15 @@ jobs:
       - name: Setup MSBuild
         if: steps.check.outputs.skip != 'true'
         uses: microsoft/setup-msbuild@v2
+
+      - name: Cache NuGet packages
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('BiliBili.UWP/**/*.csproj', '**/packages.config') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Restore NuGet
         if: steps.check.outputs.skip != 'true'
@@ -110,8 +123,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 找最新正式版 tag(非 prerelease),计算 nightly 相对其领先的提交
-          latest=$(gh api "repos/${{ github.repository }}/releases" --jq '[.[] | select(.prerelease == false) | .tag_name][0]' 2>/dev/null || echo "none")
+          # 找最新正式版(非 prerelease 非 draft):releases/latest 端点语义明确,不依赖列表排序
+          latest=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name' 2>/dev/null || echo "none")
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           if [ "$latest" != "null" ] && [ -n "$latest" ] && git rev-parse -q --verify "$latest" >/dev/null 2>&1; then
             count=$(git rev-list --count "$latest..HEAD")
@@ -125,18 +138,26 @@ jobs:
             echo "list=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Remove stale nightly release/tag
+      - name: Move nightly tag & clear stale assets
         if: steps.check.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete nightly --repo "${{ github.repository }}" --yes 2>/dev/null || true
           # 强制把 nightly tag 移到当前 HEAD:本地 git 操作最可靠
           # (gh api PATCH 有参数类型/权限坑,曾导致 tag 停在旧提交、release 指向旧代码)
           git tag -f nightly "$GITHUB_SHA"
           # URL 内嵌 token 认证(extraheader 构造方式在 runner 上返回 400)
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" nightly --force
+          # 复用现有 release(softprops 会更新 body 并覆盖同名资产),但版本号变化会残留旧资产
+          # 这里先清空该 release 的所有旧资产,再让 softprops 上传新文件
+          if gh release view nightly --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            asset_ids=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.assets[].id' 2>/dev/null || true)
+            for id in $asset_ids; do
+              echo "Deleting stale asset id=$id"
+              gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id" --silent || true
+            done
+          fi
 
       - name: Publish nightly release
         if: steps.check.outputs.skip != 'true'
