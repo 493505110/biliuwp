@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace BiliBili.UWP.Models
 {
@@ -31,6 +32,29 @@ namespace BiliBili.UWP.Models
                 || Feed.sys_msg > 0
                 || Private.Total > 0
                 || Group.unread_count > 0;
+        }
+
+        public static bool HasUnread(IEnumerable<MessageChatModel> sessions)
+        {
+            if (HasUnread())
+            {
+                return true;
+            }
+
+            if (sessions == null)
+            {
+                return false;
+            }
+
+            foreach (var session in sessions)
+            {
+                if (session != null && session.msg_count > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static void ClearReply()

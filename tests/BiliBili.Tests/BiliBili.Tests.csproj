@@ -27,6 +27,7 @@
     <Compile Include="..\..\BiliBili.UWP\Helper\SignHelper.cs" Link="Production\SignHelper.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\HomeModels.cs" Link="Production\HomeModels.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\UserModels.cs" Link="Production\UserModels.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Models\MessageUnreadState.cs" Link="Production\MessageUnreadState.cs" />
     <None Update="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

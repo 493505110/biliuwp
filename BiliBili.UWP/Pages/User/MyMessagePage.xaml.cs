@@ -67,15 +67,22 @@ namespace BiliBili.UWP.Pages
                 Utils.ShowMessageToast("无法获取登录凭证", 2000);
                 return;
             }
-            var sessions = list_ChatMe.ItemsSource as IEnumerable<MessageChatModel>;
-            if (sessions == null || !sessions.Any())
+            var sessionList = (list_ChatMe.ItemsSource as IEnumerable<MessageChatModel>)?.ToList();
+            if ((sessionList == null || sessionList.Count == 0)
+                && (MessageUnreadState.Private.Total > 0 || MessageUnreadState.Group.unread_count > 0))
             {
-                Utils.ShowMessageToast("没有可标记的会话", 2000);
+                sessionList = await LoadSessionList();
+                list_ChatMe.ItemsSource = sessionList;
+            }
+            var hasUnread = MessageUnreadState.HasUnread(sessionList);
+            if (!hasUnread)
+            {
+                Utils.ShowMessageToast("没有未读的消息", 2000);
                 return;
             }
             btn_MarkAllRead.IsEnabled = false;
             var count = 0;
-            foreach (var session in sessions)
+            foreach (var session in sessionList ?? Enumerable.Empty<MessageChatModel>())
             {
                 if (session.msg_count > 0 && long.TryParse(session.rid, out var talkerId))
                 {
@@ -85,24 +92,17 @@ namespace BiliBili.UWP.Pages
                 }
             }
             // 乐观更新：本地清零后立即重建列表，不依赖API缓存
-            list_ChatMe.ItemsSource = sessions.ToList();
+            list_ChatMe.ItemsSource = sessionList;
             SetUnreadVisibility(bor_SX, 0);
             btn_MarkAllRead.IsEnabled = true;
-            if (count > 0)
-            {
-                Utils.ShowMessageToast($"已标记{count}个会话为已读", 3000);
-                GetMessage();
-                GetSessions();
-                MessageCenter.SendMessage("private:all");
-                // 全部已读：回复/@/赞/通知同样本地清零，主页红点立即消失
-                MessageUnreadState.ClearAll();
-                UpdateUnreadBadges();
-                MessageCenter.SendMessage("feed:all");
-            }
-            else
-            {
-                Utils.ShowMessageToast("没有未读的会话", 2000);
-            }
+            Utils.ShowMessageToast(count > 0 ? $"已标记{count}个会话及其他消息为已读" : "已标记全部消息为已读", 3000);
+            // 全部已读：回复/@/赞/通知同样本地清零，主页红点立即消失
+            MessageUnreadState.ClearAll();
+            UpdateUnreadBadges();
+            MessageCenter.SendMessage("private:all");
+            MessageCenter.SendMessage("feed:all");
+            GetMessage();
+            GetSessions();
         }
 
 
@@ -304,15 +304,20 @@ namespace BiliBili.UWP.Pages
             BeginLoad();
             try
             {
-                var data = await RequestData<MessageSessionListModel>(_messageAPI.Sessions(), "读取私信失败");
-                var sessions = data?.session_list ?? new List<MessageSessionModel>();
-                await LoadUserCards(sessions);
-                list_ChatMe.ItemsSource = sessions.Select(ToChatDisplayItem).ToList();
+                list_ChatMe.ItemsSource = await LoadSessionList();
             }
             finally
             {
                 EndLoad();
             }
+        }
+
+        private async Task<List<MessageChatModel>> LoadSessionList()
+        {
+            var data = await RequestData<MessageSessionListModel>(_messageAPI.Sessions(), "读取私信失败");
+            var sessions = data?.session_list ?? new List<MessageSessionModel>();
+            await LoadUserCards(sessions);
+            return sessions.Select(ToChatDisplayItem).ToList();
         }
 
         private async void GetMessage()
