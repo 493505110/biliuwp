@@ -1711,7 +1711,7 @@ namespace BiliBili.UWP.Pages
             {
                 mediaElement.MediaPlayer.PlaybackSession.Position = mediaElement.MediaPlayer.PlaybackSession.Position.Add(TimeSpan.FromSeconds(ssValue));
             }
-            txt_SSPosition.Visibility = Visibility.Collapsed;
+            ssPositionShadow.Visibility = Visibility.Collapsed;
         }
 
         private void MTC_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
@@ -1719,7 +1719,7 @@ namespace BiliBili.UWP.Pages
             e.Handled = true;
             ssValue = 0;
             txt_SSPosition.Text = "";
-            txt_SSPosition.Visibility = Visibility.Visible;
+            ssPositionShadow.Visibility = Visibility.Visible;
 
             if (e.Position.X < this.ActualWidth / 2)
                 ManipulatingBrightness = true;
