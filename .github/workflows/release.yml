@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'   # 推送 v3.14.0 这类 tag 时自动构建并发布正式版 Release
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build & Publish Release
@@ -15,6 +19,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify manifest version matches tag
+        shell: bash
+        run: |
+          # tag 形如 v3.14.0 -> 校验 Package.appxmanifest 的 Identity Version 一致，防止发版版本错位
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          MANIFEST_VER=$(grep -oP 'Identity[^>]*Version="\K[0-9.]+' BiliBili.UWP/Package.appxmanifest | head -1)
+          echo "tag=$TAG_VER manifest=$MANIFEST_VER"
+          if [ "$MANIFEST_VER" != "$TAG_VER" ]; then
+            echo "ERROR: 版本不一致，需先更新 Package.appxmanifest 到 $TAG_VER 再打 tag" >&2
+            exit 1
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -22,6 +38,14 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('BiliBili.UWP/**/*.csproj', '**/packages.config') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Restore NuGet
         run: |
