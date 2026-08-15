@@ -71,7 +71,7 @@ namespace BiliBili.UWP.Helper
                 });
                 for (int i = 0; i < downloadUrls.Count; i++)
                 {
-                    CreateDown(m, i, downloadUrls[i], folder);
+                    await CreateDown(m, i, downloadUrls[i], folder);
                 }
             }
             catch (Exception ex)
@@ -81,7 +81,7 @@ namespace BiliBili.UWP.Helper
 
         }
 
-        private static async void CreateDown(DownloadTaskModel m, int index, DownloadUrlInfo url, StorageFolder folder)
+        private static async Task CreateDown(DownloadTaskModel m, int index, DownloadUrlInfo url, StorageFolder folder)
         {
 
             BackgroundDownloader downloader = new BackgroundDownloader();
@@ -364,7 +364,7 @@ namespace BiliBili.UWP.Helper
             return file != null;
         }
 
-        public static async void UpdateDowningStatus()
+        public static async Task UpdateDowningStatus()
         {
             try
             {

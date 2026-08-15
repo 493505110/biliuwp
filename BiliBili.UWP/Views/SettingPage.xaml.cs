@@ -419,10 +419,10 @@ namespace BiliBili.UWP.Views
             SettingHelper.Set_DownMode(cb_DownMode.SelectedIndex);
         }
 
-        private void sw_Use4GDown_Toggled(object sender, RoutedEventArgs e)
+        private async void sw_Use4GDown_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_Use4GDown(sw_Use4GDown.IsOn);
-            DownloadHelper2.UpdateDowningStatus();
+            await DownloadHelper2.UpdateDowningStatus();
         }
 
         private void sw_DTCT_Toggled(object sender, RoutedEventArgs e)

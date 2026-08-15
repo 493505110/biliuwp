@@ -230,7 +230,7 @@ namespace BiliBili.UWP.Pages.Live
                 //开始接收弹幕
                 long userId = 0;
                 long.TryParse(ApiHelper.GetUserId(), out userId);
-                _biliLiveDanmu.Start(roomId, userId);
+                await _biliLiveDanmu.Start(roomId, userId);
 
                 //读取最近10条弹幕
                 await LoadLastMsg();

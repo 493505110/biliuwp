@@ -19,54 +19,55 @@ namespace BiliBili.UWP.Api
     }
     public static class ApiRequest
     {
+        // 进程级单例 HttpClient：复用连接池与 TLS 会话，避免每次请求重建
+        private static readonly HttpBaseProtocolFilter _filter = new HttpBaseProtocolFilter()
+        {
+            IgnorableServerCertificateErrors =
+            {
+                Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired
+            }
+        };
+        private static readonly HttpClient _client = new HttpClient(_filter);
+
         /// <summary>
         /// 发送一个GET请求
         /// </summary>
         /// <param name="url"></param>
         /// <param name="headers"></param>
-        /// <param name="cookie"></param>
         /// <returns></returns>
         public async static Task<HttpResults> Get(string url, IDictionary<string, string> headers = null)
         {
             try
             {
-                HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-                fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-                using (var client = new HttpClient(fiter))
+                var request = new HttpRequestMessage(Windows.Web.Http.HttpMethod.Get, new Uri(url));
+                if (headers != null)
                 {
-                    if (headers != null)
+                    foreach (var item in headers)
                     {
-                        foreach (var item in headers)
-                        {
-                            client.DefaultRequestHeaders.Add(item.Key, item.Value);
-                        }
+                        request.Headers.Append(item.Key, item.Value);
                     }
-
-                    var response = await client.GetAsync(new Uri(url));
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        return new HttpResults()
-                        {
-                            code = (int)response.StatusCode,
-                            status = false,
-                            message = StatusCodeToMessage((int)response.StatusCode)
-                        };
-                    }
-                    response.EnsureSuccessStatusCode();
-                    HttpResults httpResults = new HttpResults()
-                    {
-                        code = (int)response.StatusCode,
-                        status = response.StatusCode == HttpStatusCode.Ok,
-                        results = await response.Content.ReadAsStringAsync(),
-                        message = StatusCodeToMessage((int)response.StatusCode)
-                    };
-                    return httpResults;
                 }
 
-
-
+                var response = await _client.SendRequestAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new HttpResults()
+                    {
+                        code = (int)response.StatusCode,
+                        status = false,
+                        message = StatusCodeToMessage((int)response.StatusCode)
+                    };
+                }
+                response.EnsureSuccessStatusCode();
+                HttpResults httpResults = new HttpResults()
+                {
+                    code = (int)response.StatusCode,
+                    status = response.StatusCode == HttpStatusCode.Ok,
+                    results = await response.Content.ReadAsStringAsync(),
+                    message = StatusCodeToMessage((int)response.StatusCode)
+                };
+                return httpResults;
             }
-
             catch (Exception ex)
             {
                 LogHelper.WriteLog("GET请求失败" + url, LogType.ERROR, ex);
@@ -85,47 +86,42 @@ namespace BiliBili.UWP.Api
         /// <param name="url"></param>
         /// <param name="body"></param>
         /// <param name="headers"></param>
-        /// <param name="cookie"></param>
         /// <param name="contentType"></param>
         /// <returns></returns>
         public async static Task<HttpResults> Post(string url, string body, IDictionary<string, string> headers = null, string contentType = "application/x-www-form-urlencoded")
         {
             try
             {
-                HttpBaseProtocolFilter fiter = new HttpBaseProtocolFilter();
-                fiter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-                using (var client = new HttpClient(fiter))
+                var request = new HttpRequestMessage(Windows.Web.Http.HttpMethod.Post, new Uri(url))
                 {
-                    if (headers != null)
+                    Content = new HttpStringContent(body, Windows.Storage.Streams.UnicodeEncoding.Utf8, contentType)
+                };
+                if (headers != null)
+                {
+                    foreach (var item in headers)
                     {
-                        foreach (var item in headers)
-                        {
-                            client.DefaultRequestHeaders.Add(item.Key, item.Value);
-                        }
+                        request.Headers.Append(item.Key, item.Value);
                     }
-                    var response = await client.PostAsync(new Uri(url), new HttpStringContent(body, Windows.Storage.Streams.UnicodeEncoding.Utf8, "application/x-www-form-urlencoded"));
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        return new HttpResults()
-                        {
-                            code = (int)response.StatusCode,
-                            status = false,
-                            message = StatusCodeToMessage((int)response.StatusCode)
-                        };
-                    }
-                    string result = await response.Content.ReadAsStringAsync();
-                    HttpResults httpResults = new HttpResults()
+                }
+                var response = await _client.SendRequestAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new HttpResults()
                     {
                         code = (int)response.StatusCode,
-                        status = response.StatusCode == HttpStatusCode.Ok,
-                        results = result,
+                        status = false,
                         message = StatusCodeToMessage((int)response.StatusCode)
                     };
-                    return httpResults;
                 }
-
-
-
+                string result = await response.Content.ReadAsStringAsync();
+                HttpResults httpResults = new HttpResults()
+                {
+                    code = (int)response.StatusCode,
+                    status = response.StatusCode == HttpStatusCode.Ok,
+                    results = result,
+                    message = StatusCodeToMessage((int)response.StatusCode)
+                };
+                return httpResults;
             }
             catch (Exception ex)
             {

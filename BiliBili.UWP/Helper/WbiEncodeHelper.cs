@@ -22,6 +22,13 @@ namespace BiliBili.UWP.Helper
             return MixinKeyEncTab.Aggregate("", (s, i) => s + orig[i]).Substring(0, 32);
         }
 
+        // 对参数做 form-urlencoded 序列化（与 FormUrlEncodedContent 行为一致，纯同步避免 .Result 阻塞）
+        private static string BuildFormQuery(IEnumerable<KeyValuePair<string, string>> parameters)
+        {
+            return string.Join("&", parameters.Select(kvp =>
+                Uri.EscapeDataString(kvp.Key).Replace("%20", "+") + "=" + Uri.EscapeDataString(kvp.Value).Replace("%20", "+")));
+        }
+
         /// <summary>
         /// 对参数做 Wbi 签名，返回带 wts 与 w_rid 的参数表。
         /// timestamp 可注入固定时间戳（用于单元测试），默认用当前 Unix 时间。
@@ -40,8 +47,8 @@ namespace BiliBili.UWP.Helper
                 kvp => kvp.Key,
                 kvp => new string(kvp.Value.Where(chr => !"!'()*".Contains(chr)).ToArray())
             );
-            // 序列化参数
-            string query = new FormUrlEncodedContent(parameters).ReadAsStringAsync().Result;
+            // 序列化参数（同步，避免 FormUrlEncodedContent.ReadAsStringAsync().Result 阻塞 UI 线程）
+            string query = BuildFormQuery(parameters);
             // 计算 w_rid
             MD5 md5 = MD5.Create();
             byte[] hashBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(query + mixinKey));

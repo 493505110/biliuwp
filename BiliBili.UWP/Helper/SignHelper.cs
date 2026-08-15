@@ -23,6 +23,12 @@ namespace BiliBili.UWP.Helper
         /// <summary>从完整 URL 中提取参数串、按字符排序后签名，返回 "&amp;sign=..."。</summary>
         public static string SignUrl(string url, string appKeySecret)
         {
+            return "&sign=" + SignUrlValue(url, appKeySecret);
+        }
+
+        /// <summary>从完整 URL 中提取参数串、按字符排序后签名，返回纯 sign 值（不含前缀）。</summary>
+        public static string SignUrlValue(string url, string appKeySecret)
+        {
             var str = url.Substring(url.IndexOf("?", 4) + 1);
             var list = str.Split('&').ToList();
             list.Sort();
@@ -32,7 +38,7 @@ namespace BiliBili.UWP.Helper
                 sb.Append(sb.Length > 0 ? "&" : "");
                 sb.Append(item);
             }
-            return "&sign=" + SignQuery(sb.ToString(), appKeySecret);
+            return SignQuery(sb.ToString(), appKeySecret);
         }
 
         /// <summary>对参数字典按 key 升序拼装后签名，返回 "&amp;sign=..."。</summary>

@@ -72,35 +72,11 @@ namespace BiliBili.UWP
             {
                 apiKeyInfo = ApiHelper.AndroidKey;
             }
-            string result;
-            string str = url.Substring(url.IndexOf("?", 4) + 1);
-            List<string> list = str.Split('&').ToList();
-            list.Sort();
-            StringBuilder stringBuilder = new StringBuilder();
-            foreach (string str1 in list)
-            {
-                stringBuilder.Append((stringBuilder.Length > 0 ? "&" : string.Empty));
-                stringBuilder.Append(str1);
-            }
-            stringBuilder.Append(apiKeyInfo.Secret);
-            result = Utils.ToMD5(stringBuilder.ToString()).ToLower();
-            return result;
+            return SignHelper.SignUrlValue(url, apiKeyInfo.Secret);
         }
         public static string GetSignWithUrl(string url, ApiKeyInfo apiKeyInfo)
         {
-            string result;
-            string str = url.Substring(url.IndexOf("?", 4) + 1);
-            List<string> list = str.Split('&').ToList();
-            list.Sort();
-            StringBuilder stringBuilder = new StringBuilder();
-            foreach (string str1 in list)
-            {
-                stringBuilder.Append((stringBuilder.Length > 0 ? "&" : string.Empty));
-                stringBuilder.Append(str1);
-            }
-            stringBuilder.Append(apiKeyInfo.Secret);
-            result = Utils.ToMD5(stringBuilder.ToString()).ToLower();
-            return url+="&sign="+result;
+            return url + SignHelper.SignUrl(url, apiKeyInfo.Secret);
         }
 
         public static string GetMd5String(string result)

@@ -45,7 +45,7 @@ namespace BiliBili.UWP.Helper
         /// <summary>
         /// 使用 getDanmuInfo 返回的节点和 token 连接直播信息流。
         /// </summary>
-        public async void Start(int roomid, long userId)
+        public async Task Start(int roomid, long userId)
         {
             try
             {
@@ -343,7 +343,14 @@ namespace BiliBili.UWP.Helper
 
         private async void Timer_Tick(object sender, object e)
         {
-            await SendHeartbeatAsync();
+            try
+            {
+                await SendHeartbeatAsync();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("直播弹幕心跳发送失败", LogType.ERROR, ex);
+            }
         }
 
         private Task SendHeartbeatAsync()

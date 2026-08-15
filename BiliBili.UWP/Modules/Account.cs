@@ -157,10 +157,6 @@ namespace BiliBili.UWP.Modules
             string base64String;
             try
             {
-                HttpBaseProtocolFilter httpBaseProtocolFilter = new HttpBaseProtocolFilter();
-                httpBaseProtocolFilter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Expired);
-                httpBaseProtocolFilter.IgnorableServerCertificateErrors.Add(Windows.Security.Cryptography.Certificates.ChainValidationResult.Untrusted);
-                Windows.Web.Http.HttpClient httpClient = new Windows.Web.Http.HttpClient(httpBaseProtocolFilter);
                 string url = "https://passport.bilibili.com/api/oauth2/getKey";
                 string content = $"appkey={ApiHelper.AndroidKey.Appkey}&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
                 content += "&sign=" + ApiHelper.GetSign(content);

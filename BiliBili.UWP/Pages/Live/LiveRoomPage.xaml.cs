@@ -520,7 +520,7 @@ namespace BiliBili.UWP.Pages
                         long.TryParse(ApiHelper.GetUserId(), out uid);
                     }
                     AddComment(new TextBlock() { Text = "开始连接弹幕服务器...", Foreground = new SolidColorBrush(Colors.OrangeRed) }, false);
-                    _biliLiveDanmu.Start(Convert.ToInt32(_roomid), uid);
+                    await _biliLiveDanmu.Start(Convert.ToInt32(_roomid), uid);
                 }
                 catch (Exception ex)
                 {
