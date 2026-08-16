@@ -5,6 +5,8 @@ using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using Windows.Web.Http;
+using Windows.Web.Http.Filters;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
@@ -1143,13 +1145,70 @@ namespace BiliBili.UWP.Controls
 
         public DelegateCommand ButtonCommand { get; private set; }
 
-        private void ButtonClick(object paramenter)
+        private async void ButtonClick(object paramenter)
         {
-            if (paramenter.ToString().Contains("av"))
+            var str = paramenter?.ToString();
+            if (string.IsNullOrEmpty(str))
             {
-                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), paramenter.ToString().Replace("av", ""));
+                return;
             }
+            if (str.Contains("b23.tv"))
+            {
+                var realUrl = await ResolveShortUrl(str);
+                if (string.IsNullOrEmpty(realUrl))
+                {
+                    Utils.ShowMessageToast("链接已失效");
+                    return;
+                }
+                if (!await MessageCenter.HandelUrl(realUrl))
+                {
+                    Utils.ShowMessageToast("无法打开该链接");
+                }
+                return;
+            }
+            var avMatch = Regex.Match(str, @"[aA][vV](\d+)");
+            if (avMatch.Success)
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), avMatch.Groups[1].Value);
+                return;
+            }
+            var bvMatch = Regex.Match(str, @"[bB][vV][a-zA-Z0-9]+");
+            if (bvMatch.Success)
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), bvMatch.Value);
+            }
+        }
 
+        /// <summary>解析b23.tv短链重定向,返回真实地址;失效或无法解析时返回null</summary>
+        private async static Task<string> ResolveShortUrl(string shortUrl)
+        {
+            try
+            {
+                var filter = new HttpBaseProtocolFilter();
+                filter.AllowAutoRedirect = false;
+                using (var hc = new HttpClient(filter))
+                {
+                    var resp = await hc.GetAsync(new Uri(shortUrl));
+                    if (resp.StatusCode == HttpStatusCode.MovedPermanently ||
+                        resp.StatusCode == HttpStatusCode.Found ||
+                        resp.StatusCode == HttpStatusCode.SeeOther ||
+                        resp.StatusCode == HttpStatusCode.TemporaryRedirect)
+                    {
+                        var location = resp.Headers.Location;
+                        if (location != null)
+                        {
+                            return location.AbsoluteUri;
+                        }
+                    }
+                    // b23.tv对失效短链返回200无Location(页面内是-404 JSON),视为失效
+                    return null;
+                }
+            }
+            catch (Exception)
+            {
+                // 网络异常/解析失败,视为失效
+                return null;
+            }
         }
 
 
@@ -1218,12 +1277,30 @@ namespace BiliBili.UWP.Controls
                             //}
                         }
 
-                        //替换av号
-                        MatchCollection videos = Regex.Matches(input, @"av(\d+)");
-                        foreach (Match item in videos)
+                        //先提取b23.tv短链换成占位符,避免av/BV正则误匹配链接内容
+                        var b23Links = new List<string>();
+                        input = Regex.Replace(input, @"https?://[bB]23\.tv/[A-Za-z0-9]+", item =>
                         {
-                            var data = @"<InlineUIContainer><HyperlinkButton x:Name=""btn"" Command=""{Binding ButtonCommand}""  IsEnabled=""True"" Margin=""0 -4 0 -4"" Padding=""0"" " + string.Format(@" Tag=""{0}""  CommandParameter=""{0}"" >{0}</HyperlinkButton></InlineUIContainer>", item.Groups[0].Value);
-                            input = input.Replace(item.Groups[0].Value, data);
+                            b23Links.Add(item.Value);
+                            return "\uE000" + b23Links.Count + "\uE001";
+                        });
+
+                        //替换av号(大小写都支持,前后不能紧跟字母数字避免误匹配)
+                        input = Regex.Replace(input, @"(?<![a-zA-Z0-9])[aA][vV]\d+(?![a-zA-Z0-9])", item =>
+                        {
+                            return @"<InlineUIContainer><HyperlinkButton x:Name=""btn"" Command=""{Binding ButtonCommand}""  IsEnabled=""True"" Margin=""0 -4 0 -4"" Padding=""0"" " + string.Format(@" Tag=""{0}""  CommandParameter=""{0}"" >{0}</HyperlinkButton></InlineUIContainer>", item.Value);
+                        });
+
+                        //替换BV号(大小写都支持,前后不能紧跟字母数字避免误匹配)
+                        input = Regex.Replace(input, @"(?<![a-zA-Z0-9])[bB][vV]1[a-zA-Z0-9]{9}(?![a-zA-Z0-9])", item =>
+                        {
+                            return @"<InlineUIContainer><HyperlinkButton x:Name=""btn"" Command=""{Binding ButtonCommand}""  IsEnabled=""True"" Margin=""0 -4 0 -4"" Padding=""0"" " + string.Format(@" Tag=""{0}""  CommandParameter=""{0}"" >{0}</HyperlinkButton></InlineUIContainer>", item.Value);
+                        });
+
+                        //还原b23.tv短链为可点击链接
+                        for (int i = 0; i < b23Links.Count; i++)
+                        {
+                            input = input.Replace("\uE000" + (i + 1) + "\uE001", @"<InlineUIContainer><HyperlinkButton x:Name=""btn"" Command=""{Binding ButtonCommand}""  IsEnabled=""True"" Margin=""0 -4 0 -4"" Padding=""0"" " + string.Format(@" Tag=""{0}""  CommandParameter=""{0}"" >{0}</HyperlinkButton></InlineUIContainer>", b23Links[i]));
                         }
 
 
