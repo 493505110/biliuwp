@@ -179,7 +179,8 @@
 
                 <StackPanel Grid.Row="2" Grid.Column="1" Margin="4 0">
                     <ContentControl Content="{Binding Path=content.text}" />
-                    <ScrollViewer HorizontalScrollMode="Enabled"
+                    <ScrollViewer Visibility="{Binding Path=content.PicturesVisibility}"
+                                  HorizontalScrollMode="Enabled"
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Hidden"
@@ -257,7 +258,8 @@
                                     <!--<TextBlock Text="{Binding Path=content.message}" IsTextSelectionEnabled="True" TextWrapping="Wrap"></TextBlock>-->
                                     <StackPanel>
                                         <ContentControl Content="{Binding Path=content.text}" />
-                                        <ScrollViewer HorizontalScrollMode="Enabled"
+                                        <ScrollViewer Visibility="{Binding Path=content.PicturesVisibility}"
+                                                      HorizontalScrollMode="Enabled"
                                                       HorizontalScrollBarVisibility="Auto"
                                                       VerticalScrollMode="Disabled"
                                                       VerticalScrollBarVisibility="Hidden"

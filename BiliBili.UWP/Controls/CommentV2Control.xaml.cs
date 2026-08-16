@@ -1219,6 +1219,9 @@ namespace BiliBili.UWP.Controls
 
         public string message { get; set; }
         public List<CommentPictureModel> pictures { get; set; }
+        public Visibility PicturesVisibility => pictures == null || pictures.Count == 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         public string DisplayMessage
         {
             get
