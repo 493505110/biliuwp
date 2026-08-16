@@ -183,7 +183,8 @@
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Hidden"
-                                  ZoomMode="Disabled">
+                                  ZoomMode="Disabled"
+                                  Margin="0 5 0 0">
                         <ItemsControl ItemsSource="{Binding Path=content.pictures}"
                                       ItemsPanel="{StaticResource commentPictureItemsPanel}"
                                       ItemTemplate="{StaticResource commentPictureTemplate}" />
