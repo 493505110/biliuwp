@@ -286,6 +286,7 @@
     <Compile Include="Api\ApiRequest.cs" />
     <Compile Include="Api\ArticleAPI.cs" />
     <Compile Include="Api\ApiUtils.cs" />
+    <Compile Include="Api\HistoryAPI.cs" />
     <Compile Include="Api\Home\CinemaAPI.cs" />
     <Compile Include="Api\Home\HomeAPI.cs" />
     <Compile Include="Api\Home\HotAPI.cs" />
@@ -295,6 +296,7 @@
     <Compile Include="Api\PlayerAPI.cs" />
     <Compile Include="Api\RankAPI.cs" />
     <Compile Include="Api\SearchAPI.cs" />
+    <Compile Include="Api\PlaylistAPI.cs" />
     <Compile Include="Api\Season\SeasonInfoAPI.cs" />
     <Compile Include="Api\Season\SeasonIndexAPI.cs" />
     <Compile Include="Api\User\DynamicAPI.cs" />
@@ -402,6 +404,7 @@
     <Compile Include="Models\HomeModels.cs" />
     <Compile Include="Models\LiveModels.cs" />
     <Compile Include="Models\MessageUnreadState.cs" />
+    <Compile Include="Models\PlaylistModels.cs" />
     <Compile Include="Models\PlayModels.cs" />
     <Compile Include="Models\ReturnModel.cs" />
     <Compile Include="Models\UserModels.cs" />
@@ -409,6 +412,12 @@
     <Compile Include="Modules\Account.cs" />
     <Compile Include="Modules\ArticleContentParser.cs" />
     <Compile Include="Modules\ArticleParameterParser.cs" />
+    <Compile Include="Modules\Playlist.cs" />
+    <Compile Include="Modules\PlaylistCloudHistory.cs" />
+    <Compile Include="Modules\PlaylistCloudHistorySelector.cs" />
+    <Compile Include="Modules\PlaylistPagination.cs" />
+    <Compile Include="Modules\PlaylistParameterParser.cs" />
+    <Compile Include="Modules\PlaylistPlayerItemFactory.cs" />
     <Compile Include="Modules\ArticleVM.cs" />
     <Compile Include="Modules\Detail\VideoDetailVM.cs" />
     <Compile Include="Modules\Download.cs" />

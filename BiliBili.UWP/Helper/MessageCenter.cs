@@ -129,6 +129,22 @@ namespace BiliBili.UWP
         /// <param name="par"></param>
         public async static Task<bool> HandelUrl(string url)
         {
+            if (PlaylistParameterParser.TryParse(url, out long playlistId))
+            {
+                var playlist = new Playlist();
+                var result = await playlist.GetPlayerList(playlistId);
+                if (!result.success)
+                {
+                    Utils.ShowMessageToast(result.message);
+                    return true;
+                }
+
+                int startIndex = await new PlaylistCloudHistory().GetLatestIndex(result.data);
+                MusicHelper.PauseAndReleaseSystemMediaTransportControls();
+                PlayNavigateToEvent(typeof(PlayerPage), new object[] { result.data, startIndex });
+                return true;
+            }
+
             /*
              * 视频
              * https://www.bilibili.com/video/av3905642

@@ -1,5 +1,5 @@
 ﻿using BiliBili.UWP.Models;
-using Newtonsoft.Json;
+using BiliBili.UWP.Api;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,6 +26,8 @@ namespace BiliBili.UWP.Pages
     /// </summary>
     public sealed partial class MyHistroryPage : Page
     {
+        private readonly HistoryAPI historyAPI = new HistoryAPI();
+
         public MyHistroryPage()
         {
             this.InitializeComponent();
@@ -101,30 +103,7 @@ namespace BiliBili.UWP.Pages
         }
         public async Task<List<GetHistoryModel>> GetHistory(int PageNum)
         {
-
-            try
-            {
-                string url = string.Format("https://api.bilibili.com/x/v2/history?pn={0}&ps=30&jsonp=json", PageNum); // 坑爹，没有https居然不发sessdata过去
-
-                string results = await WebClientClass.GetResults(new Uri(url));
-                //一层
-                GetHistoryModel model = JsonConvert.DeserializeObject<GetHistoryModel>(results);
-                if (model.data == null)
-                {
-                    return null;
-                }
-                else
-                {
-                    List<GetHistoryModel> lsModel = JsonConvert.DeserializeObject<List<GetHistoryModel>>(model.data.ToString());
-                    return lsModel;
-                }
-
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-
+            return await historyAPI.GetHistory(PageNum);
         }
 
         private async void btn_ClearHistory_Click(object sender, RoutedEventArgs e)
