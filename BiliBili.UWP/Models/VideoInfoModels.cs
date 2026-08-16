@@ -23,6 +23,10 @@ namespace BiliBili.UWP.Models
         public long? duration { get; set; }//长度，秒
         public string pic { get; set; }
         public long? pubdate { get; set; }
+        public string pub_location { get; set; }
+        public Visibility PubLocationVisibility => string.IsNullOrWhiteSpace(pub_location)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         public int state { get; set; }
         public string title { get; set; }
         public int tid { get; set; }

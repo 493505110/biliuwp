@@ -186,10 +186,16 @@
                                                 </Ellipse.Fill>
                                             </Ellipse>
                                             <TextBlock  Grid.Column="1" Text="{Binding Path=owner.name}" FontSize="18" />
-                                            <TextBlock Grid.Column="1" Grid.Row="1" FontSize="14" Foreground="Gray">
-									<Run Text="发表于" />
-                                        <Run Text="{Binding Created_at}"></Run>
-                                            </TextBlock>
+                                            <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal">
+                                                <TextBlock FontSize="14" Foreground="Gray">
+                                                    <Run Text="发表于" />
+                                                    <Run Text="{Binding Created_at}" />
+                                                </TextBlock>
+                                                <TextBlock FontSize="14" Foreground="Gray" Visibility="{Binding PubLocationVisibility}">
+                                                    <Run Text="" />
+                                                    <Run Text="{Binding pub_location}" />
+                                                </TextBlock>
+                                            </StackPanel>
                                         </Grid>
                                     </HyperlinkButton>
                                     <HyperlinkButton x:Name="btn_AttUp" HorizontalAlignment="Right" Foreground="White" Click="btn_AttUp_Click">
