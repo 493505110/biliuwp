@@ -1354,6 +1354,8 @@ namespace BiliBili.UWP.Pages
 
             txt_site.Text = result.from;
             txt_VideoCodec.Text = string.IsNullOrWhiteSpace(result.videoCodec) ? "未知" : result.videoCodec;
+            txt_VideoWidth.Text = result.videoWidth ?? string.Empty;
+            txt_VideoHeight.Text = result.videoHeight ?? string.Empty;
             mediaPlayer.Source = source;
             return true;
         }

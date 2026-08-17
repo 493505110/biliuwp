@@ -1153,7 +1153,9 @@ namespace BiliBili.UWP.Helper
                         usePlayMode = UsePlayMode.Dash,
                         mediaSource = mediaSource,
                         from = "bilibili_dash_" + codecId,
-                        videoCodec = GetVideoCodecDisplayName(video)
+                        videoCodec = GetVideoCodecDisplayName(video),
+                        videoWidth = video.width,
+                        videoHeight = video.height
                     };
                 }
             }
@@ -1592,6 +1594,8 @@ namespace BiliBili.UWP.Helper
 
         public string from { get; set; }
         public string videoCodec { get; set; }
+        public string videoWidth { get; set; }
+        public string videoHeight { get; set; }
         public string errorMessage { get; set; }
         public bool preventFallback { get; set; }
 

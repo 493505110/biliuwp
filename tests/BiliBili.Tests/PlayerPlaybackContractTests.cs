@@ -96,6 +96,24 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void DashResolutionMetadataFlowsToPlayerInfo()
+        {
+            var dashFactory = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "private static async Task<ReturnPlayModel> CreateDashPlayModel",
+                "private static string GetVideoCodecDisplayName");
+            var player = ReadMethod(
+                "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
+                "private async Task<bool> ApplyPlaybackSourceAsync",
+                "private async Task OpenVideoAsync");
+
+            StringAssert.Contains(dashFactory, "videoWidth = video.width");
+            StringAssert.Contains(dashFactory, "videoHeight = video.height");
+            StringAssert.Contains(player, "txt_VideoWidth.Text = result.videoWidth ?? string.Empty");
+            StringAssert.Contains(player, "txt_VideoHeight.Text = result.videoHeight ?? string.Empty");
+        }
+
+        [TestMethod]
         public void DashCodecPreferenceUsesNativeComboBoxes()
         {
             XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
