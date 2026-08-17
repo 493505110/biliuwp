@@ -287,7 +287,6 @@
     <Compile Include="Api\ArticleAPI.cs" />
     <Compile Include="Api\ApiUtils.cs" />
     <Compile Include="Api\HistoryAPI.cs" />
-    <Compile Include="Api\Home\CinemaAPI.cs" />
     <Compile Include="Api\Home\HomeAPI.cs" />
     <Compile Include="Api\Home\HotAPI.cs" />
     <Compile Include="Api\Home\RecommendAPI.cs" />
@@ -379,6 +378,8 @@
     <Compile Include="Helper\DynamicJObject.cs" />
     <Compile Include="Helper\ExceptionHandler.cs" />
     <Compile Include="Helper\LogHelper.cs" />
+    <Compile Include="Helper\CredentialVault.cs" />
+    <Compile Include="Helper\SettingKeys.cs" />
     <Compile Include="Helper\MediaProcessing.cs" />
     <Compile Include="Helper\MessageCenter.cs" />
     <Compile Include="Helper\MusicHelper.cs" />
@@ -450,9 +451,6 @@
     <Compile Include="Pages\AlbumPage.xaml.cs">
       <DependentUpon>AlbumPage.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Pages\CinemaPage.xaml.cs">
-      <DependentUpon>CinemaPage.xaml</DependentUpon>
-    </Compile>
     <Compile Include="Pages\DMHideManagePage.xaml.cs">
       <DependentUpon>DMHideManagePage.xaml</DependentUpon>
     </Compile>
@@ -479,9 +477,6 @@
     </Compile>
     <Compile Include="Pages\FindMore\FeedbackPage.xaml.cs">
       <DependentUpon>FeedbackPage.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Pages\Home\CinemaPage.xaml.cs">
-      <DependentUpon>CinemaPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\Home\HomePage.xaml.cs">
       <DependentUpon>HomePage.xaml</DependentUpon>
@@ -641,9 +636,6 @@
     </Compile>
     <Compile Include="Pages\User\MyCollectPage.xaml.cs">
       <DependentUpon>MyCollectPage.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Pages\SearchPage.xaml.cs">
-      <DependentUpon>SearchPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\Bangumi\TimelinePage.xaml.cs">
       <DependentUpon>TimelinePage.xaml</DependentUpon>
@@ -911,10 +903,6 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="Pages\CinemaPage.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
     <Page Include="Pages\DMHideManagePage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -948,10 +936,6 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\FindMore\FeedbackPage.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="Pages\Home\CinemaPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -1164,10 +1148,6 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\User\MyCollectPage.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="Pages\SearchPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

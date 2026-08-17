@@ -866,9 +866,7 @@ namespace BiliBili.UWP
                     lastPrivateUnreadCheck = DateTimeOffset.Now;
                     var privateRequest = messageAPI.PrivateUnread().Request();
                     var groupRequest = messageAPI.GroupUnread().Request();
-                    await Task.WhenAll(privateRequest, groupRequest);
-
-                    var privateResponse = privateRequest.Result;
+                    var privateResponse = await privateRequest;
                     if (privateResponse != null && privateResponse.status)
                     {
                         var privateResult = await privateResponse.GetData<MessagePrivateUnreadModel>();
@@ -878,7 +876,7 @@ namespace BiliBili.UWP
                         }
                     }
 
-                    var groupResponse = groupRequest.Result;
+                    var groupResponse = await groupRequest;
                     if (groupResponse != null && groupResponse.status)
                     {
                         var groupResult = await groupResponse.GetData<MessageGroupUnreadModel>();

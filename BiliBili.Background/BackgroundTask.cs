@@ -104,7 +104,7 @@ namespace BiliBili.Background
                         }
                         s1 = s1.Remove(s1.Length - 1);
                         SettingHelper.Set_TsDt(s1);
-                        //container.Values["TsDt"] = s1;
+                        //container.Values[BiliBili.UWP.Helper.SettingKeys.TsDt] = s1;
                     }
                 }
                 catch (Exception)
@@ -435,9 +435,9 @@ namespace BiliBili.Background
         public static bool Get_DTCT()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DTCT"] != null)
+            if (container.Values[BiliBili.UWP.Helper.SettingKeys.DTCT] != null)
             {
-                return (bool)container.Values["DTCT"];
+                return (bool)container.Values[BiliBili.UWP.Helper.SettingKeys.DTCT];
             }
             else
             {
@@ -448,7 +448,7 @@ namespace BiliBili.Background
         public static void Set_DTCT(bool value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["DTCT"] = value;
+            container.Values[BiliBili.UWP.Helper.SettingKeys.DTCT] = value;
         }
 
 
@@ -456,9 +456,9 @@ namespace BiliBili.Background
         public static bool Get_DT()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DT"] != null)
+            if (container.Values[BiliBili.UWP.Helper.SettingKeys.DT] != null)
             {
-                return (bool)container.Values["DT"];
+                return (bool)container.Values[BiliBili.UWP.Helper.SettingKeys.DT];
             }
             else
             {
@@ -470,15 +470,15 @@ namespace BiliBili.Background
         public static void Set_DT(bool value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["DT"] = value;
+            container.Values[BiliBili.UWP.Helper.SettingKeys.DT] = value;
         }
 
         public static bool Get_FJ()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["FJ"] != null)
+            if (container.Values[BiliBili.UWP.Helper.SettingKeys.FJ] != null)
             {
-                return (bool)container.Values["FJ"];
+                return (bool)container.Values[BiliBili.UWP.Helper.SettingKeys.FJ];
             }
             else
             {
@@ -490,14 +490,14 @@ namespace BiliBili.Background
         public static void Set_FJ(bool value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["FJ"] = value;
+            container.Values[BiliBili.UWP.Helper.SettingKeys.FJ] = value;
         }
         public static string Get_TsDt()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["TsDt"] != null)
+            if (container.Values[BiliBili.UWP.Helper.SettingKeys.TsDt] != null)
             {
-                return (string)container.Values["TsDt"];
+                return (string)container.Values[BiliBili.UWP.Helper.SettingKeys.TsDt];
             }
             else
             {
@@ -509,7 +509,7 @@ namespace BiliBili.Background
         public static void Set_TsDt(string value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["TsDt"] = value;
+            container.Values[BiliBili.UWP.Helper.SettingKeys.TsDt] = value;
         }
     }
 }

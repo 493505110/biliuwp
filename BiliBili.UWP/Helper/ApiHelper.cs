@@ -257,7 +257,7 @@ namespace BiliBili.UWP
         {
             if (!await EnsureWbiKey())
             {
-                return "";
+                return null;
             }
             var par = System.Web.HttpUtility.ParseQueryString(parstr);
 

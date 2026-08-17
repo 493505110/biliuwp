@@ -1,4 +1,5 @@
 ﻿using BiliBili.UWP.Helper;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,7 +10,6 @@ namespace BiliBili.UWP.Api
 {
     public static class ApiUtils
     {
-        public static string baseUrl = "http://biliapi.iliili.cn";
         public static ApiKeyInfo AndroidKey = new ApiKeyInfo("1d8b6e7d45233436", "560c52ccd288fed045859ed18bffd973");
         public static ApiKeyInfo AndroidTVKey = new ApiKeyInfo("4409e2ce8ffd12b8", "59b43e04ad6965f34319062b478f83dd");
         public static ApiKeyInfo AndroidVideoKey = new ApiKeyInfo("iVGUTjsxvpLeuDCf", "aHRmhWMLkdeMuILqORnYZocwMBpMEOdt");
@@ -71,9 +71,33 @@ namespace BiliBili.UWP.Api
             }
             if (api.useWbi)
             {
-                var newParameter = await ApiHelper.GetWbiSign(api.parameter);
-                api.parameter = newParameter;
+                var originalParameter = api.parameter;
+                var signedParameter = await ApiHelper.GetWbiSign(originalParameter);
+                if (signedParameter == null)
+                {
+                    LogHelper.WriteLog("Wbi 签名失败，跳过请求", LogType.ERROR);
+                    return new HttpResults() { status = false, message = "Wbi 签名获取失败" };
+                }
+                api.parameter = signedParameter;
+                var response = await Send(api);
+                if (response != null && response.status && IsWbiRiskCode(response))
+                {
+                    //-352 风控：wbi key 已失效，清缓存重拉后重试一次
+                    ApiHelper.ClearWbiKey();
+                    var retryParameter = await ApiHelper.GetWbiSign(originalParameter);
+                    if (retryParameter != null)
+                    {
+                        api.parameter = retryParameter;
+                        response = await Send(api);
+                    }
+                }
+                return response;
             }
+            return await Send(api);
+        }
+
+        private async static Task<HttpResults> Send(ApiModel api)
+        {
             if (api.method == HttpMethod.GET)
             {
                 return await ApiRequest.Get(api.url, api.headers);
@@ -82,6 +106,17 @@ namespace BiliBili.UWP.Api
             {
                 return await ApiRequest.Post(api.url, api.body, api.headers);
             }
+        }
+
+        private static bool IsWbiRiskCode(HttpResults response)
+        {
+            var obj = response.GetJObject();
+            if (obj == null)
+            {
+                return false;
+            }
+            var code = obj["code"]?.ToInt32() ?? 0;
+            return code == -352;
         }
 
     }

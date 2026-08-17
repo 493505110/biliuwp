@@ -1668,9 +1668,9 @@ namespace BiliBili.UWP
         public static bool Get_DTCT()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DTCT"] != null)
+            if (container.Values[SettingKeys.DTCT] != null)
             {
-                return (bool)container.Values["DTCT"];
+                return (bool)container.Values[SettingKeys.DTCT];
             }
             else
             {
@@ -1681,7 +1681,7 @@ namespace BiliBili.UWP
         public static void Set_DTCT(bool value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["DTCT"] = value;
+            container.Values[SettingKeys.DTCT] = value;
         }
 
 
@@ -1689,9 +1689,9 @@ namespace BiliBili.UWP
         public static bool Get_DT()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DT"] != null)
+            if (container.Values[SettingKeys.DT] != null)
             {
-                return (bool)container.Values["DT"];
+                return (bool)container.Values[SettingKeys.DT];
             }
             else
             {
@@ -1703,15 +1703,15 @@ namespace BiliBili.UWP
         public static void Set_DT(bool value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["DT"] = value;
+            container.Values[SettingKeys.DT] = value;
         }
 
         public static bool Get_FJ()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["FJ"] != null)
+            if (container.Values[SettingKeys.FJ] != null)
             {
-                return (bool)container.Values["FJ"];
+                return (bool)container.Values[SettingKeys.FJ];
             }
             else
             {
@@ -1723,15 +1723,15 @@ namespace BiliBili.UWP
         public static void Set_FJ(bool value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["FJ"] = value;
+            container.Values[SettingKeys.FJ] = value;
         }
 
         public static string Get_TsDt()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["TsDt"] != null)
+            if (container.Values[SettingKeys.TsDt] != null)
             {
-                return (string)container.Values["TsDt"];
+                return (string)container.Values[SettingKeys.TsDt];
             }
             else
             {
@@ -1743,7 +1743,7 @@ namespace BiliBili.UWP
         public static void Set_TsDt(string value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["TsDt"] = value;
+            container.Values[SettingKeys.TsDt] = value;
         }
 
 
@@ -1919,6 +1919,12 @@ namespace BiliBili.UWP
 
         public static string Get_Access_key()
         {
+            //优先读 Credential Locker，空则回退 LocalSettings（兼容旧数据迁移）
+            var value = CredentialVault.Get();
+            if (!string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
             container = ApplicationData.Current.LocalSettings;
             if (container.Values["Access_key"] != null)
             {
@@ -1931,8 +1937,10 @@ namespace BiliBili.UWP
         }
         public static void Set_Access_key(string value)
         {
+            CredentialVault.Set(value);
+            //写入后清理 LocalSettings 旧键（迁移）
             container = ApplicationData.Current.LocalSettings;
-            container.Values["Access_key"] = value;
+            container.Values.Remove("Access_key");
         }
 
         public static string Get_BiliplusCookie()
