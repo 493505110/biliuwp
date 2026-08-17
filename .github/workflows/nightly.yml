@@ -138,26 +138,22 @@ jobs:
             echo "list=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Move nightly tag & clear stale assets
+      - name: Reset nightly release & tag
         if: steps.check.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 强制把 nightly tag 移到当前 HEAD:本地 git 操作最可靠
+          # 删除旧 release 与旧 tag,由 softprops 全新重建:
+          # 原地更新 release 不会刷新 published_at,页面日期会停留在首次发布时间;
+          # 且 GitHub 对同名 tag 会"记住"旧 release 的日期,必须连 tag 一起删
+          gh release delete nightly --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
+          # 重建 tag 指向当前 HEAD:本地 git 操作最可靠
           # (gh api PATCH 有参数类型/权限坑,曾导致 tag 停在旧提交、release 指向旧代码)
           git tag -f nightly "$GITHUB_SHA"
-          # URL 内嵌 token 认证(extraheader 构造方式在 runner 上返回 400)
+          # 推送 tag 到远端(URL 内嵌 token 认证,extraheader 构造方式在 runner 上返回 400)
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" nightly --force
-          # 复用现有 release(softprops 会更新 body 并覆盖同名资产),但版本号变化会残留旧资产
-          # 这里先清空该 release 的所有旧资产,再让 softprops 上传新文件
-          if gh release view nightly --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            asset_ids=$(gh api "repos/${{ github.repository }}/releases/tags/nightly" --jq '.assets[].id' 2>/dev/null || true)
-            for id in $asset_ids; do
-              echo "Deleting stale asset id=$id"
-              gh api -X DELETE "repos/${{ github.repository }}/releases/assets/$id" --silent || true
-            done
-          fi
 
       - name: Publish nightly release
         if: steps.check.outputs.skip != 'true'
