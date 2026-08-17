@@ -83,5 +83,25 @@ namespace BiliBili.Tests
                 new[] { 7 },
                 DashStreamSelector.GetCodecPreference(7).ToArray());
         }
+
+        [TestMethod]
+        public void GetCodecPreferenceFallsBackFromAv1ToHevcThenAvc()
+        {
+            CollectionAssert.AreEqual(
+                new[] { 13, 12, 7 },
+                DashStreamSelector.GetCodecPreference(13).ToArray());
+        }
+
+        [TestMethod]
+        public void GetCodecPreferenceDoesNotFallBackWhenForced()
+        {
+            var method = typeof(DashStreamSelector).GetMethod(
+                "GetCodecPreference",
+                new[] { typeof(int), typeof(bool) });
+
+            Assert.IsNotNull(method, "The selector should expose a force-codec option");
+            var codecs = (IEnumerable<int>)method.Invoke(null, new object[] { 13, true });
+            CollectionAssert.AreEqual(new[] { 13 }, codecs.ToArray());
+        }
     }
 }

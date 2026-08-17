@@ -63,10 +63,17 @@ namespace BiliBili.UWP.Helper
 
                 if (SettingHelper.Get_UseDASH())
                 {
+                    bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                     var bilidash = await GetBilibiliBangumiUrlDash(model, qn);
-                    if (bilidash?.mediaSource != null)
+                    if (bilidash?.mediaSource != null
+                        || !string.IsNullOrWhiteSpace(bilidash?.errorMessage)
+                        || bilidash?.preventFallback == true)
                     {
                         return bilidash;
+                    }
+                    if (forceCodec)
+                    {
+                        return new ReturnPlayModel { preventFallback = true };
                     }
                 }
 
@@ -126,10 +133,17 @@ namespace BiliBili.UWP.Helper
         {
             if (SettingHelper.Get_UseDASH())
             {
+                bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                 var biliplusdash = await GetBiliPlusDashUrl(model.Mid, qn, "https://www.bilibili.com/bangumi/play/ep" + model.episode_id, model.season_type);
-                if (biliplusdash?.mediaSource != null)
+                if (biliplusdash?.mediaSource != null
+                    || !string.IsNullOrWhiteSpace(biliplusdash?.errorMessage)
+                    || biliplusdash?.preventFallback == true)
                 {
                     return biliplusdash;
+                }
+                if (forceCodec)
+                {
+                    return new ReturnPlayModel { preventFallback = true };
                 }
             }
 
@@ -193,7 +207,7 @@ namespace BiliBili.UWP.Helper
                 List<string> urls = new List<string>();
                 var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
                 string url2 = string.Format(
-                    "https://api.bilibili.com/pgc/player/web/playurl?cid={1}&appkey={0}&otype=json&type=&quality={2}&module=bangumi&season_type={4}&qn={2}&ts={3}&fourk=1&fnver=0&fnval=16", ApiHelper.WebVideoKey.Appkey, model.Mid, qn, ApiHelper.GetTimeSpan_2, model.season_type);
+                    "https://api.bilibili.com/pgc/player/web/playurl?cid={1}&appkey={0}&otype=json&type=&quality={2}&module=bangumi&season_type={4}&qn={2}&ts={3}&fourk=1&fnver=0&fnval=4048", ApiHelper.WebVideoKey.Appkey, model.Mid, qn, ApiHelper.GetTimeSpan_2, model.season_type);
                 if (ApiHelper.IsLogin())
                 {
                     url2 += $"&access_key={ApiHelper.access_key}&mid={ApiHelper.GetUserId()}";
@@ -205,14 +219,11 @@ namespace BiliBili.UWP.Helper
                 {
                     if (obj["result"]["dash"] != null)
                     {
-                        int codecid = 7;
-                        if (SettingHelper.Get_DASHUseHEVC())
-                        {
-                            codecid = 12;
-                        }
+                        int codecid = SettingHelper.Get_DASHVideoCodecPreference();
+                        bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                         var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["result"]["dash"]["video"].ToString());
                         var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["result"]["dash"]["audio"].ToString());
-                        return await CreateDashPlayModel(videos, audios, qn, codecid);
+                        return await CreateDashPlayModel(videos, audios, qn, codecid, forceCodec);
                     }
                     else
                     {
@@ -421,7 +432,7 @@ namespace BiliBili.UWP.Helper
                 {
                     season = $"&module=bangumi&season_type={ season_type}";
                 }
-                string url = "https://www.biliplus.com/BPplayurl.php?cid=" + cid + $"&otype=json&type=&quality={qn}&qn={qn}{season}&access_key={ApiHelper.access_key}&fourk=1&fnver=0&fnval=16&platfrom=android";
+                string url = "https://www.biliplus.com/BPplayurl.php?cid=" + cid + $"&otype=json&type=&quality={qn}&qn={qn}{season}&access_key={ApiHelper.access_key}&fourk=1&fnver=0&fnval=4048&platfrom=android";
                 Dictionary<string, string> header = new Dictionary<string, string>();
                 if (SettingHelper.Get_BiliplusCookie() != "")
                 {
@@ -438,14 +449,11 @@ namespace BiliBili.UWP.Helper
                 {
                     if (obj["dash"] != null)
                     {
-                        int codecid = 7;
-                        if (SettingHelper.Get_DASHUseHEVC())
-                        {
-                            codecid = 12;
-                        }
+                        int codecid = SettingHelper.Get_DASHVideoCodecPreference();
+                        bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                         var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["dash"]["video"].ToString());
                         var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["dash"]["audio"].ToString());
-                        return await CreateDashPlayModel(videos, audios, qn, codecid);
+                        return await CreateDashPlayModel(videos, audios, qn, codecid, forceCodec);
                     }
                     else
                     {
@@ -576,10 +584,17 @@ namespace BiliBili.UWP.Helper
 
                 if (SettingHelper.Get_UseDASH())
                 {
+                    bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                     var bilidash = await GetVideoUrlDASH(aid, cid, qn);
-                    if (bilidash?.mediaSource != null)
+                    if (bilidash?.mediaSource != null
+                        || !string.IsNullOrWhiteSpace(bilidash?.errorMessage)
+                        || bilidash?.preventFallback == true)
                     {
                         return bilidash;
+                    }
+                    if (forceCodec)
+                    {
+                        return new ReturnPlayModel { preventFallback = true };
                     }
                 }
 
@@ -610,7 +625,7 @@ namespace BiliBili.UWP.Helper
                 //string url = $"https://api.bilibili.com/x/player/playurl?appkey={ApiHelper.AndroidKey.Appkey}&avid={ aid}&cid={cid}&qn={qn}&type=&otype=json&fnver=0&fnval=16";
 
                 //string url = $"https://api.bilibili.com/x/player/playurl?avid={aid}&cid={cid}&qn={qn}&type=&otype=json&fourk=1&fnver=0&fnval=16&appkey={ ApiHelper.WebVideoKey.Appkey}";
-                string url = $"https://api.bilibili.com/x/player/playurl?appkey={ApiHelper.AndroidKey.Appkey}&avid={aid}&cid={cid}&type=&qn={qn}&fourk=1&otype=json&fnval=1232";
+                string url = $"https://api.bilibili.com/x/player/playurl?appkey={ApiHelper.AndroidKey.Appkey}&avid={aid}&cid={cid}&type=&qn={qn}&fourk=1&otype=json&fnval=4048";
                 //url += "&sign=" + ApiHelper.GetSign(url, ApiHelper.WebVideoKey);
                 if (ApiHelper.IsLogin())
                 {
@@ -623,14 +638,11 @@ namespace BiliBili.UWP.Helper
                 {
                     if (obj["data"]["dash"] != null)
                     {
-                        int codecid = 7;
-                        if (SettingHelper.Get_DASHUseHEVC())
-                        {
-                            codecid = 12;
-                        }
+                        int codecid = SettingHelper.Get_DASHVideoCodecPreference();
+                        bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                         var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["data"]["dash"]["video"].ToString());
                         var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["data"]["dash"]["audio"].ToString());
-                        return await CreateDashPlayModel(videos, audios, qn, codecid);
+                        return await CreateDashPlayModel(videos, audios, qn, codecid, forceCodec);
                     }
                     else
                     {
@@ -1109,20 +1121,28 @@ namespace BiliBili.UWP.Helper
             IEnumerable<DashItem> videos,
             IEnumerable<DashItem> audios,
             int qualityId,
-            int preferredCodecId)
+            int preferredCodecId,
+            bool forceCodec)
         {
             var audio = SelectDashAudio(audios);
             if (audio == null)
             {
-                return null;
+                return forceCodec
+                    ? new ReturnPlayModel { preventFallback = true }
+                    : null;
             }
 
-            foreach (var codecId in DashStreamSelector.GetCodecPreference(preferredCodecId))
+            bool foundPreferredCodec = false;
+            foreach (var codecId in DashStreamSelector.GetCodecPreference(preferredCodecId, forceCodec))
             {
                 var video = SelectDashVideo(videos, qualityId, codecId);
                 if (video == null)
                 {
                     continue;
+                }
+                if (codecId == preferredCodecId)
+                {
+                    foundPreferredCodec = true;
                 }
 
                 var mediaSource = await CreateAdaptiveMediaSource(video, audio);
@@ -1132,12 +1152,74 @@ namespace BiliBili.UWP.Helper
                     {
                         usePlayMode = UsePlayMode.Dash,
                         mediaSource = mediaSource,
-                        from = "bilibili_dash_" + codecId
+                        from = "bilibili_dash_" + codecId,
+                        videoCodec = GetVideoCodecDisplayName(video)
                     };
                 }
             }
 
+            if (forceCodec && !foundPreferredCodec)
+            {
+                return new ReturnPlayModel
+                {
+                    preventFallback = true,
+                    errorMessage = "当前视频没有 " + GetVideoCodecName(preferredCodecId) + " 编码"
+                };
+            }
+
+            if (forceCodec)
+            {
+                return new ReturnPlayModel { preventFallback = true };
+            }
+
             return null;
+        }
+
+        private static string GetVideoCodecName(int codecId)
+        {
+            switch (codecId)
+            {
+                case 12:
+                    return "HEVC/H.265";
+                case 13:
+                    return "AV1";
+                default:
+                    return "AVC/H.264";
+            }
+        }
+
+        private static string GetVideoCodecDisplayName(DashItem video)
+        {
+            if (video == null)
+            {
+                return null;
+            }
+
+            string codecName;
+            switch (video.codecid)
+            {
+                case 7:
+                    codecName = "AVC/H.264";
+                    break;
+                case 12:
+                    codecName = "HEVC/H.265";
+                    break;
+                case 13:
+                    codecName = "AV1";
+                    break;
+                default:
+                    codecName = video.codecid > 0 ? "codecid " + video.codecid : null;
+                    break;
+            }
+
+            if (string.IsNullOrWhiteSpace(video.codecs))
+            {
+                return codecName;
+            }
+
+            return string.IsNullOrWhiteSpace(codecName)
+                ? video.codecs
+                : codecName + " (" + video.codecs + ")";
         }
 
         private static DashItem SelectDashVideo(IEnumerable<DashItem> items, int qualityId, int codecId)
@@ -1509,6 +1591,9 @@ namespace BiliBili.UWP.Helper
         public string url { get; set; }
 
         public string from { get; set; }
+        public string videoCodec { get; set; }
+        public string errorMessage { get; set; }
+        public bool preventFallback { get; set; }
 
         /// <summary>
         /// 暂时用于测试

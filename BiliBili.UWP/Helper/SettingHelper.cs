@@ -996,25 +996,57 @@ namespace BiliBili.UWP
         }
 
 
-        public static bool Get_DASHUseHEVC()
+        public static int Get_DASHVideoCodecPreference()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DASHUseHEVC"] != null)
+            if (container.Values["DASHVideoCodecPreference"] != null)
             {
-                return (bool)container.Values["DASHUseHEVC"];
+                return NormalizeDASHVideoCodecPreference(Convert.ToInt32(container.Values["DASHVideoCodecPreference"]));
             }
-            else
-            {
-                Set_DASHUseHEVC(false);
-                return false;
-            }
+
+            var codecId = container.Values["DASHUseHEVC"] != null
+                && Convert.ToBoolean(container.Values["DASHUseHEVC"])
+                ? 12
+                : 7;
+            Set_DASHVideoCodecPreference(codecId);
+            return codecId;
         }
 
-
-        public static void Set_DASHUseHEVC(bool value)
+        public static void Set_DASHVideoCodecPreference(int codecId)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["DASHUseHEVC"] = value;
+            container.Values["DASHVideoCodecPreference"] = NormalizeDASHVideoCodecPreference(codecId);
+        }
+
+        public static bool Get_DASHForceVideoCodec()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["DASHForceVideoCodec"] != null)
+            {
+                return Convert.ToBoolean(container.Values["DASHForceVideoCodec"]);
+            }
+
+            Set_DASHForceVideoCodec(false);
+            return false;
+        }
+
+        public static void Set_DASHForceVideoCodec(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["DASHForceVideoCodec"] = value;
+        }
+
+        private static int NormalizeDASHVideoCodecPreference(int codecId)
+        {
+            switch (codecId)
+            {
+                case 7:
+                case 12:
+                case 13:
+                    return codecId;
+                default:
+                    return 7;
+            }
         }
 
 

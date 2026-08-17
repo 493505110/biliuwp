@@ -4,8 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BiliBili.UWP.Pages"
     xmlns:controls="using:Microsoft.Toolkit.Uwp.UI.Controls"
-        xmlns:my="using:BiliBili.UWP"
-        xmlns:c="using:BiliBili.UWP.Controls"
+    xmlns:my="using:BiliBili.UWP"
+    xmlns:c="using:BiliBili.UWP.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
@@ -70,10 +70,17 @@
                                     <ToggleSwitch  Foreground="White" x:Name="sw_UseDASH" Toggled="Sw_UseDASH_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
-                                    <TextBlock Foreground="White" VerticalAlignment="Center">DASH使用HEVC解码</TextBlock>
-                                    <ToggleSwitch  Foreground="White" x:Name="sw_DASHUseHEVC" Toggled="Sw_DASHUseHEVC_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">DASH视频编码偏好</TextBlock>
+                                    <ComboBox x:Name="cb_DASHVideoCodec" SelectionChanged="DASHVideoCodec_SelectionChanged" Margin="2 0" HorizontalAlignment="Right" Grid.Column="0" VerticalAlignment="Center" Background="#00424959" BorderThickness="0">
+                                        <ComboBoxItem Content="AVC/H.264" Tag="7" />
+                                        <ComboBoxItem Content="HEVC/H.265" Tag="12" />
+                                        <ComboBoxItem Content="AV1" Tag="13" />
+                                    </ComboBox>
                                 </Grid>
-                                <HyperlinkButton x:Name="btnOpenInstallHEVC" NavigateUri="ms-windows-store://pdp/?productid=9n4wgh0z6vhq">需要安装扩展才能开启HEVC</HyperlinkButton>
+                                <Grid Margin="0 10 0 0">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">强制指定编码</TextBlock>
+                                    <ToggleSwitch Foreground="White" x:Name="sw_DASHForceVideoCodec" Toggled="DASHForceVideoCodec_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0" />
+                                </Grid>
                                 <TextBlock FontSize="16" Margin="0 10 0 0" Foreground="White" >播放模式</TextBlock>
                                 <RadioButton x:Name="cb_setting_0" GroupName="mode"  Foreground="White" IsChecked="True" Content="正常播放"/>
                                 <RadioButton x:Name="cb_setting_1" GroupName="mode"  Foreground="White" Content="单P循环"/>
@@ -247,6 +254,7 @@
                                 <TextBlock Foreground="White"><Run>视频高度:</Run><Run x:Name="txt_VideoHeight"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>缓冲进度:</Run><Run x:Name="txt_BufferingProgress"></Run></TextBlock>
 
+                                <TextBlock Foreground="White"><Run>视频编码:</Run><Run x:Name="txt_VideoCodec"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>
                             </StackPanel>

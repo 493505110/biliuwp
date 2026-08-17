@@ -69,10 +69,19 @@ namespace BiliBili.UWP.Modules.Playback
                 .FirstOrDefault(IsHttpUrl);
         }
 
-        public static IEnumerable<int> GetCodecPreference(int preferredCodecId)
+        public static IEnumerable<int> GetCodecPreference(int preferredCodecId, bool forceCodec = false)
         {
             yield return preferredCodecId;
-            if (preferredCodecId == 12)
+            if (forceCodec)
+            {
+                yield break;
+            }
+            if (preferredCodecId == 13)
+            {
+                yield return 12;
+                yield return 7;
+            }
+            else if (preferredCodecId == 12)
             {
                 yield return 7;
             }

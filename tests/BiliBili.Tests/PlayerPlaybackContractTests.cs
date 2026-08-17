@@ -1,6 +1,8 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.IO;
+using System.Linq;
+using System.Xml.Linq;
 
 namespace BiliBili.Tests
 {
@@ -70,6 +72,150 @@ namespace BiliBili.Tests
                 "private void DanmakuMTC_Unloaded");
 
             Assert.IsFalse(method.Contains("timer2.Start()"), "Loaded 不应启动控制栏自动隐藏计时器");
+        }
+
+        [TestMethod]
+        public void DashPlaybackRequestsAdvertiseAv1Streams()
+        {
+            var bangumi = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetBilibiliBangumiUrlDash",
+                "public static async Task<ReturnPlayModel> GetBilibiliBangumiWebUrl");
+            var biliPlus = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetBiliPlusDashUrl",
+                "public static async Task<ReturnPlayModel> GetBiliPlusUrl2");
+            var video = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetVideoUrlDASH",
+                "public static async Task<ReturnPlayModel> GetVideoUrlV1");
+
+            StringAssert.Contains(bangumi, "fnval=4048");
+            StringAssert.Contains(biliPlus, "fnval=4048");
+            StringAssert.Contains(video, "fnval=4048");
+        }
+
+        [TestMethod]
+        public void DashCodecPreferenceUsesNativeComboBoxes()
+        {
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var expectedTags = new[] { "7", "12", "13" };
+
+            foreach (var relativePath in new[]
+            {
+                "BiliBili.UWP/Views/SettingPage.xaml",
+                "BiliBili.UWP/Pages/PlayerPage.xaml"
+            })
+            {
+                var root = FindRepositoryRoot();
+                var document = XDocument.Load(Path.Combine(root, relativePath));
+                var comboBox = document
+                    .Descendants()
+                    .SingleOrDefault(element =>
+                        element.Name.LocalName == "ComboBox"
+                        && (string)element.Attribute(x + "Name") == "cb_DASHVideoCodec");
+
+                Assert.IsNotNull(comboBox, $"{relativePath} should use a native ComboBox for the DASH codec preference");
+                Assert.AreEqual(
+                    "DASHVideoCodec_SelectionChanged",
+                    (string)comboBox.Attribute("SelectionChanged"));
+                Assert.AreEqual("2 0", (string)comboBox.Attribute("Margin"));
+                Assert.AreEqual("#00424959", (string)comboBox.Attribute("Background"));
+                Assert.AreEqual("0", (string)comboBox.Attribute("BorderThickness"));
+                Assert.IsNull(comboBox.Attribute("Width"));
+                CollectionAssert.AreEqual(
+                    expectedTags,
+                    comboBox.Elements()
+                        .Where(element => element.Name.LocalName == "ComboBoxItem")
+                        .Select(element => (string)element.Attribute("Tag"))
+                        .ToArray());
+                CollectionAssert.AreEqual(
+                    new[] { "AVC/H.264", "HEVC/H.265", "AV1" },
+                    comboBox.Elements()
+                        .Where(element => element.Name.LocalName == "ComboBoxItem")
+                        .Select(element => (string)element.Attribute("Content"))
+                        .ToArray());
+                Assert.IsFalse(document.Descendants().Any(element =>
+                    element.Name.LocalName == "DropDownButton"
+                    && (string)element.Attribute(x + "Name") == "btn_DASHVideoCodec"));
+            }
+        }
+
+        [TestMethod]
+        public void DashCodecPreferenceIncludesForceCodecToggles()
+        {
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+
+            foreach (var relativePath in new[]
+            {
+                "BiliBili.UWP/Views/SettingPage.xaml",
+                "BiliBili.UWP/Pages/PlayerPage.xaml"
+            })
+            {
+                var root = FindRepositoryRoot();
+                var document = XDocument.Load(Path.Combine(root, relativePath));
+                var toggle = document
+                    .Descendants()
+                    .SingleOrDefault(element =>
+                        element.Name.LocalName == "ToggleSwitch"
+                        && (string)element.Attribute(x + "Name") == "sw_DASHForceVideoCodec");
+
+                Assert.IsNotNull(toggle, $"{relativePath} should expose the force-codec setting");
+                Assert.AreEqual("DASHForceVideoCodec_Toggled", (string)toggle.Attribute("Toggled"));
+                Assert.IsTrue(document.Descendants().Any(element =>
+                    element.Name.LocalName == "TextBlock"
+                    && element.Value == "强制指定编码"));
+            }
+        }
+
+        [TestMethod]
+        public void ForcedDashCodecFailureReachesThePlayer()
+        {
+            var bangumi = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetBangumiUrl",
+                "public static async Task<ReturnPlayModel> GetBilibiliBangumiUrlDash");
+            var video = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetVideoUrl(string aid",
+                "public static async Task<ReturnPlayModel> GetVideoUrlDASH");
+            var dashFactory = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "private static async Task<ReturnPlayModel> CreateDashPlayModel",
+                "private static string GetVideoCodecDisplayName");
+            var player = ReadMethod(
+                "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
+                "private async Task<bool> ApplyPlaybackSourceAsync",
+                "private void LaodSubTitleMenu");
+
+            StringAssert.Contains(bangumi, "bilidash?.errorMessage");
+            StringAssert.Contains(video, "bilidash?.errorMessage");
+            StringAssert.Contains(dashFactory, "当前视频没有 ");
+            StringAssert.Contains(dashFactory, "errorMessage");
+            StringAssert.Contains(player, ".errorMessage");
+        }
+
+        [TestMethod]
+        public void ForcedCodecModeDoesNotFallBackToLegacySources()
+        {
+            var bangumi = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetBangumiUrl",
+                "public static async Task<ReturnPlayModel> GetBilibiliBangumiUrlDash");
+            var video = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "public static async Task<ReturnPlayModel> GetVideoUrl(string aid",
+                "public static async Task<ReturnPlayModel> GetVideoUrlDASH");
+            var dashFactory = ReadMethod(
+                "BiliBili.UWP/Helper/PlayurlHelper.cs",
+                "private static async Task<ReturnPlayModel> CreateDashPlayModel",
+                "private static string GetVideoCodecDisplayName");
+
+            StringAssert.Contains(bangumi, "SettingHelper.Get_DASHForceVideoCodec()");
+            StringAssert.Contains(bangumi, "preventFallback");
+            StringAssert.Contains(video, "SettingHelper.Get_DASHForceVideoCodec()");
+            StringAssert.Contains(video, "preventFallback");
+            StringAssert.Contains(dashFactory, "preventFallback = true");
         }
 
         private static string ReadMethod(string relativePath, string startMarker, string endMarker)

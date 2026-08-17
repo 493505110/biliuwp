@@ -1037,16 +1037,8 @@ namespace BiliBili.UWP.Pages
             sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
 
             sw_UseDASH.IsOn = SettingHelper.Get_UseDASH();
-            btnOpenInstallHEVC.Visibility = Visibility.Visible;
-            //if (!await SystemHelper.CheckCodec())
-            //{
-
-            //}
-            //else
-            //{
-            //    btnOpenInstallHEVC.Visibility = Visibility.Collapsed;
-            //}
-            sw_DASHUseHEVC.IsOn = SettingHelper.Get_DASHUseHEVC();
+            SetDASHVideoCodecSelection(SettingHelper.Get_DASHVideoCodecPreference());
+            sw_DASHForceVideoCodec.IsOn = SettingHelper.Get_DASHForceVideoCodec();
 
             List<string> fonts = SystemHelper.GetSystemFontFamilies();
             cb_Font.ItemsSource = fonts;
@@ -1361,6 +1353,7 @@ namespace BiliBili.UWP.Pages
             }
 
             txt_site.Text = result.from;
+            txt_VideoCodec.Text = string.IsNullOrWhiteSpace(result.videoCodec) ? "未知" : result.videoCodec;
             mediaPlayer.Source = source;
             return true;
         }
@@ -1380,6 +1373,8 @@ namespace BiliBili.UWP.Pages
             {
                 mediaPlayer.Source = null;
             }
+            txt_VideoCodec.Text = "未知";
+            string playbackErrorMessage = null;
             try
             {
                 if (gv_play.Items.Count == 0 || gv_play.Items.Count == 1)
@@ -1433,7 +1428,11 @@ namespace BiliBili.UWP.Pages
                         if (!IsPlaybackRequestCurrent(requestId, item)) return;
                         DanMuPool = bangumiDanmakuTask.Result;
                         var ban = bangumiSourceTask.Result;
-                        if (!await ApplyPlaybackSourceAsync(ban, requestId, item)) throw new InvalidOperationException("番剧播放源无效");
+                        if (!await ApplyPlaybackSourceAsync(ban, requestId, item))
+                        {
+                            playbackErrorMessage = ban?.errorMessage;
+                            throw new InvalidOperationException("番剧播放源无效");
+                        }
                         if (ban.from == "server")
                         {
                             Utils.ShowMessageToast("当前视频可能非哔哩哔哩提供，请勿轻信视频内广告", 5000);
@@ -1448,7 +1447,11 @@ namespace BiliBili.UWP.Pages
                         await Task.WhenAll(videoDanmakuTask, videoSourceTask);
                         if (!IsPlaybackRequestCurrent(requestId, item)) return;
                         DanMuPool = videoDanmakuTask.Result;
-                        if (!await ApplyPlaybackSourceAsync(videoSourceTask.Result, requestId, item)) throw new InvalidOperationException("视频播放源无效");
+                        if (!await ApplyPlaybackSourceAsync(videoSourceTask.Result, requestId, item))
+                        {
+                            playbackErrorMessage = videoSourceTask.Result?.errorMessage;
+                            throw new InvalidOperationException("视频播放源无效");
+                        }
                         break;
                     case PlayMode.QQ:
                         AddLog("不支持播放的源:腾讯");
@@ -1509,7 +1512,10 @@ namespace BiliBili.UWP.Pages
                 }
                 AddLog("视频播放失败了" + ex.HResult);
                 LogHelper.WriteLog("读取播放地址失败", LogType.ERROR, ex);
-                await new MessageDialog("无法读取到播放地址 ＞﹏＜ \r\n请尝试登录、更换清晰度、开通大会员后再试").ShowAsync();
+                var message = string.IsNullOrWhiteSpace(playbackErrorMessage)
+                    ? "无法读取到播放地址 ＞﹏＜ \r\n请尝试登录、更换清晰度、开通大会员后再试"
+                    : playbackErrorMessage;
+                await new MessageDialog(message).ShowAsync();
             }
         }
 
@@ -1664,6 +1670,7 @@ namespace BiliBili.UWP.Pages
             var requestId = playbackRequestGate.Begin();
             pendingPlaybackRequest = requestId;
             pendingPlaybackRestoreState = restoreState;
+            ReturnPlayModel result = null;
             try
             {
                 mediaPlayer?.Pause();
@@ -1671,8 +1678,8 @@ namespace BiliBili.UWP.Pages
                 {
                     mediaPlayer.Source = null;
                 }
+                txt_VideoCodec.Text = "未知";
 
-                ReturnPlayModel result = null;
                 switch (item.Mode)
                 {
                     case PlayMode.Bangumi:
@@ -1708,7 +1715,9 @@ namespace BiliBili.UWP.Pages
                 {
                     pendingPlaybackRestoreState = null;
                     LogHelper.WriteLog("更换清晰度失败", LogType.ERROR, ex);
-                    Utils.ShowMessageToast("更换清晰度失败，无法读取播放地址");
+                    Utils.ShowMessageToast(string.IsNullOrWhiteSpace(result?.errorMessage)
+                        ? "更换清晰度失败，无法读取播放地址"
+                        : result.errorMessage);
                 }
             }
             MTC.HideLog();
@@ -2891,23 +2900,37 @@ namespace BiliBili.UWP.Pages
 
         }
 
-        private void Sw_DASHUseHEVC_Toggled(object sender, RoutedEventArgs e)
+        private void DASHVideoCodec_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (settingFlag)
             {
                 return;
             }
-            //if (sw_DASHUseHEVC.IsOn && !await SystemHelper.CheckCodec())
-            //{
-            //    sw_DASHUseHEVC.IsOn = false;
-            //    Utils.ShowMessageToast("请先安装HEVC扩展");
-            //}
-            //else
-            //{
-            SettingHelper.Set_DASHUseHEVC(sw_DASHUseHEVC.IsOn);
-            Utils.ShowMessageToast("更改清晰度或重新加载生效");
-            //}
+            if (!(sender is ComboBox comboBox)
+                || !(comboBox.SelectedItem is ComboBoxItem item)
+                || !int.TryParse(item.Tag?.ToString(), out var codecId))
+            {
+                return;
+            }
 
+            SettingHelper.Set_DASHVideoCodecPreference(codecId);
+            Utils.ShowMessageToast("更改清晰度或重新加载生效");
+        }
+
+        private void SetDASHVideoCodecSelection(int codecId)
+        {
+            cb_DASHVideoCodec.SelectedIndex = codecId == 12 ? 1 : codecId == 13 ? 2 : 0;
+        }
+
+        private void DASHForceVideoCodec_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag)
+            {
+                return;
+            }
+
+            SettingHelper.Set_DASHForceVideoCodec(sw_DASHForceVideoCodec.IsOn);
+            Utils.ShowMessageToast("更改清晰度或重新加载生效");
         }
 
         private void Sw_UseDASH_Toggled(object sender, RoutedEventArgs e)

@@ -344,11 +344,17 @@
 
                             </Grid>
                             <Grid Margin="0 10 0 0" Visibility="Visible">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center" HorizontalAlignment="Left">DASH使用HEVC(如果出现无画面请关闭)</TextBlock>
-                                <ToggleSwitch x:Name="sw_DASHUseHEVC"  Toggled="Sw_DASHUseHEVC_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
-
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center" HorizontalAlignment="Left">DASH视频编码偏好</TextBlock>
+                                <ComboBox x:Name="cb_DASHVideoCodec" SelectionChanged="DASHVideoCodec_SelectionChanged" Margin="2 0" HorizontalAlignment="Right" Grid.Column="0" VerticalAlignment="Center" Background="#00424959" BorderThickness="0">
+                                    <ComboBoxItem Content="AVC/H.264" Tag="7" />
+                                    <ComboBoxItem Content="HEVC/H.265" Tag="12" />
+                                    <ComboBoxItem Content="AV1" Tag="13" />
+                                </ComboBox>
                             </Grid>
-                            <HyperlinkButton x:Name="btnOpenInstallHEVC" NavigateUri="ms-windows-store://pdp/?productid=9n4wgh0z6vhq">需要安装扩展才能开启HEVC</HyperlinkButton>
+                            <Grid Margin="0 10 0 0" Visibility="Visible">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">强制指定编码</TextBlock>
+                                <ToggleSwitch x:Name="sw_DASHForceVideoCodec" Toggled="DASHForceVideoCodec_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68" />
+                            </Grid>
                             <Grid Margin="0 10 0 0" Visibility="Visible">
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">强制软解视频</TextBlock>
                                 <ToggleSwitch x:Name="sw_ForceVideo"  Toggled="sw_ForceVideo_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>

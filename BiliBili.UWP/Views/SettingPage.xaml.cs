@@ -73,18 +73,10 @@ namespace BiliBili.UWP.Views
                 sw_NewWidnows.IsOn = SettingHelper.Get_NewWindow();
                 sw_UseDASH.IsOn = SettingHelper.Get_UseDASH();
 
-                //if (!await SystemHelper.CheckCodec())
-                //{
-
-                //}
-                //else
-                //{
-                //    btnOpenInstallHEVC.Visibility = Visibility.Collapsed;
-                //}
                 sw_DownFLV.IsOn= SettingHelper.Get_DownFLV();
 
-                btnOpenInstallHEVC.Visibility = Visibility.Visible;
-                sw_DASHUseHEVC.IsOn = SettingHelper.Get_DASHUseHEVC();
+                SetDASHVideoCodecSelection(SettingHelper.Get_DASHVideoCodecPreference());
+                sw_DASHForceVideoCodec.IsOn = SettingHelper.Get_DASHForceVideoCodec();
                 sw_PriorityBiliPlus.IsOn = SettingHelper.Get_PriorityBiliPlus();
                 sw_PriorityBiliPlus.IsOn = SettingHelper.Get_PriorityBiliPlus();
                 sw_HideMessageDot.IsOn = SettingHelper.Get_HideMainPageMessageDot();
@@ -827,19 +819,35 @@ namespace BiliBili.UWP.Views
             SettingHelper.Set_UseDASH(sw_UseDASH.IsOn);
         }
 
-        private void Sw_DASHUseHEVC_Toggled(object sender, RoutedEventArgs e)
+        private void DASHVideoCodec_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (loadsetting)
+            {
+                return;
+            }
+            if (!(sender is ComboBox comboBox)
+                || !(comboBox.SelectedItem is ComboBoxItem item)
+                || !int.TryParse(item.Tag?.ToString(), out var codecId))
+            {
+                return;
+            }
 
-            //if (sw_DASHUseHEVC.IsOn&& !await SystemHelper.CheckCodec())
-            //{
-            //    sw_DASHUseHEVC.IsOn = false;
-            //    Utils.ShowMessageToast("请先安装HEVC扩展");
-            //}
-            //else
-            //{
+            SettingHelper.Set_DASHVideoCodecPreference(codecId);
+        }
 
-            //}
-            SettingHelper.Set_DASHUseHEVC(sw_DASHUseHEVC.IsOn);
+        private void SetDASHVideoCodecSelection(int codecId)
+        {
+            cb_DASHVideoCodec.SelectedIndex = codecId == 12 ? 1 : codecId == 13 ? 2 : 0;
+        }
+
+        private void DASHForceVideoCodec_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            SettingHelper.Set_DASHForceVideoCodec(sw_DASHForceVideoCodec.IsOn);
         }
 
         private void Sw_PriorityBiliPlus_Toggled(object sender, RoutedEventArgs e)
