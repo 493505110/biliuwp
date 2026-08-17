@@ -85,7 +85,18 @@
         </Grid>
         <CommandBar Grid.Row="2" Background="{ThemeResource Bili-ForeColor}" Foreground="White">
             <AppBarButton Icon="Refresh" Command="{x:Bind Path=myFollowVideoVM.RefreshCommand,Mode=OneWay}" Label="刷新" Foreground="White"></AppBarButton>
-            <AppBarToggleButton x:Name="sw_Select" Icon="List" Foreground="White" Label="选择" Checked="sw_Select_Checked" Unchecked="sw_Select_Unchecked"></AppBarToggleButton>
+            <AppBarToggleButton x:Name="sw_Select" Foreground="White" Label="选择" Checked="sw_Select_Checked" Unchecked="sw_Select_Unchecked">
+                <AppBarToggleButton.Resources>
+                    <Thickness x:Key="AppBarToggleButtonTextLabelMargin">2,4,2,4</Thickness>
+                </AppBarToggleButton.Resources>
+                <AppBarToggleButton.Icon>
+                    <SymbolIcon Symbol="List">
+                        <SymbolIcon.RenderTransform>
+                            <TranslateTransform Y="5" />
+                        </SymbolIcon.RenderTransform>
+                    </SymbolIcon>
+                </AppBarToggleButton.Icon>
+            </AppBarToggleButton>
             <AppBarButton x:Name="btn_Delete" Click="btn_Delete_Click" Icon="Delete" Foreground="White" Label="删除" IsEnabled="{Binding ElementName=sw_Select,Path=IsChecked}"></AppBarButton>
         </CommandBar>
         <ProgressRing Width="56" Height="56" x:Name="pr_Load" Grid.RowSpan="2"  IsActive="True" Visibility="Collapsed"></ProgressRing>
