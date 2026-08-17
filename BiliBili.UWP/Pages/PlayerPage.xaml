@@ -243,9 +243,9 @@
                                 <TextBlock Foreground="White"><Run>弹幕数量:</Run><Run x:Name="txt_Num"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>AV号:</Run><Run x:Name="txt_sId"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>视频CID:</Run><Run x:Name="txt_eId"></Run></TextBlock>
-                                <TextBlock Foreground="White"><Run>视频宽度:</Run><Run Text="{Binding ElementName=mediaElement,Path=MediaPlayer.PlaybackSession.NaturalVideoWidth}"></Run></TextBlock>
-                                <TextBlock Foreground="White"><Run>视频高度:</Run><Run Text="{Binding ElementName=mediaElement,Path=MediaPlayer.PlaybackSession.NaturalVideoHeight}"></Run></TextBlock>
-                                <TextBlock Foreground="White"><Run>缓冲进度:</Run><Run Text="{Binding ElementName=mediaElement,Path=MediaPlayer.PlaybackSession.BufferingProgress}"></Run></TextBlock>
+                                <TextBlock Foreground="White"><Run>视频宽度:</Run><Run x:Name="txt_VideoWidth"></Run></TextBlock>
+                                <TextBlock Foreground="White"><Run>视频高度:</Run><Run x:Name="txt_VideoHeight"></Run></TextBlock>
+                                <TextBlock Foreground="White"><Run>缓冲进度:</Run><Run x:Name="txt_BufferingProgress"></Run></TextBlock>
 
                                 <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>

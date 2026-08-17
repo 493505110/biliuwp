@@ -87,6 +87,7 @@ namespace BiliBili.UWP.Pages
         {
             mediaPlayer = new MediaPlayer();
             mediaPlayer.PlaybackSession.PositionChanged += PlaybackSession_PositionChanged;
+            mediaPlayer.PlaybackSession.NaturalVideoSizeChanged += PlaybackSession_NaturalVideoSizeChanged;
             mediaPlayer.MediaOpened += MediaPlayer_MediaOpened;
             mediaPlayer.VolumeChanged += MediaPlayer_VolumeChanged;
             mediaPlayer.PlaybackSession.BufferingProgressChanged += PlaybackSession_BufferingProgressChanged;
@@ -103,6 +104,7 @@ namespace BiliBili.UWP.Pages
             {
                 if (mediaPlayer != null)
                 {
+                    mediaPlayer.PlaybackSession.NaturalVideoSizeChanged -= PlaybackSession_NaturalVideoSizeChanged;
                     mediaPlayer.Pause();
                     mediaPlayer.Source = null;
                     mediaElement.SetMediaPlayer(null);
@@ -130,6 +132,25 @@ namespace BiliBili.UWP.Pages
                 mediaPlayer_audio.PlaybackSession.Position = sender.Position;
             }
 
+        }
+
+        private async void PlaybackSession_NaturalVideoSizeChanged(MediaPlaybackSession sender, object args)
+        {
+            if (mediaPlayer == null || !ReferenceEquals(sender, mediaPlayer.PlaybackSession))
+            {
+                return;
+            }
+
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                if (mediaPlayer == null || !ReferenceEquals(sender, mediaPlayer.PlaybackSession))
+                {
+                    return;
+                }
+
+                txt_VideoWidth.Text = sender.NaturalVideoWidth.ToString();
+                txt_VideoHeight.Text = sender.NaturalVideoHeight.ToString();
+            });
         }
 
 
@@ -240,9 +261,21 @@ namespace BiliBili.UWP.Pages
         }
         private async void PlaybackSession_BufferingProgressChanged(MediaPlaybackSession sender, object args)
         {
+            if (mediaPlayer == null || !ReferenceEquals(sender, mediaPlayer.PlaybackSession))
+            {
+                return;
+            }
+
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                pr.Text = mediaElement.MediaPlayer.PlaybackSession.BufferingProgress.ToString("P");
+                if (mediaPlayer == null || !ReferenceEquals(sender, mediaPlayer.PlaybackSession))
+                {
+                    return;
+                }
+
+                var progressText = sender.BufferingProgress.ToString("P");
+                pr.Text = progressText;
+                txt_BufferingProgress.Text = progressText;
             });
         }
         private async void MediaPlayer_MediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
@@ -2777,10 +2810,6 @@ namespace BiliBili.UWP.Pages
             await new MessageDialog("无法播放此视频 ＞﹏＜ \r\n请尝试更换清晰度或者在播放设置中打开/关闭DASH").ShowAsync();
         }
 
-        private void mediaElement_BufferingProgressChanged(object sender, RoutedEventArgs e)
-        {
-            pr.Text = mediaElement.MediaPlayer.PlaybackSession.BufferingProgress.ToString("P");
-        }
         bool buffering = false;
         private void mediaElement_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
