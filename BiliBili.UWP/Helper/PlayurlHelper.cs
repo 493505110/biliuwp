@@ -66,6 +66,7 @@ namespace BiliBili.UWP.Helper
                     bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                     var bilidash = await GetBilibiliBangumiUrlDash(model, qn);
                     if (bilidash?.mediaSource != null
+                        || bilidash?.ffmpegDashSource != null
                         || !string.IsNullOrWhiteSpace(bilidash?.errorMessage)
                         || bilidash?.preventFallback == true)
                     {
@@ -136,6 +137,7 @@ namespace BiliBili.UWP.Helper
                 bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                 var biliplusdash = await GetBiliPlusDashUrl(model.Mid, qn, "https://www.bilibili.com/bangumi/play/ep" + model.episode_id, model.season_type);
                 if (biliplusdash?.mediaSource != null
+                    || biliplusdash?.ffmpegDashSource != null
                     || !string.IsNullOrWhiteSpace(biliplusdash?.errorMessage)
                     || biliplusdash?.preventFallback == true)
                 {
@@ -587,6 +589,7 @@ namespace BiliBili.UWP.Helper
                     bool forceCodec = SettingHelper.Get_DASHForceVideoCodec();
                     var bilidash = await GetVideoUrlDASH(aid, cid, qn);
                     if (bilidash?.mediaSource != null
+                        || bilidash?.ffmpegDashSource != null
                         || !string.IsNullOrWhiteSpace(bilidash?.errorMessage)
                         || bilidash?.preventFallback == true)
                     {
@@ -1145,18 +1148,44 @@ namespace BiliBili.UWP.Helper
                     foundPreferredCodec = true;
                 }
 
-                var mediaSource = await CreateAdaptiveMediaSource(video, audio);
-                if (mediaSource != null)
+                if (SettingHelper.Get_ForceVideo())
                 {
-                    return new ReturnPlayModel
+                    try
                     {
-                        usePlayMode = UsePlayMode.Dash,
-                        mediaSource = mediaSource,
-                        from = "bilibili_dash_" + codecId,
-                        videoCodec = GetVideoCodecDisplayName(video),
-                        videoWidth = video.width,
-                        videoHeight = video.height
-                    };
+                        var ffmpegSource = await FFmpegDashSource.CreateAsync(GetBaseUrl(video), GetBaseUrl(audio));
+                        if (ffmpegSource != null)
+                        {
+                            return new ReturnPlayModel
+                            {
+                                usePlayMode = UsePlayMode.FFmpegDash,
+                                ffmpegDashSource = ffmpegSource,
+                                from = "bilibili_dash_ffmpeg_software_" + codecId,
+                                videoCodec = GetVideoCodecDisplayName(video),
+                                videoWidth = video.width,
+                                videoHeight = video.height
+                            };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog("创建 FFmpeg DASH 软件解码源失败", LogType.ERROR, ex);
+                    }
+                }
+                else
+                {
+                    var mediaSource = await CreateAdaptiveMediaSource(video, audio);
+                    if (mediaSource != null)
+                    {
+                        return new ReturnPlayModel
+                        {
+                            usePlayMode = UsePlayMode.Dash,
+                            mediaSource = mediaSource,
+                            from = "bilibili_dash_" + codecId,
+                            videoCodec = GetVideoCodecDisplayName(video),
+                            videoWidth = video.width,
+                            videoHeight = video.height
+                        };
+                    }
                 }
             }
 
@@ -1583,11 +1612,13 @@ namespace BiliBili.UWP.Helper
         /// 使用VLC播放
         /// </summary>
         VLC,
-        Dash
+        Dash,
+        FFmpegDash
     }
     public class ReturnPlayModel
     {
         public IMediaSource mediaSource { get; set; }
+        public FFmpegDashSource ffmpegDashSource { get; set; }
         public UsePlayMode usePlayMode { get; set; }
         public SYEngine.Playlist playlist { get; set; }
         public string url { get; set; }

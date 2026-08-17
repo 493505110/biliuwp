@@ -72,6 +72,7 @@ namespace BiliBili.UWP.Pages
     {
         MediaPlayer mediaPlayer;
         MediaPlayer mediaPlayer_audio;
+        FFmpegDashSource ffmpegDashSource;
         PlayerAPI playerAPI;
         readonly PlaybackRequestGate playbackRequestGate = new PlaybackRequestGate();
         int pendingPlaybackRequest;
@@ -132,11 +133,21 @@ namespace BiliBili.UWP.Pages
             {
                 player.Pause();
                 player.Source = null;
-                player.Dispose();
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("释放辅助音频播放器失败", LogType.ERROR, ex);
+            }
+            finally
+            {
+                try
+                {
+                    player.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    LogHelper.WriteLog("销毁辅助音频播放器失败", LogType.ERROR, ex);
+                }
             }
         }
 
@@ -145,36 +156,39 @@ namespace BiliBili.UWP.Pages
             var player = mediaPlayer;
             mediaPlayer = null;
             DisposeAuxiliaryMediaPlayer();
-            if (player == null)
-            {
-                return;
-            }
-
-            try
-            {
-                DetachMediaPlayerEvents(player);
-                player.Pause();
-                if (releaseSystemMediaControls)
-                {
-                    ReleaseSystemMediaTransportControls(player);
-                }
-                player.Source = null;
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("释放视频播放器失败", LogType.ERROR, ex);
-            }
-            finally
+            if (player != null)
             {
                 try
                 {
-                    mediaElement.SetMediaPlayer(null);
-                    player.Dispose();
+                    DetachMediaPlayerEvents(player);
+                    player.Pause();
+                    if (releaseSystemMediaControls)
+                    {
+                        ReleaseSystemMediaTransportControls(player);
+                    }
+                    player.Source = null;
                 }
                 catch (Exception ex)
                 {
-                    LogHelper.WriteLog("销毁视频播放器失败", LogType.ERROR, ex);
+                    LogHelper.WriteLog("释放视频播放器失败", LogType.ERROR, ex);
                 }
+                finally
+                {
+                    ReleaseFFmpegDashSource();
+                    try
+                    {
+                        mediaElement.SetMediaPlayer(null);
+                        player.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog("销毁视频播放器失败", LogType.ERROR, ex);
+                    }
+                }
+            }
+            else
+            {
+                ReleaseFFmpegDashSource();
             }
         }
 
@@ -201,9 +215,22 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
-            if (mediaPlayer_audio != null)
+            var audioPlayer = mediaPlayer_audio;
+            if (audioPlayer == null)
             {
-                mediaPlayer_audio.Volume = sender.Volume;
+                return;
+            }
+
+            try
+            {
+                audioPlayer.Volume = sender.Volume;
+            }
+            catch (Exception ex)
+            {
+                if (ReferenceEquals(audioPlayer, mediaPlayer_audio))
+                {
+                    LogHelper.WriteLog("同步辅助音频音量失败", LogType.ERROR, ex);
+                }
             }
         }
 
@@ -214,11 +241,28 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
-            if (mediaPlayer_audio != null && Math.Abs(sender.Position.TotalSeconds - mediaPlayer_audio.PlaybackSession.Position.TotalSeconds) > 1)
+            var audioPlayer = mediaPlayer_audio;
+            if (audioPlayer == null)
             {
-                mediaPlayer_audio.PlaybackSession.Position = sender.Position;
+                return;
             }
 
+            try
+            {
+                var audioSession = audioPlayer.PlaybackSession;
+                var position = sender.Position;
+                if (Math.Abs(position.TotalSeconds - audioSession.Position.TotalSeconds) > 1)
+                {
+                    audioSession.Position = position;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ReferenceEquals(audioPlayer, mediaPlayer_audio))
+                {
+                    LogHelper.WriteLog("同步辅助音频位置失败", LogType.ERROR, ex);
+                }
+            }
         }
 
         private async void PlaybackSession_NaturalVideoSizeChanged(MediaPlaybackSession sender, object args)
@@ -354,7 +398,12 @@ namespace BiliBili.UWP.Pages
                         danmu.PauseDanmaku();
                         break;
                     case MediaPlaybackState.Playing:
-                        mediaPlayer_audio?.Play();
+                        mediaPlayer.PlaybackSession.PlaybackRate = slider_Rate.Value;
+                        if (mediaPlayer_audio != null)
+                        {
+                            mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
+                            mediaPlayer_audio.Play();
+                        }
                         progress.Visibility = Visibility.Collapsed;
                         danmu.ResumeDanmaku();
 
@@ -362,7 +411,6 @@ namespace BiliBili.UWP.Pages
                         {
                             timer.Start();
                         }
-                        mediaElement.MediaPlayer.PlaybackSession.PlaybackRate = slider_Rate.Value;
 
                         break;
                     case MediaPlaybackState.Paused:
@@ -1314,6 +1362,36 @@ namespace BiliBili.UWP.Pages
             await OpenVideoAsync(playNow);
         }
 
+        private void ClearPlaybackSource()
+        {
+            try
+            {
+                if (mediaPlayer != null)
+                {
+                    mediaPlayer.Source = null;
+                }
+            }
+            finally
+            {
+                DisposeAuxiliaryMediaPlayer();
+                ReleaseFFmpegDashSource();
+            }
+        }
+
+        private void ReleaseFFmpegDashSource()
+        {
+            var source = ffmpegDashSource;
+            ffmpegDashSource = null;
+            try
+            {
+                source?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("释放 FFmpeg DASH 源失败", LogType.ERROR, ex);
+            }
+        }
+
         private bool IsPlaybackRequestCurrent(int requestId, PlayerModel item)
         {
             return !_isExiting
@@ -1325,39 +1403,93 @@ namespace BiliBili.UWP.Pages
         {
             if (result == null || !IsPlaybackRequestCurrent(requestId, item) || mediaPlayer == null)
             {
+                result?.ffmpegDashSource?.Dispose();
                 return false;
             }
 
-            MediaSource source = null;
-            if (result.usePlayMode == UsePlayMode.System && Uri.TryCreate(result.url, UriKind.Absolute, out Uri uri))
+            bool ffmpegOwnershipTransferred = false;
+            try
             {
-                source = MediaSource.CreateFromUri(uri);
-            }
-            else if (result.usePlayMode == UsePlayMode.Dash && result.mediaSource is AdaptiveMediaSource adaptiveSource)
-            {
-                source = MediaSource.CreateFromAdaptiveMediaSource(adaptiveSource);
-            }
-            else if (result.playlist != null)
-            {
-                var playlistUri = await result.playlist.SaveAndGetFileUriAsync();
-                if (!IsPlaybackRequestCurrent(requestId, item))
+                IMediaPlaybackSource source = null;
+                IMediaPlaybackSource audioSource = null;
+                if (result.usePlayMode == UsePlayMode.System && Uri.TryCreate(result.url, UriKind.Absolute, out Uri uri))
                 {
+                    source = MediaSource.CreateFromUri(uri);
+                }
+                else if (result.usePlayMode == UsePlayMode.Dash && result.mediaSource is AdaptiveMediaSource adaptiveSource)
+                {
+                    source = MediaSource.CreateFromAdaptiveMediaSource(adaptiveSource);
+                }
+                else if (result.usePlayMode == UsePlayMode.FFmpegDash && result.ffmpegDashSource != null)
+                {
+                    var videoPlaybackItem = result.ffmpegDashSource.CreateVideoPlaybackItem();
+                    var audioPlaybackItem = result.ffmpegDashSource.CreateAudioPlaybackItem();
+                    if (videoPlaybackItem != null && audioPlaybackItem != null)
+                    {
+                        source = videoPlaybackItem;
+                        audioSource = audioPlaybackItem;
+                    }
+                }
+                else if (result.playlist != null)
+                {
+                    var playlistUri = await result.playlist.SaveAndGetFileUriAsync();
+                    if (!IsPlaybackRequestCurrent(requestId, item))
+                    {
+                        result.ffmpegDashSource?.Dispose();
+                        return false;
+                    }
+                    source = MediaSource.CreateFromUri(playlistUri);
+                }
+
+                if (source == null || !IsPlaybackRequestCurrent(requestId, item) || mediaPlayer == null)
+                {
+                    result.ffmpegDashSource?.Dispose();
                     return false;
                 }
-                source = MediaSource.CreateFromUri(playlistUri);
-            }
 
-            if (source == null || !IsPlaybackRequestCurrent(requestId, item) || mediaPlayer == null)
+                txt_site.Text = result.from;
+                txt_VideoCodec.Text = string.IsNullOrWhiteSpace(result.videoCodec) ? "未知" : result.videoCodec;
+                txt_VideoWidth.Text = result.videoWidth ?? string.Empty;
+                txt_VideoHeight.Text = result.videoHeight ?? string.Empty;
+                if (result.ffmpegDashSource != null)
+                {
+                    DisposeAuxiliaryMediaPlayer();
+                    ReleaseFFmpegDashSource();
+                    ffmpegDashSource = result.ffmpegDashSource;
+                    ffmpegOwnershipTransferred = true;
+                    mediaPlayer_audio = new MediaPlayer();
+                    mediaPlayer_audio.CommandManager.IsEnabled = false;
+                    mediaPlayer_audio.Volume = mediaPlayer.Volume;
+                    mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
+                    mediaPlayer_audio.Source = audioSource;
+                }
+                mediaPlayer.Source = source;
+                return true;
+            }
+            catch
             {
-                return false;
+                if (ffmpegOwnershipTransferred)
+                {
+                    try
+                    {
+                        if (mediaPlayer != null)
+                        {
+                            mediaPlayer.Source = null;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog("清理失败的 FFmpeg DASH 播放源失败", LogType.ERROR, ex);
+                    }
+                    DisposeAuxiliaryMediaPlayer();
+                    ReleaseFFmpegDashSource();
+                }
+                else
+                {
+                    result.ffmpegDashSource?.Dispose();
+                }
+                throw;
             }
-
-            txt_site.Text = result.from;
-            txt_VideoCodec.Text = string.IsNullOrWhiteSpace(result.videoCodec) ? "未知" : result.videoCodec;
-            txt_VideoWidth.Text = result.videoWidth ?? string.Empty;
-            txt_VideoHeight.Text = result.videoHeight ?? string.Empty;
-            mediaPlayer.Source = source;
-            return true;
         }
 
         private async Task OpenVideoAsync(PlayerModel item)
@@ -1371,10 +1503,7 @@ namespace BiliBili.UWP.Pages
             pendingPlaybackRestoreState = null;
             DisposeAuxiliaryMediaPlayer();
             mediaPlayer?.Pause();
-            if (mediaPlayer != null)
-            {
-                mediaPlayer.Source = null;
-            }
+            ClearPlaybackSource();
             txt_VideoCodec.Text = "未知";
             string playbackErrorMessage = null;
             try
@@ -1427,9 +1556,13 @@ namespace BiliBili.UWP.Pages
                         var bangumiDanmakuTask = danmakuParse.ParseBiliBili(Convert.ToInt64(item.Mid));
                         var bangumiSourceTask = PlayurlHelper.GetBangumiUrl(item, quality);
                         await Task.WhenAll(bangumiDanmakuTask, bangumiSourceTask);
-                        if (!IsPlaybackRequestCurrent(requestId, item)) return;
-                        DanMuPool = bangumiDanmakuTask.Result;
                         var ban = bangumiSourceTask.Result;
+                        if (!IsPlaybackRequestCurrent(requestId, item))
+                        {
+                            ban?.ffmpegDashSource?.Dispose();
+                            return;
+                        }
+                        DanMuPool = bangumiDanmakuTask.Result;
                         if (!await ApplyPlaybackSourceAsync(ban, requestId, item))
                         {
                             playbackErrorMessage = ban?.errorMessage;
@@ -1447,11 +1580,16 @@ namespace BiliBili.UWP.Pages
                         var videoDanmakuTask = danmakuParse.ParseBiliBili(Convert.ToInt64(item.Mid));
                         var videoSourceTask = PlayurlHelper.GetVideoUrl(item.Aid, item.Mid, quality);
                         await Task.WhenAll(videoDanmakuTask, videoSourceTask);
-                        if (!IsPlaybackRequestCurrent(requestId, item)) return;
-                        DanMuPool = videoDanmakuTask.Result;
-                        if (!await ApplyPlaybackSourceAsync(videoSourceTask.Result, requestId, item))
+                        var videoSource = videoSourceTask.Result;
+                        if (!IsPlaybackRequestCurrent(requestId, item))
                         {
-                            playbackErrorMessage = videoSourceTask.Result?.errorMessage;
+                            videoSource?.ffmpegDashSource?.Dispose();
+                            return;
+                        }
+                        DanMuPool = videoDanmakuTask.Result;
+                        if (!await ApplyPlaybackSourceAsync(videoSource, requestId, item))
+                        {
+                            playbackErrorMessage = videoSource?.errorMessage;
                             throw new InvalidOperationException("视频播放源无效");
                         }
                         break;
@@ -1676,10 +1814,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 mediaPlayer?.Pause();
-                if (mediaPlayer != null)
-                {
-                    mediaPlayer.Source = null;
-                }
+                ClearPlaybackSource();
                 txt_VideoCodec.Text = "未知";
 
                 switch (item.Mode)
@@ -2732,6 +2867,10 @@ namespace BiliBili.UWP.Pages
                 return;
             }
             mediaElement.MediaPlayer.PlaybackSession.PlaybackRate = slider_Rate.Value;
+            if (mediaPlayer_audio != null)
+            {
+                mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
+            }
         }
 
         private void MTC_FullWindows(object sender, EventArgs e)
