@@ -50,6 +50,8 @@ namespace BiliBili.UWP.Controls
             timer2 = new DispatcherTimer();
             timer2.Interval = TimeSpan.FromSeconds(5);
             timer2.Tick += Timer2_Tick;
+            Loaded += DanmakuMTC_Loaded;
+            Unloaded += DanmakuMTC_Unloaded;
         }
 
         private void Timer2_Tick(object sender, object e)
@@ -80,6 +82,10 @@ namespace BiliBili.UWP.Controls
 
         DispatcherTimer timer;
         public DispatcherTimer timer2;
+        readonly List<Action> templateDetachActions = new List<Action>();
+        Grid templateRoot;
+        Border templateControlPanel;
+        Storyboard fadeOutStoryboard;
         public event EventHandler<Danmaku> DanmuLoaded;
         public event EventHandler OnMiniWindows;
         public event EventHandler ExitPlayer;
@@ -103,63 +109,136 @@ namespace BiliBili.UWP.Controls
         //public Danmaku danmuControls;
         protected override void OnApplyTemplate()
         {
+            DetachTemplateHandlers();
+            base.OnApplyTemplate();
             try
             {
-                if (DanmuLoaded != null)
-                {
-                    DanmuLoaded(this, GetTemplateChild("danmuControls") as Danmaku);
-                }
                 myDanmaku = GetTemplateChild("danmuControls") as Danmaku;
-                (GetTemplateChild("MiniWindowsButton") as AppBarButton).Click += MiniWindowsButton_Click;
-                (GetTemplateChild("btn_Back") as AppBarButton).Click += ExitButton_Click;
-                (GetTemplateChild("btn_danmaku") as AppBarButton).Click += CloseOpenDanmaku_Click;
-                (GetTemplateChild("btn_danmakusetting") as AppBarButton).Click += DanmakuSetting_Click;
-                (GetTemplateChild("btn_Previous") as AppBarButton).Click += btn_Previous_Click;
-                (GetTemplateChild("btn_Next") as AppBarButton).Click += btn_Next_Click;
-                (GetTemplateChild("ListButton") as AppBarButton).Click += btn_Playlist_Click;
-                (GetTemplateChild("CoinsBtn") as AppBarButton).Click += Btn_Coins_Click;
-                (GetTemplateChild("ShareBtn") as AppBarButton).Click += Btn_Share_Click;
-                (GetTemplateChild("btn_send") as AppBarButton).Click += Btn_Send_Click;
-                (GetTemplateChild("MyFullWindowButton") as AppBarButton).Click += Btn_Full_Click;
-                (GetTemplateChild("CaptureBtn") as AppBarButton).Click += Btn_Capture_Click;
-                (GetTemplateChild("Video360Button") as AppBarToggleButton).Checked += DanmakuMTC_Checked;
-                (GetTemplateChild("Video360Button") as AppBarToggleButton).Unchecked += DanmakuMTC_Unchecked;
-                if (!SettingHelper.Get_DMStatus())
+                DanmuLoaded?.Invoke(this, myDanmaku);
+                AttachClick("MiniWindowsButton", MiniWindowsButton_Click);
+                AttachClick("btn_Back", ExitButton_Click);
+                AttachClick("btn_danmaku", CloseOpenDanmaku_Click);
+                AttachClick("btn_danmakusetting", DanmakuSetting_Click);
+                AttachClick("btn_Previous", btn_Previous_Click);
+                AttachClick("btn_Next", btn_Next_Click);
+                AttachClick("ListButton", btn_Playlist_Click);
+                AttachClick("CoinsBtn", Btn_Coins_Click);
+                AttachClick("ShareBtn", Btn_Share_Click);
+                AttachClick("btn_send", Btn_Send_Click);
+                AttachClick("MyFullWindowButton", Btn_Full_Click);
+                AttachClick("CaptureBtn", Btn_Capture_Click);
+
+                var video360Button = GetTemplateChild("Video360Button") as AppBarToggleButton;
+                if (video360Button != null)
                 {
-                    (GetTemplateChild("btn_danmaku") as AppBarButton).Icon = new BitmapIcon() {
+                    video360Button.Checked += DanmakuMTC_Checked;
+                    video360Button.Unchecked += DanmakuMTC_Unchecked;
+                    templateDetachActions.Add(() => video360Button.Checked -= DanmakuMTC_Checked);
+                    templateDetachActions.Add(() => video360Button.Unchecked -= DanmakuMTC_Unchecked);
+                }
+
+                var danmakuButton = GetTemplateChild("btn_danmaku") as AppBarButton;
+                if (!SettingHelper.Get_DMStatus() && danmakuButton != null)
+                {
+                    danmakuButton.Icon = new BitmapIcon() {
                         UriSource = new Uri("ms-appx:///Assets/PlayerAssets/ic_player_danmaku_input_options_rl_disabled.png")
                     };
                 }
 
-                (GetTemplateChild("ControlPanel_ControlPanelVisibilityStates_Border") as Border).Tapped += DanmakuMTC_Tapped;
+                var controlPanel = GetTemplateChild("ControlPanel_ControlPanelVisibilityStates_Border") as Border;
+                templateControlPanel = controlPanel;
+                if (controlPanel != null)
+                {
+                    controlPanel.Tapped += DanmakuMTC_Tapped;
+                    templateDetachActions.Add(() => controlPanel.Tapped -= DanmakuMTC_Tapped);
+                }
 
-                (GetTemplateChild("RootGrid") as Grid).ManipulationStarting += MTC_ManipulationStarting;
-                (GetTemplateChild("RootGrid") as Grid).ManipulationDelta += Grid_ManipulationDelta;
-                (GetTemplateChild("RootGrid") as Grid).ManipulationCompleted += Grid_ManipulationCompleted;
+                var root = GetTemplateChild("RootGrid") as Grid;
+                templateRoot = root;
+                if (root != null)
+                {
+                    root.ManipulationStarting += MTC_ManipulationStarting;
+                    root.ManipulationDelta += Grid_ManipulationDelta;
+                    root.ManipulationCompleted += Grid_ManipulationCompleted;
+                    templateDetachActions.Add(() => root.ManipulationStarting -= MTC_ManipulationStarting);
+                    templateDetachActions.Add(() => root.ManipulationDelta -= Grid_ManipulationDelta);
+                    templateDetachActions.Add(() => root.ManipulationCompleted -= Grid_ManipulationCompleted);
+                    var fadeOut = root.Resources["FadeOut"] as Storyboard;
+                    fadeOutStoryboard = fadeOut;
+                    if (fadeOut != null)
+                    {
+                        fadeOut.Completed += FadeOutStoryboard_Completed;
+                        templateDetachActions.Add(() => fadeOut.Completed -= FadeOutStoryboard_Completed);
+                    }
+                }
                 try
                 {
+                    var miniWindowsButton = GetTemplateChild("MiniWindowsButton") as AppBarButton;
                     if (ApplicationView.GetForCurrentView().IsViewModeSupported(ApplicationViewMode.CompactOverlay))
                     {
-                        (GetTemplateChild("MiniWindowsButton") as AppBarButton).IsEnabled = true;
+                        if (miniWindowsButton != null) miniWindowsButton.IsEnabled = true;
                     }
                     else
                     {
-                        (GetTemplateChild("MiniWindowsButton") as AppBarButton).IsEnabled = false;
+                        if (miniWindowsButton != null) miniWindowsButton.IsEnabled = false;
                     }
                 }
                 catch (Exception)
                 {
-                    (GetTemplateChild("MiniWindowsButton") as AppBarButton).IsEnabled = false;
+                    var miniWindowsButton = GetTemplateChild("MiniWindowsButton") as AppBarButton;
+                    if (miniWindowsButton != null) miniWindowsButton.IsEnabled = false;
                 }
 
                 timer.Start();
-                base.OnApplyTemplate();
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("初始化播放控制器失败", LogType.ERROR, ex);
             }
            
+        }
+
+        private void AttachClick(string name, RoutedEventHandler handler)
+        {
+            var button = GetTemplateChild(name) as AppBarButton;
+            if (button == null)
+            {
+                return;
+            }
+
+            button.Click += handler;
+            templateDetachActions.Add(() => button.Click -= handler);
+        }
+
+        private void DetachTemplateHandlers()
+        {
+            foreach (var detach in templateDetachActions)
+            {
+                detach();
+            }
+            templateDetachActions.Clear();
+            templateRoot = null;
+            templateControlPanel = null;
+            fadeOutStoryboard = null;
+        }
+
+        private void FadeOutStoryboard_Completed(object sender, object e)
+        {
+            if (templateControlPanel != null)
+            {
+                templateControlPanel.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void DanmakuMTC_Loaded(object sender, RoutedEventArgs e)
+        {
+            timer.Start();
+        }
+
+        private void DanmakuMTC_Unloaded(object sender, RoutedEventArgs e)
+        {
+            timer.Stop();
+            timer2.Stop();
         }
 
         private void DanmakuMTC_Unchecked(object sender, RoutedEventArgs e)
@@ -176,15 +255,15 @@ namespace BiliBili.UWP.Controls
 
         public void HideOrShowMTC()
         {
-            var root = (GetTemplateChild("RootGrid") as Grid);
-            var bar = (GetTemplateChild("ControlPanel_ControlPanelVisibilityStates_Border") as Border);
+            var root = templateRoot ?? (GetTemplateChild("RootGrid") as Grid);
+            var bar = templateControlPanel ?? (GetTemplateChild("ControlPanel_ControlPanelVisibilityStates_Border") as Border);
+            if (root == null || bar == null)
+            {
+                return;
+            }
             if (bar.Visibility == Visibility.Visible)
             {
                 (root.Resources["FadeOut"] as Storyboard).Begin();
-                (root.Resources["FadeOut"] as Storyboard).Completed += new EventHandler<object>((sender, e) =>
-                {
-                    bar.Visibility = Visibility.Collapsed;
-                });
                 timer2.Stop();
             }
             else

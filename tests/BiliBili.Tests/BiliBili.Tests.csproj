@@ -37,6 +37,20 @@
              Link="Production\PlaylistCloudHistorySelector.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\PlaylistPlayerItemFactory.cs"
              Link="Production\PlaylistPlayerItemFactory.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackRequestGate.cs"
+             Link="Production\PlaybackRequestGate.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackPosition.cs"
+             Link="Production\PlaybackPosition.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\DashStreamSelector.cs"
+             Link="Production\DashStreamSelector.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackTimelineIndex.cs"
+             Link="Production\PlaybackTimelineIndex.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackUrl.cs"
+             Link="Production\PlaybackUrl.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackRestoreState.cs"
+             Link="Production\PlaybackRestoreState.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackHistory.cs"
+             Link="Production\PlaybackHistory.cs" />
     <None Update="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

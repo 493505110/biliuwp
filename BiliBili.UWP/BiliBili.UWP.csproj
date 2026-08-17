@@ -419,6 +419,13 @@
     <Compile Include="Modules\PlaylistPagination.cs" />
     <Compile Include="Modules\PlaylistParameterParser.cs" />
     <Compile Include="Modules\PlaylistPlayerItemFactory.cs" />
+    <Compile Include="Modules\Playback\PlaybackRequestGate.cs" />
+    <Compile Include="Modules\Playback\PlaybackPosition.cs" />
+    <Compile Include="Modules\Playback\DashStreamSelector.cs" />
+    <Compile Include="Modules\Playback\PlaybackTimelineIndex.cs" />
+    <Compile Include="Modules\Playback\PlaybackUrl.cs" />
+    <Compile Include="Modules\Playback\PlaybackRestoreState.cs" />
+    <Compile Include="Modules\Playback\PlaybackHistory.cs" />
     <Compile Include="Modules\ArticleVM.cs" />
     <Compile Include="Modules\Detail\VideoDetailVM.cs" />
     <Compile Include="Modules\Download.cs" />

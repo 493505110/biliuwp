@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Controls;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
+using BiliBili.UWP.Modules.Playback;
 using BiliBili.UWP.Pages;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -63,7 +64,7 @@ namespace BiliBili.UWP.Helper
                 if (SettingHelper.Get_UseDASH())
                 {
                     var bilidash = await GetBilibiliBangumiUrlDash(model, qn);
-                    if (bilidash != null)
+                    if (bilidash?.mediaSource != null)
                     {
                         return bilidash;
                     }
@@ -126,7 +127,7 @@ namespace BiliBili.UWP.Helper
             if (SettingHelper.Get_UseDASH())
             {
                 var biliplusdash = await GetBiliPlusDashUrl(model.Mid, qn, "https://www.bilibili.com/bangumi/play/ep" + model.episode_id, model.season_type);
-                if (biliplusdash != null)
+                if (biliplusdash?.mediaSource != null)
                 {
                     return biliplusdash;
                 }
@@ -211,25 +212,7 @@ namespace BiliBili.UWP.Helper
                         }
                         var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["result"]["dash"]["video"].ToString());
                         var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["result"]["dash"]["audio"].ToString());
-                        var video = videos.FirstOrDefault(x => x.id == qn && x.codecid == codecid);
-                        if (video == null && codecid == 12)
-                        {
-                            codecid = 7;
-                            video = videos.FirstOrDefault(x => x.id == qn && x.codecid == codecid);
-                            if (video == null)
-                            {
-                                video = videos.FirstOrDefault(x => x.codecid == codecid);
-                            }
-                        }
-
-                        var audio = audios.Where(x => x.mimeType == "audio/mp4").FirstOrDefault();
-
-                        return new ReturnPlayModel()
-                        {
-                            usePlayMode = UsePlayMode.Dash,
-                            mediaSource = await CreateAdaptiveMediaSource(video, audio),
-                            from = "bilibili_dash_" + codecid
-                        };
+                        return await CreateDashPlayModel(videos, audios, qn, codecid);
                     }
                     else
                     {
@@ -462,20 +445,7 @@ namespace BiliBili.UWP.Helper
                         }
                         var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["dash"]["video"].ToString());
                         var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["dash"]["audio"].ToString());
-                        var video = videos.FirstOrDefault(x => x.id == qn && x.codecid == codecid);
-                        if (video == null && codecid == 12)
-                        {
-                            codecid = 7;
-                            video = videos.FirstOrDefault(x => x.id == qn && x.codecid == codecid);
-                        }
-                        var audio = audios.Where(x => x.mimeType == "audio/mp4").FirstOrDefault();
-
-                        return new ReturnPlayModel()
-                        {
-                            usePlayMode = UsePlayMode.Dash,
-                            mediaSource = await CreateAdaptiveMediaSource(video, audio),
-                            from = "bilibili_dash_" + codecid
-                        };
+                        return await CreateDashPlayModel(videos, audios, qn, codecid);
                     }
                     else
                     {
@@ -607,7 +577,7 @@ namespace BiliBili.UWP.Helper
                 if (SettingHelper.Get_UseDASH())
                 {
                     var bilidash = await GetVideoUrlDASH(aid, cid, qn);
-                    if (bilidash != null)
+                    if (bilidash?.mediaSource != null)
                     {
                         return bilidash;
                     }
@@ -660,24 +630,7 @@ namespace BiliBili.UWP.Helper
                         }
                         var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["data"]["dash"]["video"].ToString());
                         var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(obj["data"]["dash"]["audio"].ToString());
-                        var video = videos.FirstOrDefault(x => x.id == qn && x.codecid == codecid);
-                        if (video == null && codecid == 12)
-                        {
-                            codecid = 7;
-                            video = videos.FirstOrDefault(x => x.id == qn && x.codecid == codecid);
-                        }
-                        if (video == null)
-                        {
-                            video = videos.OrderByDescending(x => x.id).FirstOrDefault(x => x.codecid == 7);
-                        }
-                        var audio = audios.Where(x => x.mimeType == "audio/mp4").FirstOrDefault();
-
-                        return new ReturnPlayModel()
-                        {
-                            usePlayMode = UsePlayMode.Dash,
-                            mediaSource = await CreateAdaptiveMediaSource(video, audio),
-                            from = "bilibili_dash_" + codecid
-                        };
+                        return await CreateDashPlayModel(videos, audios, qn, codecid);
                     }
                     else
                     {
@@ -1060,11 +1013,11 @@ namespace BiliBili.UWP.Helper
         {
             try
             {
-                if (!url.Contains("http:") || !url.Contains("https:"))
+                if (!PlaybackUrl.TryNormalizeHttpUrl(url, out var subtitleUrl))
                 {
-                    url = "https:" + url;
+                    return null;
                 }
-                var results = await WebClientClass.GetResults(new Uri(url));
+                var results = await WebClientClass.GetResults(new Uri(subtitleUrl));
 
 
                 return JsonConvert.DeserializeObject<SubtitleModel>(results);
@@ -1080,6 +1033,28 @@ namespace BiliBili.UWP.Helper
         {
             try
             {
+                var videoInfo = ToDashStreamInfo(video);
+                var audioInfo = ToDashStreamInfo(audio);
+                if (!DashStreamSelector.IsPlayable(videoInfo)
+                    || !DashStreamSelector.IsPlayable(audioInfo))
+                {
+                    return null;
+                }
+
+                var videoSegmentBase = GetSegmentBase(video);
+                var audioSegmentBase = GetSegmentBase(audio);
+                var videoIndexRange = GetIndexRange(videoSegmentBase);
+                var videoInitialization = GetInitialization(videoSegmentBase);
+                var audioIndexRange = GetIndexRange(audioSegmentBase);
+                var audioInitialization = GetInitialization(audioSegmentBase);
+                if (string.IsNullOrWhiteSpace(videoIndexRange)
+                    || string.IsNullOrWhiteSpace(videoInitialization)
+                    || string.IsNullOrWhiteSpace(audioIndexRange)
+                    || string.IsNullOrWhiteSpace(audioInitialization))
+                {
+                    return null;
+                }
+
                 HttpClient httpClient = new HttpClient();
                 httpClient.DefaultRequestHeaders.Referer = new Uri("https://www.bilibili.com");
                 httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36");
@@ -1087,19 +1062,19 @@ namespace BiliBili.UWP.Helper
   <Period  start=""PT0S"">
     <AdaptationSet>
       <ContentComponent contentType=""video"" id=""1"" />
-      <Representation bandwidth=""{video.bandwidth}"" codecs=""{video.codecs}"" height=""{video.height}"" id=""{video.id}"" mimeType=""{video.mimeType}"" width=""{video.width}"">
+      <Representation bandwidth=""{video.bandwidth}"" codecs=""{video.codecs}"" height=""{video.height}"" id=""{video.id}"" mimeType=""{videoInfo.MimeType}"" width=""{video.width}"">
         <BaseURL></BaseURL>
-        <SegmentBase indexRange=""{video.SegmentBase.indexRange}"">
-          <Initialization range=""{video.SegmentBase.Initialization}"" />
+        <SegmentBase indexRange=""{videoIndexRange}"">
+          <Initialization range=""{videoInitialization}"" />
         </SegmentBase>
       </Representation>
     </AdaptationSet>
     <AdaptationSet>
       <ContentComponent contentType=""audio"" id=""2"" />
-      <Representation bandwidth=""{audio.bandwidth}"" codecs=""{audio.codecs}"" id=""{audio.id}"" mimeType=""{audio.mimeType}"" >
+      <Representation bandwidth=""{audio.bandwidth}"" codecs=""{audio.codecs}"" id=""{audio.id}"" mimeType=""{audioInfo.MimeType}"" >
         <BaseURL></BaseURL>
-        <SegmentBase indexRange=""{audio.SegmentBase.indexRange}"">
-          <Initialization range=""{audio.SegmentBase.Initialization}"" />
+        <SegmentBase indexRange=""{audioIndexRange}"">
+          <Initialization range=""{audioInitialization}"" />
         </SegmentBase>
       </Representation>
     </AdaptationSet>
@@ -1108,13 +1083,17 @@ namespace BiliBili.UWP.Helper
 ";
 
                 var stream = new MemoryStream(Encoding.UTF8.GetBytes(mpdStr)).AsInputStream();
-                var soure = await AdaptiveMediaSource.CreateFromStreamAsync(stream, new Uri(video.baseUrl), "application/dash+xml", httpClient);
-                var s = soure.Status;
+                var soure = await AdaptiveMediaSource.CreateFromStreamAsync(stream, new Uri(videoInfo.BaseUrl), "application/dash+xml", httpClient);
+                if (soure.Status != AdaptiveMediaSourceCreationStatus.Success || soure.MediaSource == null)
+                {
+                    httpClient.Dispose();
+                    return null;
+                }
                 soure.MediaSource.DownloadRequested += (sender, args) =>
                 {
-                    if (args.ResourceContentType == "audio/mp4")
+                    if (args.ResourceContentType == audioInfo.MimeType)
                     {
-                        args.Result.ResourceUri = new Uri(audio.baseUrl);
+                        args.Result.ResourceUri = new Uri(audioInfo.BaseUrl);
                     }
                 };
                 return soure.MediaSource;
@@ -1125,6 +1104,105 @@ namespace BiliBili.UWP.Helper
             }
 
         }
+
+        private static async Task<ReturnPlayModel> CreateDashPlayModel(
+            IEnumerable<DashItem> videos,
+            IEnumerable<DashItem> audios,
+            int qualityId,
+            int preferredCodecId)
+        {
+            var audio = SelectDashAudio(audios);
+            if (audio == null)
+            {
+                return null;
+            }
+
+            foreach (var codecId in DashStreamSelector.GetCodecPreference(preferredCodecId))
+            {
+                var video = SelectDashVideo(videos, qualityId, codecId);
+                if (video == null)
+                {
+                    continue;
+                }
+
+                var mediaSource = await CreateAdaptiveMediaSource(video, audio);
+                if (mediaSource != null)
+                {
+                    return new ReturnPlayModel
+                    {
+                        usePlayMode = UsePlayMode.Dash,
+                        mediaSource = mediaSource,
+                        from = "bilibili_dash_" + codecId
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        private static DashItem SelectDashVideo(IEnumerable<DashItem> items, int qualityId, int codecId)
+        {
+            var list = items?.ToList();
+            var selected = DashStreamSelector.SelectVideo(list?.Select(ToDashStreamInfo), qualityId, codecId);
+            return list?.FirstOrDefault(x => selected != null
+                && string.Equals(GetBaseUrl(x), selected.BaseUrl, StringComparison.Ordinal));
+        }
+
+        private static DashItem SelectDashAudio(IEnumerable<DashItem> items)
+        {
+            var list = items?.ToList();
+            var selected = DashStreamSelector.SelectAudio(list?.Select(ToDashStreamInfo));
+            return list?.FirstOrDefault(x => selected != null
+                && string.Equals(GetBaseUrl(x), selected.BaseUrl, StringComparison.Ordinal));
+        }
+
+        private static DashStreamInfo ToDashStreamInfo(DashItem item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+
+            return new DashStreamInfo(
+                item.id,
+                item.codecid,
+                long.TryParse(item.bandwidth, out var bandwidth) ? bandwidth : 0,
+                item.mimeType ?? item.mime_type,
+                GetBaseUrl(item),
+                item.backupUrl ?? item.backup_url);
+        }
+
+        private static string GetBaseUrl(DashItem item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+
+            var baseUrl = string.IsNullOrWhiteSpace(item.baseUrl) ? item.base_url : item.baseUrl;
+            var backupUrls = item.backupUrl ?? item.backup_url;
+            return DashStreamSelector.ResolvePlayableUrl(baseUrl, backupUrls);
+        }
+
+        private static SegmentBase GetSegmentBase(DashItem item)
+        {
+            return item?.SegmentBase ?? item?.segment_base;
+        }
+
+        private static string GetInitialization(SegmentBase segmentBase)
+        {
+            return string.IsNullOrWhiteSpace(segmentBase?.Initialization)
+                ? segmentBase?.initialization
+                : segmentBase.Initialization;
+        }
+
+        private static string GetIndexRange(SegmentBase segmentBase)
+        {
+            return string.IsNullOrWhiteSpace(segmentBase?.indexRange)
+                ? segmentBase?.index_range
+                : segmentBase.indexRange;
+        }
+
         private static PlaylistNetworkConfigs CreatePlaylistNetworkConfigs(string referer)
         {
             SYEngine.PlaylistNetworkConfigs config = new SYEngine.PlaylistNetworkConfigs();
@@ -1351,6 +1429,9 @@ namespace BiliBili.UWP.Helper
     public class DashItem
     {
         public string baseUrl { get; set; }
+        public string base_url { get; set; }
+        public List<string> backupUrl { get; set; }
+        public List<string> backup_url { get; set; }
         public string bandwidth { get; set; }
         public string codecs { get; set; }
         public int codecid { get; set; }
@@ -1358,7 +1439,9 @@ namespace BiliBili.UWP.Helper
         public string width { get; set; }
         public int id { get; set; }
         public string mimeType { get; set; }
+        public string mime_type { get; set; }
         public SegmentBase SegmentBase { get; set; }
+        public SegmentBase segment_base { get; set; }
     }
 
     public class HasSubtitleModel
