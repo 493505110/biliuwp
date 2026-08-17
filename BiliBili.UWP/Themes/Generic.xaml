@@ -560,10 +560,10 @@
                                 </VisualState>
                             </VisualStateGroup>-->
                         </VisualStateManager.VisualStateGroups>
+                        <c:Danmaku x:Name="danmuControls"></c:Danmaku>
                         <Grid x:Name="grid_subtitle" Margin="24" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center" Padding="8" Background="{TemplateBinding SubTitleBackground}">
                             <TextBlock  x:Name="text_subtitle" FontFamily="{TemplateBinding SubTitleFontFamily}" Foreground="{TemplateBinding SubTitleColor}" FontSize="{TemplateBinding SubTitleFontSize}" Text="这是一条测试的字幕"></TextBlock>
                         </Grid>
-                        <c:Danmaku x:Name="danmuControls"></c:Danmaku>
                         <Grid Background="#99000000" Opacity="{TemplateBinding Brightness}"></Grid>
                         <Border x:Name="ControlPanel_ControlPanelVisibilityStates_Border" >
                             <Grid>
