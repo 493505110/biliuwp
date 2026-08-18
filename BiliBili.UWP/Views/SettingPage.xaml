@@ -351,10 +351,11 @@
                                     <ComboBoxItem Content="AV1" Tag="13" />
                                 </ComboBox>
                             </Grid>
-                            <!--
-                            <HyperlinkButton x:Name="btnOpenInstallHEVC" NavigateUri="ms-windows-store://pdp/?productid=9n4wgh0z6vhq">需要安装扩展才能开启HEVC</HyperlinkButton>
-                            <HyperlinkButton x:Name="btnOpenInstallAV1" NavigateUri="ms-windows-store://pdp/?productid=9mvzqvxjbq9v">需要安装扩展才能开启AV1</HyperlinkButton>
-                            -->
+                            <TextBlock>
+                                <Hyperlink x:Name="btnOpenInstallHEVC" NavigateUri="ms-windows-store://pdp/?productid=9n4wgh0z6vhq">HEVC扩展</Hyperlink>
+                                <Hyperlink x:Name="btnOpenInstallAV1" NavigateUri="ms-windows-store://pdp/?productid=9mvzqvxjbq9v">AV1扩展</Hyperlink>
+                            </TextBlock>
+                            
                             <Grid Margin="0 10 0 0" Visibility="Visible">
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">强制指定编码</TextBlock>
                                 <ToggleSwitch x:Name="sw_DASHForceVideoCodec" Toggled="DASHForceVideoCodec_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68" />
