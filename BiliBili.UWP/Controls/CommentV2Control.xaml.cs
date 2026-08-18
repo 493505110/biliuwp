@@ -730,7 +730,7 @@ namespace BiliBili.UWP.Controls
             {
                 string url = "https://api.bilibili.com/x/v2/reply/add";
 
-                var txt = "回复 @" + m.member.uname + ":" + m.replyText;
+                var txt = m.replyText;
                 string content =
                     string.Format("access_key={0}&appkey={1}&platform=android&type={2}&oid={3}&ts={4}&message={5}&root={6}&parent={7}",
                     ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _type, _loadCommentInfo.oid, ApiHelper.GetTimeSpan_2, Uri.EscapeDataString(txt), m.root, m.rpid);
