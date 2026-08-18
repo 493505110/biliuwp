@@ -1400,6 +1400,32 @@ namespace BiliBili.UWP.Pages
                 && ReferenceEquals(playNow, item);
         }
 
+        private void UpdateSoftwareDecodeInfo(ReturnPlayModel result)
+        {
+            string status;
+            switch (result?.usePlayMode)
+            {
+                case UsePlayMode.FFmpegDash:
+                    status = "软解 (FFmpeg)";
+                    break;
+                case UsePlayMode.SYEngine:
+                    status = SYEngine.Core.ForceSoftwareDecode
+                        ? "请求软解 (SYEngine)"
+                        : "系统决定 (SYEngine)";
+                    break;
+                case UsePlayMode.System:
+                case UsePlayMode.Dash:
+                    status = "系统决定";
+                    break;
+                default:
+                    status = "未知";
+                    break;
+            }
+
+            txt_fvideo.Text = status;
+            AddLog("软解状态：" + status);
+        }
+
         private async Task<bool> ApplyPlaybackSourceAsync(ReturnPlayModel result, int requestId, PlayerModel item)
         {
             if (result == null || !IsPlaybackRequestCurrent(requestId, item) || mediaPlayer == null)
@@ -1465,6 +1491,7 @@ namespace BiliBili.UWP.Pages
                     mediaPlayer_audio.Source = audioSource;
                 }
                 mediaPlayer.Source = source;
+                UpdateSoftwareDecodeInfo(result);
                 return true;
             }
             catch
@@ -1543,8 +1570,7 @@ namespace BiliBili.UWP.Pages
                 {
                     return;
                 }
-                txt_fvideo.Text = SettingHelper.Get_ForceVideo().ToString();
-                AddLog("强制软解视频：" + txt_fvideo.Text);
+                UpdateSoftwareDecodeInfo(null);
                 cb_Quity.IsEnabled = true;
                 var quality = (cb_Quity.SelectedItem as QualityModel)?.qn ?? 64;
                 switch (item.Mode)
@@ -1607,6 +1633,7 @@ namespace BiliBili.UWP.Pages
                         DanMuPool = sohuDanmakuTask.Result;
                         mediaPlayer.Source = MediaSource.CreateFromUri(new Uri(sohuSourceTask.Result));
                         txt_site.Text = "sohu";
+                        UpdateSoftwareDecodeInfo(new ReturnPlayModel { usePlayMode = UsePlayMode.System });
                         break;
                     case PlayMode.Local:
                         pr.Text = "加载视频中...";
@@ -1616,6 +1643,7 @@ namespace BiliBili.UWP.Pages
                         await PlayLocal(item, requestId);
                         if (!IsPlaybackRequestCurrent(requestId, item)) return;
                         txt_site.Text = "本地";
+                        UpdateSoftwareDecodeInfo(new ReturnPlayModel { usePlayMode = UsePlayMode.System });
                         break;
                     case PlayMode.FormLocal:
                         pr.Text = "加载视频中...";
@@ -1627,6 +1655,7 @@ namespace BiliBili.UWP.Pages
                         txt_site.Text = "本地";
                         await PlayFromLocal(item, requestId);
                         if (!IsPlaybackRequestCurrent(requestId, item)) return;
+                        UpdateSoftwareDecodeInfo(new ReturnPlayModel { usePlayMode = UsePlayMode.System });
                         break;
                     default:
                         break;
@@ -1834,6 +1863,7 @@ namespace BiliBili.UWP.Pages
                         {
                             mediaPlayer.Source = MediaSource.CreateFromUri(uri);
                             txt_site.Text = "sohu";
+                            UpdateSoftwareDecodeInfo(new ReturnPlayModel { usePlayMode = UsePlayMode.System });
                             return;
                         }
                         break;
