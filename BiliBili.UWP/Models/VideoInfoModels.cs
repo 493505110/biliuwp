@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Helper;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -302,7 +303,7 @@ namespace BiliBili.UWP.Models
     {
 
     }
-    public class FavboxModel
+    public class FavboxModel : INotifyPropertyChanged
     {
         public string cover { get; set; }
         public int attr { get; set; }
@@ -332,9 +333,39 @@ namespace BiliBili.UWP.Models
         public int type { get; set; }
 
 
-        public int media_count { get; set; }
+        private int _media_count;
+        public int media_count
+        {
+            get { return _media_count; }
+            set
+            {
+                if (_media_count == value)
+                {
+                    return;
+                }
+
+                _media_count = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("media_count"));
+            }
+        }
        
-        public int fav_state { get; set; }
+        private int _fav_state;
+        public int fav_state
+        {
+            get { return _fav_state; }
+            set
+            {
+                if (_fav_state == value)
+                {
+                    return;
+                }
+
+                _fav_state = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("fav_state"));
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
     }
 
     public class pagesModel

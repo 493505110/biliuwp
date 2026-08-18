@@ -721,6 +721,13 @@ namespace BiliBili.UWP.Pages
                         var data = await results.GetJson<ApiDataModel<JObject>>();
                         if (data.success)
                         {
+                            favorite.fav_state = isFavorite ? 0 : 1;
+                            favorite.media_count = Math.Max(0, favorite.media_count + (isFavorite ? -1 : 1));
+                            var favorites = Video_ListView_Favbox.ItemsSource as List<FavboxModel>;
+                            if (favorites != null)
+                            {
+                                UpdateFavoriteButton(favorites);
+                            }
                             Utils.ShowMessageToast(isFavorite ? "已取消收藏" : "收藏成功！", 2000);
                         }
                         else
@@ -741,7 +748,7 @@ namespace BiliBili.UWP.Pages
                 }
                 finally
                 {
-                    await GetFavBox();
+                    Video_ListView_Favbox.IsEnabled = true;
                 }
             }
             else
