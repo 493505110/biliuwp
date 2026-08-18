@@ -67,7 +67,7 @@
                                 <Slider x:Name="slider_Rate" ValueChanged="slider_Rate_ValueChanged"  StepFrequency="0.25" Value="1" Maximum="2" Minimum="0.5"></Slider>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">使用DASH</TextBlock>
-                                    <ToggleSwitch  Foreground="White" x:Name="sw_UseDASH" Toggled="Sw_UseDASH_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
+                                    <ToggleSwitch  Foreground="White" x:Name="sw_UseDASH" Toggled="Sw_UseDASH_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">DASH视频编码偏好</TextBlock>
@@ -79,7 +79,11 @@
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">强制指定编码</TextBlock>
-                                    <ToggleSwitch Foreground="White" x:Name="sw_DASHForceVideoCodec" Toggled="DASHForceVideoCodec_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0" />
+                                    <ToggleSwitch Foreground="White" x:Name="sw_DASHForceVideoCodec" Toggled="DASHForceVideoCodec_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0" />
+                                </Grid>
+                                <Grid Margin="0 10 0 0">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">强制软解视频</TextBlock>
+                                    <ToggleSwitch x:Name="sw_ForceVideo" Toggled="sw_ForceVideo_Toggled" Foreground="White" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0" />
                                 </Grid>
                                 <TextBlock FontSize="16" Margin="0 10 0 0" Foreground="White" >播放模式</TextBlock>
                                 <RadioButton x:Name="cb_setting_0" GroupName="mode"  Foreground="White" IsChecked="True" Content="正常播放"/>
@@ -105,7 +109,7 @@
                                 </Grid>
                                 <Grid Margin="0 10 0 0" Visibility="Collapsed">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">弹幕边框</TextBlock>
-                                    <ToggleSwitch x:Name="sw_DanmuBorder" Foreground="White" Toggled="sw_DanmuBorder_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
+                                    <ToggleSwitch x:Name="sw_DanmuBorder" Foreground="White" Toggled="sw_DanmuBorder_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                             
                                 <Grid Margin="0 10 0 0">
@@ -119,15 +123,15 @@
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">弹幕加粗</TextBlock>
-                                    <ToggleSwitch x:Name="sw_BoldDanmu" Foreground="White" Toggled="sw_BoldDanmu_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
+                                    <ToggleSwitch x:Name="sw_BoldDanmu" Foreground="White" Toggled="sw_BoldDanmu_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">合并重复弹幕</TextBlock>
-                                    <ToggleSwitch x:Name="sw_MergeDanmu" Foreground="White" Toggled="sw_MergeDanmu_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
+                                    <ToggleSwitch x:Name="sw_MergeDanmu" Foreground="White" Toggled="sw_MergeDanmu_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">半屏显示</TextBlock>
-                                    <ToggleSwitch x:Name="sw_DanmuNotSubtitle" Foreground="White" Toggled="sw_DanmuNotSubtitle_Toggled" HorizontalAlignment="Right" Width="68" Margin="10 0"></ToggleSwitch>
+                                    <ToggleSwitch x:Name="sw_DanmuNotSubtitle" Foreground="White" Toggled="sw_DanmuNotSubtitle_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <StackPanel Margin="0 10 0 0" >
                                     <Grid >

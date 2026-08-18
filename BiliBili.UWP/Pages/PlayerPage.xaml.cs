@@ -1087,6 +1087,7 @@ namespace BiliBili.UWP.Pages
             sw_UseDASH.IsOn = SettingHelper.Get_UseDASH();
             SetDASHVideoCodecSelection(SettingHelper.Get_DASHVideoCodecPreference());
             sw_DASHForceVideoCodec.IsOn = SettingHelper.Get_DASHForceVideoCodec();
+            sw_ForceVideo.IsOn = SettingHelper.Get_ForceVideo();
 
             List<string> fonts = SystemHelper.GetSystemFontFamilies();
             cb_Font.ItemsSource = fonts;
@@ -3071,6 +3072,18 @@ namespace BiliBili.UWP.Pages
             }
 
             SettingHelper.Set_DASHForceVideoCodec(sw_DASHForceVideoCodec.IsOn);
+            Utils.ShowMessageToast("更改清晰度或重新加载生效");
+        }
+
+        private void sw_ForceVideo_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag)
+            {
+                return;
+            }
+
+            SettingHelper.Set_ForceVideo(sw_ForceVideo.IsOn);
+            SYEngine.Core.ForceSoftwareDecode = sw_ForceVideo.IsOn;
             Utils.ShowMessageToast("更改清晰度或重新加载生效");
         }
 
