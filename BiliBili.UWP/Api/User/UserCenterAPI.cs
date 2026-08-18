@@ -42,6 +42,31 @@ namespace BiliBili.UWP.Api.User
         }
 
         /// <summary>
+        /// 获取当前用户的关注列表（网页 API）
+        /// </summary>
+        public ApiModel GetFollowings(int page = 1, int pageSize = 20)
+        {
+            var headers = new Dictionary<string, string>()
+            {
+                { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+                { "Referer", "https://www.bilibili.com/" }
+            };
+            var cookies = ApiHelper.GetCookies();
+            if (!string.IsNullOrEmpty(cookies))
+            {
+                headers["Cookie"] = cookies;
+            }
+
+            return new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/relation/followings",
+                parameter = $"vmid={ApiHelper.GetUserId()}&ps={pageSize}&pn={page}&order=desc&order_type=attention&jsonp=json",
+                headers = headers
+            };
+        }
+
+        /// <summary>
         /// 用户投稿（网页API）
         /// </summary>
         /// <param name="mid"></param>

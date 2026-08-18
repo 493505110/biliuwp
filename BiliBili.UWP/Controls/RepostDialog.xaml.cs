@@ -194,15 +194,26 @@ namespace BiliBili.UWP.Controls
             {
                 pr_LoadUserAt.Visibility = Visibility.Visible;
                 _loadingAt = true;
-                string url = "https://api.live.bilibili.com/feed_svr/v1/feed_svr/get_user_info?access_key={0}&appkey={1}&build=5250000&page={2}&pagesize=20&platform=android&src=bilih5&ts={3}";
-                url = string.Format(url, ApiHelper.access_key, ApiHelper.AndroidKey.Appkey, _userAtPage, ApiHelper.GetTimeSpan_2);
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
-
-                userAtListModel userAtListModel = JsonConvert.DeserializeObject<userAtListModel>(results);
-                if (userAtListModel.code == 0)
+                var response = await new UserCenterAPI().GetFollowings(_userAtPage, 20).Request();
+                if (!response.status)
                 {
-                    if (userAtListModel.data.info.Count == 0)
+                    Utils.ShowMessageToast(response.message ?? "加载关注列表失败");
+                    return;
+                }
+
+                var userAtListModel = JsonConvert.DeserializeObject<userAtListModel>(response.results);
+                if (userAtListModel?.code == 0)
+                {
+                    var users = userAtListModel.data?.list ?? new ObservableCollection<userAtListModel>();
+                    foreach (var item in users)
+                    {
+                        if (item.uid <= 0 && long.TryParse(item.mid, out var uid))
+                        {
+                            item.uid = uid;
+                        }
+                    }
+
+                    if (users.Count == 0)
                     {
                         btn_LoadMoreUserAt.Visibility = Visibility.Collapsed;
                         Utils.ShowMessageToast("加载完了...");
@@ -211,13 +222,21 @@ namespace BiliBili.UWP.Controls
                     {
                         if (_userAtPage == 1)
                         {
-                            ls_UserAt.ItemsSource = userAtListModel.data.info;
+                            ls_UserAt.ItemsSource = users;
                         }
                         else
                         {
-                            foreach (var item in userAtListModel.data.info)
+                            var currentUsers = ls_UserAt.ItemsSource as ObservableCollection<userAtListModel>;
+                            if (currentUsers == null)
                             {
-                                (ls_UserAt.ItemsSource as ObservableCollection<userAtListModel>).Add(item);
+                                ls_UserAt.ItemsSource = users;
+                            }
+                            else
+                            {
+                                foreach (var item in users)
+                                {
+                                    currentUsers.Add(item);
+                                }
                             }
                         }
                         btn_LoadMoreUserAt.Visibility = Visibility.Visible;
@@ -226,7 +245,7 @@ namespace BiliBili.UWP.Controls
                 }
                 else
                 {
-                    Utils.ShowMessageToast(userAtListModel.message);
+                    Utils.ShowMessageToast(userAtListModel?.message ?? "加载关注列表失败");
                 }
 
             }
@@ -682,9 +701,11 @@ namespace BiliBili.UWP.Controls
         public string message { get; set; }
         public userAtListModel data { get; set; }
 
+        public System.Collections.ObjectModel.ObservableCollection<userAtListModel> list { get; set; }
         public System.Collections.ObjectModel.ObservableCollection<userAtListModel> info { get; set; }
 
         public long uid { get; set; }
+        public string mid { get; set; }
         public string uname { get; set; }
         public string face { get; set; }
         public int rank { get; set; }
