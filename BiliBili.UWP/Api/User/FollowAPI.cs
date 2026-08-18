@@ -88,34 +88,31 @@ namespace BiliBili.UWP.Api.User
         }
 
         /// <summary>
-        /// 我的收藏夹/收藏的收藏夹
+        /// 我创建的收藏夹
         /// </summary>
         /// <returns></returns>
         public ApiModel MyFavorite()
         {
-            ApiModel api = new ApiModel()
-            {
-                method = HttpMethod.GET,
-                baseUrl = "https://api.bilibili.com/medialist/gateway/base/space",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&up_mid={ApiHelper.GetUserId()}"
-            };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidKey);
-            return api;
+            return MyCreatedFavorite();
         }
 
         /// <summary>
         /// 我创建的收藏夹
         /// </summary>
         /// <returns></returns>
-        public ApiModel MyCreatedFavorite(string aid)
+        public ApiModel MyCreatedFavorite(string aid = null)
         {
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = "https://api.bilibili.com/medialist/gateway/base/created",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&rid={aid}&up_mid={ApiHelper.GetUserId()}&type=2&pn=1&ps=100"
+                baseUrl = "https://api.bilibili.com/x/v3/fav/folder/created/list-all",
+                parameter = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&up_mid={ApiHelper.GetUserId()}&type=2"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidKey);
+            if (!string.IsNullOrEmpty(aid))
+            {
+                api.parameter += $"&rid={Uri.EscapeDataString(aid)}";
+            }
+            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidTVKey);
             return api;
         }
 
@@ -147,10 +144,44 @@ namespace BiliBili.UWP.Api.User
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.POST,
-                baseUrl = "https://api.bilibili.com/medialist/gateway/base/add",
-                body = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"privacy={(privacy ? 1 : 0)}&title={Uri.EscapeDataString(title)}"
+                baseUrl = "https://api.bilibili.com/x/v3/fav/folder/add",
+                body = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&title={Uri.EscapeDataString(title)}&privacy={(privacy ? 1 : 0)}"
             };
-            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidKey);
+            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidTVKey);
+            return api;
+        }
+
+
+        /// <summary>
+        /// 编辑收藏夹
+        /// </summary>
+        /// <returns></returns>
+        public ApiModel EditFavorite(string fid, string title, bool privacy)
+        {
+            ApiModel api = new ApiModel()
+            {
+                method = HttpMethod.POST,
+                baseUrl = "https://api.bilibili.com/x/v3/fav/folder/edit",
+                body = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&fid={Uri.EscapeDataString(fid)}&title={Uri.EscapeDataString(title)}&privacy={(privacy ? 1 : 0)}"
+            };
+            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidTVKey);
+            return api;
+        }
+
+
+        /// <summary>
+        /// 删除收藏夹
+        /// </summary>
+        /// <returns></returns>
+        public ApiModel DeleteFavorite(string mediaId)
+        {
+            ApiModel api = new ApiModel()
+            {
+                method = HttpMethod.POST,
+                baseUrl = "https://api.bilibili.com/x/v3/fav/folder/del",
+                body = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&media_ids={Uri.EscapeDataString(mediaId)}"
+            };
+            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidTVKey);
             return api;
         }
 
@@ -164,10 +195,10 @@ namespace BiliBili.UWP.Api.User
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.GET,
-                baseUrl = "https://api.bilibili.com/medialist/gateway/base/detail",
-                parameter = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&media_id={fid}&mid={ApiHelper.GetUserId()}&keyword={Uri.EscapeDataString(keyword)}&pn={page}&ps=20"
+                baseUrl = "https://api.bilibili.com/x/v3/fav/resource/list",
+                parameter = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&media_id={fid}&keyword={Uri.EscapeDataString(keyword)}&pn={page}&ps=20&type=0"
             };
-            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidKey);
+            api.parameter += ApiUtils.GetSign(api.parameter, ApiUtils.AndroidTVKey);
             return api;
         }
 
@@ -176,15 +207,15 @@ namespace BiliBili.UWP.Api.User
         /// 收藏夹移除视频
         /// </summary>
         /// <returns></returns>
-        public ApiModel RemoveFavorite(string fid, string avid)
+        public ApiModel RemoveFavorite(string mediaId, string avid)
         {
             ApiModel api = new ApiModel()
             {
                 method = HttpMethod.POST,
-                baseUrl = "https://api.bilibili.com/x/v2/fav/video/del",
-                body = ApiUtils.MustParameter(ApiUtils.AndroidKey, true) + $"&fid={fid}&aid={avid}"
+                baseUrl = "https://api.bilibili.com/x/v3/fav/resource/batch-del",
+                body = ApiUtils.MustParameter(ApiUtils.AndroidTVKey, true) + $"&resources={Uri.EscapeDataString(avid + ":2")}&media_id={Uri.EscapeDataString(mediaId)}"
             };
-            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidKey);
+            api.body += ApiUtils.GetSign(api.body, ApiUtils.AndroidTVKey);
             return api;
         }
 

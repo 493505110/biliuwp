@@ -21,10 +21,28 @@ namespace BiliBili.UWP.Modules.User
             LoadMoreCommand = new RelayCommand(LoadMore);
         }
         private bool _loading = false;
+        private int _loadingCount;
         public bool Loading
         {
             get { return _loading; }
-            set { _loading = value; DoPropertyChanged("Loading"); }
+            set
+            {
+                var oldLoading = _loading;
+                if (value)
+                {
+                    _loadingCount++;
+                }
+                else if (_loadingCount > 0)
+                {
+                    _loadingCount--;
+                }
+
+                _loading = _loadingCount > 0;
+                if (_loading != oldLoading)
+                {
+                    DoPropertyChanged("Loading");
+                }
+            }
         }
         private bool _Nothing = false;
         public bool Nothing
@@ -54,7 +72,16 @@ namespace BiliBili.UWP.Modules.User
         public FavoriteItemModel CurrentFavorite
         {
             get { return _currentFavorite; }
-            set { _currentFavorite = value; }
+            set
+            {
+                if (ReferenceEquals(_currentFavorite, value))
+                {
+                    return;
+                }
+
+                _currentFavorite = value;
+                DoPropertyChanged("CurrentFavorite");
+            }
         }
 
 
@@ -77,44 +104,97 @@ namespace BiliBili.UWP.Modules.User
             set { _videos = value; DoPropertyChanged("Videos"); }
         }
 
-        public async Task LoadFavorite()
+        public async Task<bool> LoadFavorite(string preferredFid = null, string preferredTitle = null, int preferredIndex = 0)
         {
             try
             {
                 Loading = true;
 
-                var results = await followAPI.MyFavorite().Request();
-                if (results.status)
+                var results = await followAPI.MyCreatedFavorite().Request();
+                if (results == null)
                 {
-                    var data = await results.GetJson<ApiDataModel<JArray>>();
-                    if (data.success)
-                    {
-                        if (data.data[0]["mediaListResponse"] != null)
-                        {
-                            MyFavorite = await data.data[0]["mediaListResponse"]["list"].ToString().DeserializeJson<ObservableCollection<FavoriteItemModel>>();
-                            CurrentFavorite = MyFavorite[0];
-                            DoPropertyChanged("CurrentFavorite");
-                            LoadFavoriteVideos();
-                        }
-                        if (data.data[1]["mediaListResponse"] != null)
-                        {
-                            CollectFavorite = await data.data[1]["mediaListResponse"]["list"].ToString().DeserializeJson<ObservableCollection<FavoriteItemModel>>();
-                        }
-                    }
-                    else
-                    {
-                        Utils.ShowMessageToast(data.message);
-                    }
+                    Utils.ShowMessageToast("获取收藏夹失败");
+                    return false;
                 }
-                else
+
+                if (!results.status)
                 {
                     Utils.ShowMessageToast(results.message);
+                    return false;
                 }
+
+                var data = await results.GetJson<ApiDataModel<JObject>>();
+                if (data == null)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+
+                if (!data.success)
+                {
+                    Utils.ShowMessageToast(data.message);
+                    return false;
+                }
+
+                if (data.data == null)
+                {
+                    Utils.ShowMessageToast("获取收藏夹失败");
+                    return false;
+                }
+
+                var list = data.data["list"];
+                if (list == null || list.Type == JTokenType.Null)
+                {
+                    Utils.ShowMessageToast("获取收藏夹失败");
+                    return false;
+                }
+
+                var favoriteList = await list.ToString().DeserializeJson<ObservableCollection<FavoriteItemModel>>();
+                if (favoriteList == null)
+                {
+                    Utils.ShowMessageToast("获取收藏夹失败");
+                    return false;
+                }
+                MyFavorite = favoriteList;
+
+                if (MyFavorite.Count == 0)
+                {
+                    FavoriteInfo = null;
+                    Videos = null;
+                    ShowLoadMore = false;
+                    Nothing = true;
+                    CurrentFavorite = null;
+                    Page = 1;
+                    return true;
+                }
+
+                FavoriteItemModel preferredItem = null;
+                if (!string.IsNullOrEmpty(preferredFid))
+                {
+                    preferredItem = MyFavorite.FirstOrDefault(item => item.fid == preferredFid);
+                }
+                if (preferredItem == null && !string.IsNullOrEmpty(preferredTitle))
+                {
+                    preferredItem = MyFavorite.FirstOrDefault(item => item.title == preferredTitle);
+                }
+
+                var selectedIndex = preferredItem == null
+                    ? Math.Max(0, Math.Min(preferredIndex, MyFavorite.Count - 1))
+                    : MyFavorite.IndexOf(preferredItem);
+                CurrentFavorite = MyFavorite[selectedIndex];
+                Page = 1;
+                FavoriteInfo = null;
+                Videos = null;
+                ShowLoadMore = false;
+                Nothing = false;
+                await LoadFavoriteVideos();
+                return true;
             }
             catch (Exception ex)
             {
                 var handel = HandelError(ex);
                 Utils.ShowMessageToast(handel.message);
+                return false;
             }
             finally
             {
@@ -123,39 +203,72 @@ namespace BiliBili.UWP.Modules.User
         }
         public async Task LoadFavoriteVideos()
         {
+            if (CurrentFavorite == null)
+            {
+                Videos = null;
+                FavoriteInfo = null;
+                Nothing = true;
+                ShowLoadMore = false;
+                return;
+            }
+
             try
             {
                 ShowLoadMore = false;
                 Loading = true;
                 Nothing = false;
                 var results = await followAPI.FavoriteInfo(CurrentFavorite.id, "", Page).Request();
+                if (results == null)
+                {
+                    Utils.ShowMessageToast("获取收藏内容失败");
+                    return;
+                }
+
                 if (results.status)
                 {
                     var data = await results.GetJson<ApiDataModel<FavoriteDetailModel>>();
+                    if (data == null)
+                    {
+                        Utils.ShowMessageToast(results.message);
+                        return;
+                    }
+
                     if (data.success)
                     {
+                        if (data.data == null)
+                        {
+                            Utils.ShowMessageToast("获取收藏内容失败");
+                            return;
+                        }
+
+                        var medias = data.data.medias ?? new ObservableCollection<FavoriteInfoVideoItemModel>();
+                        ShowLoadMore = false;
+                        Nothing = false;
                         if (Page == 1)
                         {
                             FavoriteInfo = data.data.info;
-                            if (data.data.medias == null || data.data.medias.Count == 0)
-                            {
-                                Nothing = true;
-                                return;
-                            }
-                            Videos = data.data.medias;
-
+                            Videos = medias;
                         }
                         else
                         {
-                            if (data.data.medias != null)
+                            if (Videos == null)
                             {
-                                foreach (var item in data.data.medias)
-                                {
-                                    Videos.Add(item);
-                                }
+                                Videos = new ObservableCollection<FavoriteInfoVideoItemModel>();
+                            }
+                            foreach (var item in medias)
+                            {
+                                Videos.Add(item);
                             }
                         }
-                        if (Videos.Count != FavoriteInfo.media_count)
+
+                        if (Videos == null || Videos.Count == 0)
+                        {
+                            Nothing = true;
+                            ShowLoadMore = false;
+                            return;
+                        }
+
+                        if (FavoriteInfo != null && Videos.Count != FavoriteInfo.media_count)
                         {
                             ShowLoadMore = true;
                             Page++;
@@ -181,12 +294,209 @@ namespace BiliBili.UWP.Modules.User
                 Loading = false;
             }
         }
+
+        public async Task<bool> CreateFavoriteFolder(string title, bool privacy)
+        {
+            title = title?.Trim();
+            if (string.IsNullOrEmpty(title) || title.Length > 20)
+            {
+                return false;
+            }
+            if (Loading)
+            {
+                return false;
+            }
+
+            try
+            {
+                Loading = true;
+                var results = await followAPI.CreateFavorite(title, privacy).Request();
+                if (results == null)
+                {
+                    Utils.ShowMessageToast("创建收藏夹失败");
+                    return false;
+                }
+                if (!results.status)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+
+                var data = await results.GetJson<ApiDataModel<JObject>>();
+                if (data == null)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+                if (data.success)
+                {
+                    var preferredFid = data.data?["fid"]?.ToString();
+                    if (string.IsNullOrEmpty(preferredFid))
+                    {
+                        preferredFid = data.data?["id"]?.ToString();
+                    }
+                    await LoadFavorite(preferredFid, title);
+                    return true;
+                }
+
+                Utils.ShowMessageToast(data.message);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                var handel = HandelError(ex);
+                Utils.ShowMessageToast(handel.message);
+                return false;
+            }
+            finally
+            {
+                Loading = false;
+            }
+        }
+
+        public async Task<bool> EditFavoriteFolder(string title, bool privacy)
+        {
+            title = title?.Trim();
+            if (string.IsNullOrEmpty(title) || title.Length > 20)
+            {
+                return false;
+            }
+            if (Loading)
+            {
+                return false;
+            }
+            if (CurrentFavorite == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                Loading = true;
+                var results = await followAPI.EditFavorite(CurrentFavorite.fid, title, privacy).Request();
+                if (results == null)
+                {
+                    Utils.ShowMessageToast("编辑收藏夹失败");
+                    return false;
+                }
+                if (!results.status)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+
+                var data = await results.GetJson<ApiDataModel<JObject>>();
+                if (data == null)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+                if (data.success)
+                {
+                    await LoadFavorite(CurrentFavorite.fid, title);
+                    return true;
+                }
+
+                Utils.ShowMessageToast(data.message);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                var handel = HandelError(ex);
+                Utils.ShowMessageToast(handel.message);
+                return false;
+            }
+            finally
+            {
+                Loading = false;
+            }
+        }
+
+        public async Task<bool> DeleteCurrentFavoriteFolder()
+        {
+            if (Loading)
+            {
+                return false;
+            }
+            if (CurrentFavorite == null || MyFavorite == null || MyFavorite.Count == 0)
+            {
+                return false;
+            }
+
+            var current = CurrentFavorite;
+            var preferredIndex = Math.Max(0, MyFavorite.IndexOf(current));
+            try
+            {
+                Loading = true;
+                var results = await followAPI.DeleteFavorite(current.id).Request();
+                if (results == null)
+                {
+                    Utils.ShowMessageToast("删除收藏夹失败");
+                    return false;
+                }
+                if (!results.status)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+
+                var data = await results.GetJson<ApiDataModel<object>>();
+                if (data == null)
+                {
+                    Utils.ShowMessageToast(results.message);
+                    return false;
+                }
+                if (!data.success)
+                {
+                    Utils.ShowMessageToast(data.message);
+                    return false;
+                }
+                if (data.success)
+                {
+                    var loaded = await LoadFavorite(null, null, preferredIndex);
+                    if (!loaded)
+                    {
+                        MyFavorite.Remove(current);
+                        if (MyFavorite.Count == 0)
+                        {
+                            FavoriteInfo = null;
+                            Videos = null;
+                            ShowLoadMore = false;
+                            Nothing = true;
+                            CurrentFavorite = null;
+                        }
+                        else
+                        {
+                            var fallbackIndex = Math.Max(0, Math.Min(preferredIndex, MyFavorite.Count - 1));
+                            CurrentFavorite = MyFavorite[fallbackIndex];
+                            Page = 1;
+                            FavoriteInfo = null;
+                            Videos = null;
+                            await LoadFavoriteVideos();
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                var handel = HandelError(ex);
+                Utils.ShowMessageToast(handel.message);
+                return false;
+            }
+            finally
+            {
+                Loading = false;
+            }
+        }
+
         public async Task<bool> RemoveFavoriteVideo( FavoriteInfoVideoItemModel item)
         {
             try
             {
 
-                var results = await followAPI.RemoveFavorite(CurrentFavorite.fid, item.id).Request();
+                var results = await followAPI.RemoveFavorite(CurrentFavorite.id, item.id).Request();
                 if (results.status)
                 {
                     var data = await results.GetJson<ApiDataModel<object>>();
@@ -197,7 +507,7 @@ namespace BiliBili.UWP.Modules.User
                     }
                     else
                     {
-                        Utils.ShowMessageToast(results.message);
+                        Utils.ShowMessageToast(data.message);
                     }
                 }
                 else

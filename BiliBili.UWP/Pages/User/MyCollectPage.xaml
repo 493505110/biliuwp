@@ -80,10 +80,15 @@
                     </StackPanel>
                 </toolkit:AdaptiveGridView.Footer>
             </toolkit:AdaptiveGridView>
-            <TextBlock Visibility="{x:Bind Path=myFollowVideoVM.Nothing,Mode=OneWay}" VerticalAlignment="Center" HorizontalAlignment="Left" Foreground="Gray" Margin="444,0,0,0">这里还什么都没有呢~</TextBlock>
+            <TextBlock Visibility="{x:Bind Path=myFollowVideoVM.Nothing,Mode=OneWay}" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="Gray">这里还什么都没有呢~</TextBlock>
 
         </Grid>
         <CommandBar Grid.Row="2" Background="{ThemeResource Bili-ForeColor}" Foreground="White">
+            <CommandBar.SecondaryCommands>
+                <AppBarButton x:Name="btn_CreateFavorite" Click="btn_CreateFavorite_Click" Icon="Add" Label="新建"></AppBarButton>
+                <AppBarButton x:Name="btn_EditFavorite" Click="btn_EditFavorite_Click" Icon="Edit" Label="编辑"></AppBarButton>
+                <AppBarButton x:Name="btn_DeleteFavoriteFolder" Click="btn_DeleteFavoriteFolder_Click" Icon="Delete" Label="删除"></AppBarButton>
+            </CommandBar.SecondaryCommands>
             <AppBarButton Icon="Refresh" Command="{x:Bind Path=myFollowVideoVM.RefreshCommand,Mode=OneWay}" Label="刷新" Foreground="White"></AppBarButton>
             <AppBarToggleButton x:Name="sw_Select" Foreground="White" Label="选择" Checked="sw_Select_Checked" Unchecked="sw_Select_Unchecked">
                 <AppBarToggleButton.Resources>
@@ -100,6 +105,13 @@
             <AppBarButton x:Name="btn_Delete" Click="btn_Delete_Click" Icon="Delete" Foreground="White" Label="删除" IsEnabled="{Binding ElementName=sw_Select,Path=IsChecked}"></AppBarButton>
         </CommandBar>
         <ProgressRing Width="56" Height="56" x:Name="pr_Load" Grid.RowSpan="2"  IsActive="True" Visibility="Collapsed"></ProgressRing>
-      
+
+        <ContentDialog x:Name="cd_FavoriteEditor" Title="新建收藏夹" Grid.RowSpan="3" PrimaryButtonText="确定" SecondaryButtonText="取消" PrimaryButtonClick="FavoriteEditor_PrimaryButtonClick">
+            <StackPanel>
+                <TextBox x:Name="txt_FavoriteTitle" MaxLength="20" PlaceholderText="输入收藏夹名称"></TextBox>
+                <CheckBox x:Name="cb_FavoritePublic" IsChecked="True" Margin="0 4">是否公开</CheckBox>
+            </StackPanel>
+        </ContentDialog>
+
     </Grid>
 </Page>
