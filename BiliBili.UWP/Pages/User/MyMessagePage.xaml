@@ -244,16 +244,15 @@
                                     </Ellipse>
                                 </HyperlinkButton>
                                 <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Margin="5 0" HorizontalAlignment="Left" Text="{Binding room_name}"></TextBlock>
-                                <TextBlock Grid.Column="1" Grid.Row="1" VerticalAlignment="Top" MaxLines="1" TextTrimming="CharacterEllipsis" Foreground="Gray" Margin="5 0" HorizontalAlignment="Left" Text="{Binding last_msg}"></TextBlock>
-                                <Border Grid.Column="1" VerticalAlignment="Top" HorizontalAlignment="Right"
-                                        Margin="0 5 5 0" Background="Red" CornerRadius="10"
+                                <TextBlock Grid.Column="1" Grid.Row="1" VerticalAlignment="Top" MaxLines="1" TextTrimming="CharacterEllipsis" Foreground="Gray" Margin="5 0 32 0" HorizontalAlignment="Left" Text="{Binding last_msg}"></TextBlock>
+                                <Border Grid.Column="1" Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Right"
+                                        Margin="0 0 5 0" Background="Red" CornerRadius="10"
                                         MinWidth="20" Height="20" Padding="4 0"
                                         Visibility="{Binding HasUnread, Converter={StaticResource BoolToVis}}">
                                     <TextBlock Text="{Binding UnreadCountText}" Foreground="White"
                                                FontSize="12" HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
                                 </Border>
-                                <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Margin="5 0" HorizontalAlignment="Right" Foreground="Gray" FontSize="14" Text="{Binding Last_time}"></TextBlock>
                                 <TextBlock Grid.Column="1" VerticalAlignment="Bottom" Margin="5 0" HorizontalAlignment="Right" Foreground="Gray" FontSize="14" Text="{Binding Last_time}"></TextBlock>
                             </Grid>
                         </DataTemplate>
