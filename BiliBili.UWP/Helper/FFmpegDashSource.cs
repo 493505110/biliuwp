@@ -3,6 +3,7 @@ using FFmpegInteropX;
 #endif
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Media.Playback;
 
@@ -11,6 +12,7 @@ namespace BiliBili.UWP.Helper
     public sealed class FFmpegDashSource : IDisposable
     {
 #if FFMPEG_INTEROP_SUPPORTED
+        private static readonly SemaphoreSlim createLock = new SemaphoreSlim(1, 1);
         private FFmpegMediaSource videoSource;
         private FFmpegMediaSource audioSource;
 
@@ -64,6 +66,9 @@ namespace BiliBili.UWP.Helper
             bool logProviderSet = false;
             FFmpegMediaSource createdVideoSource = null;
             FFmpegMediaSource createdAudioSource = null;
+            // FFmpegInteropX 日志设置为进程级全局状态,并发创建会互相摘掉对方的日志提供器,
+            // 用锁串行化"日志设置+源创建",确保原生日志可追溯
+            await createLock.WaitAsync();
             try
             {
                 var config = new MediaSourceConfig();
@@ -111,6 +116,7 @@ namespace BiliBili.UWP.Helper
                 {
                     FFmpegInteropLogging.SetDefaultLogProvider();
                 }
+                createLock.Release();
             }
 #else
             return await Task.FromResult<FFmpegDashSource>(null);

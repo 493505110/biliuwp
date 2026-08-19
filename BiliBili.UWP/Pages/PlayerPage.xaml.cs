@@ -395,7 +395,7 @@ namespace BiliBili.UWP.Pages
                         buffering = true;
                         progress.Visibility = Visibility.Visible;
                         mediaPlayer_audio?.Pause();
-                        danmu.PauseDanmaku();
+                        danmu?.PauseDanmaku();
                         break;
                     case MediaPlaybackState.Playing:
                         mediaPlayer.PlaybackSession.PlaybackRate = slider_Rate.Value;
@@ -405,7 +405,7 @@ namespace BiliBili.UWP.Pages
                             mediaPlayer_audio.Play();
                         }
                         progress.Visibility = Visibility.Collapsed;
-                        danmu.ResumeDanmaku();
+                        danmu?.ResumeDanmaku();
 
                         if (timer != null)
                         {
@@ -415,7 +415,7 @@ namespace BiliBili.UWP.Pages
                         break;
                     case MediaPlaybackState.Paused:
                         progress.Visibility = Visibility.Collapsed;
-                        danmu.PauseDanmaku();
+                        danmu?.PauseDanmaku();
                         if (timer != null)
                         {
                             timer.Stop();
@@ -479,7 +479,7 @@ namespace BiliBili.UWP.Pages
                     return;
                 }
 
-                await new MessageDialog($"无法播放此视频 ＞﹏＜ \r\n{args.Error.ToString()}: {args.ExtendedErrorCode.Message}\r\n请尝试更换清晰度或者在播放设置中打开/关闭DASH").ShowAsync();
+                await new MessageDialog($"无法播放此视频 ＞﹏＜ \r\n{args.Error.ToString()}: {args.ExtendedErrorCode?.Message ?? "未知错误"}\r\n请尝试更换清晰度或者在播放设置中打开/关闭DASH").ShowAsync();
                 // 失败后重建 MediaPlayer,避免同一实例的失败状态污染后续所有播放
                 if (ReferenceEquals(sender, mediaPlayer) && playbackRequestGate.IsCurrent(callbackRequest))
                 {
@@ -506,8 +506,16 @@ namespace BiliBili.UWP.Pages
 
                     if (cb_setting_1.IsChecked.Value)
                     {
+                        var audioPlayer = mediaPlayer_audio;
+                        if (audioPlayer != null)
+                        {
+                            // 重置辅助音频播放器,避免 FFmpeg 双播放器模式下第二轮循环无声或音频停在结束状态
+                            audioPlayer.Pause();
+                            audioPlayer.PlaybackSession.Position = TimeSpan.Zero;
+                            audioPlayer.Play();
+                        }
                         mediaElement.MediaPlayer.Play();
-                        danmu.ClearAll();
+                        danmu?.ClearAll();
                         return;
                     }
                     if (gv_play.SelectedIndex == gv_play.Items.Count - 1)
@@ -540,6 +548,7 @@ namespace BiliBili.UWP.Pages
                             else
                             {
                                 Utils.ShowMessageToast("全部看完了", 3000);
+                                mediaPlayer_audio?.Pause();
                             }
                         }
                     }

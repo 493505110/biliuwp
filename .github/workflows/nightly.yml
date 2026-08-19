@@ -147,8 +147,10 @@ jobs:
           # 删除旧 release 与旧 tag,由 softprops 全新重建:
           # 原地更新 release 不会刷新 published_at,页面日期会停留在首次发布时间;
           # 且 GitHub 对同名 tag 会"记住"旧 release 的日期,必须连 tag 一起删
-          gh release delete nightly --repo "${{ github.repository }}" --yes 2>/dev/null || true
-          gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly" 2>/dev/null || true
+          # 删除失败(如 release/tag 不存在)不中断,但不再静默吞错:
+          # 若旧 release 删除失败,softprops 会原地更新,页面日期不刷新的问题会静默复发
+          gh release delete nightly --repo "${{ github.repository }}" --yes || echo "::warning::旧 nightly release 删除失败(可能不存在或权限不足),发布将原地更新"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly" || echo "::warning::旧 nightly tag 删除失败(可能不存在),日期可能不刷新"
           # 重建 tag 指向当前 HEAD:本地 git 操作最可靠
           # (gh api PATCH 有参数类型/权限坑,曾导致 tag 停在旧提交、release 指向旧代码)
           git tag -f nightly "$GITHUB_SHA"

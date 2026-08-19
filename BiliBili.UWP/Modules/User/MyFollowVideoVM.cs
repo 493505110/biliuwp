@@ -20,6 +20,7 @@ namespace BiliBili.UWP.Modules.User
             RefreshCommand = new RelayCommand(Refresh);
             LoadMoreCommand = new RelayCommand(LoadMore);
         }
+        private bool _refreshPending = false;
         private bool _loading = false;
         private int _loadingCount;
         public bool Loading
@@ -503,6 +504,11 @@ namespace BiliBili.UWP.Modules.User
                     if (data.success)
                     {
                         Videos.Remove(item);
+                        // 同步本地计数,否则分页收敛条件(Videos.Count != media_count)恒成立,"加载更多"无法收敛
+                        if (FavoriteInfo != null)
+                        {
+                            FavoriteInfo.media_count = Math.Max(0, FavoriteInfo.media_count - 1);
+                        }
                         return true;
                     }
                     else
@@ -529,12 +535,20 @@ namespace BiliBili.UWP.Modules.User
         {
             if (Loading)
             {
+                // 有请求在途时记录待刷新,当前请求结束后补载,避免切换收藏夹后列表与选中项不一致
+                _refreshPending = true;
                 return;
             }
             Page = 1;
             FavoriteInfo = null;
             Videos = null;
             await LoadFavoriteVideos();
+            if (_refreshPending)
+            {
+                _refreshPending = false;
+                Page = 1;
+                await LoadFavoriteVideos();
+            }
         }
         public async void LoadMore()
         {
