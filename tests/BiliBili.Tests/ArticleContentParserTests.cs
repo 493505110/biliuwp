@@ -1,5 +1,4 @@
 ﻿using System;
-using System.IO;
 using System.Linq;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
@@ -14,7 +13,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void Parse_LegacyHtml_PreservesSupportedBlocksAndInlines()
         {
-            string json = File.ReadAllText(Path.Combine("Fixtures", "type0.json"));
+            string json = TestRepository.ReadFixture("type0.json");
             ArticleDataModel article = JsonConvert.DeserializeObject<ArticleDataModel>(json);
 
             ArticleBlockModel[] blocks = new ArticleContentParser().Parse(article).ToArray();
@@ -120,7 +119,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void Parse_DeltaJson_PreservesFormattingAndEmbeds()
         {
-            string json = File.ReadAllText(Path.Combine("Fixtures", "type3.json"));
+            string json = TestRepository.ReadFixture("type3.json");
             ArticleDataModel article = JsonConvert.DeserializeObject<ArticleDataModel>(json);
 
             ArticleBlockModel[] blocks = new ArticleContentParser().Parse(article).ToArray();

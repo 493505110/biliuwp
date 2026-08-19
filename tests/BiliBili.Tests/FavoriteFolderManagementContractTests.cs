@@ -1,6 +1,6 @@
 using System;
-using System.IO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BiliBili.Tests.TestRepository;
 
 namespace BiliBili.Tests
 {
@@ -10,7 +10,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void FollowApi_DefinesCreateEditAndDeleteFolderRequests()
         {
-            var source = ReadRepositoryFile("BiliBili.UWP/Api/User/FollowAPI.cs");
+            var source = ReadFile("BiliBili.UWP/Api/User/FollowAPI.cs");
 
             var createFavorite = AssertSignedPostMethod(
                 source,
@@ -44,8 +44,8 @@ namespace BiliBili.Tests
         [TestMethod]
         public void MyCollectPage_ExposesCreateAndManageCommands()
         {
-            var xaml = ReadRepositoryFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml");
-            var codeBehind = ReadRepositoryFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml.cs");
+            var xaml = ReadFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml");
+            var codeBehind = ReadFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml.cs");
 
             var secondaryCommands = Between(xaml, "<CommandBar.SecondaryCommands>", "</CommandBar.SecondaryCommands>");
             var createFavoriteButton = ElementContaining(secondaryCommands, "AppBarButton", "x:Name=\"btn_CreateFavorite\"");
@@ -153,7 +153,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void MyCollectPage_GatesFolderManagementByLoginAndSelection()
         {
-            var source = ReadRepositoryFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml.cs");
+            var source = ReadFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml.cs");
 
             var createHandler = MethodBody(
                 source,
@@ -186,7 +186,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void MyCollectPage_BatchDeleteCopiesSelectedItemsBeforeRemovingThem()
         {
-            var source = ReadRepositoryFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml.cs");
+            var source = ReadFile("BiliBili.UWP/Pages/User/MyCollectPage.xaml.cs");
             var deleteHandler = MethodBody(
                 source,
                 "private async void btn_Delete_Click(object sender, RoutedEventArgs e)");
@@ -219,7 +219,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void ViewModel_ContainsFolderStateTransitions()
         {
-            var source = ReadRepositoryFile("BiliBili.UWP/Modules/User/MyFollowVideoVM.cs");
+            var source = ReadFile("BiliBili.UWP/Modules/User/MyFollowVideoVM.cs");
 
             var loadFavorite = MethodBody(
                 source,
@@ -367,7 +367,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void ViewModel_CurrentFavoriteSkipsNotificationForSameReference()
         {
-            var source = ReadRepositoryFile("BiliBili.UWP/Modules/User/MyFollowVideoVM.cs");
+            var source = ReadFile("BiliBili.UWP/Modules/User/MyFollowVideoVM.cs");
             var currentFavorite = MethodBody(
                 source,
                 "public FavoriteItemModel CurrentFavorite");
@@ -391,7 +391,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void ViewModel_TreatsMissingFavoriteMediasAsEmptyState()
         {
-            var source = ReadRepositoryFile("BiliBili.UWP/Modules/User/MyFollowVideoVM.cs");
+            var source = ReadFile("BiliBili.UWP/Modules/User/MyFollowVideoVM.cs");
             var loadFavoriteVideos = MethodBody(
                 source,
                 "public async Task LoadFavoriteVideos()");
@@ -462,26 +462,6 @@ namespace BiliBili.Tests
             Assert.IsTrue(loadingFalseIndex > finallyIndex, $"{methodName} finally 未恢复 Loading");
         }
 
-        private static string ElementContaining(string source, string elementName, string requiredMarker)
-        {
-            var marker = source.IndexOf(requiredMarker, StringComparison.Ordinal);
-            Assert.IsTrue(marker >= 0, $"找不到元素标记：{requiredMarker}");
-
-            var start = source.LastIndexOf("<" + elementName, marker, StringComparison.Ordinal);
-            Assert.IsTrue(start >= 0, $"找不到元素起始标记：{elementName}");
-
-            var closingMarker = "</" + elementName + ">";
-            var closing = source.IndexOf(closingMarker, marker, StringComparison.Ordinal);
-            if (closing >= 0)
-            {
-                return source.Substring(start, closing + closingMarker.Length - start);
-            }
-
-            var selfClosing = source.IndexOf("/>", marker, StringComparison.Ordinal);
-            Assert.IsTrue(selfClosing >= 0, $"找不到元素结束标记：{elementName}");
-            return source.Substring(start, selfClosing + 2 - start);
-        }
-
         private static string AssertSignedPostMethod(string source, string methodSignature, string endpoint)
         {
             var methodBody = MethodBody(source, methodSignature);
@@ -493,69 +473,5 @@ namespace BiliBili.Tests
             return methodBody;
         }
 
-        private static string MethodBody(string source, string methodSignature)
-        {
-            var methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);
-            if (methodStart < 0)
-            {
-                Assert.Fail($"找不到方法声明标记：{methodSignature}");
-            }
-
-            var openingBrace = source.IndexOf('{', methodStart + methodSignature.Length);
-            if (openingBrace < 0)
-            {
-                Assert.Fail($"方法声明后找不到起始大括号：{methodSignature}");
-            }
-
-            var braceDepth = 0;
-            for (var index = openingBrace; index < source.Length; index++)
-            {
-                if (source[index] == '{')
-                {
-                    braceDepth++;
-                }
-                else if (source[index] == '}')
-                {
-                    braceDepth--;
-                    if (braceDepth == 0)
-                    {
-                        return source.Substring(openingBrace, index - openingBrace + 1);
-                    }
-                }
-            }
-
-            Assert.Fail($"方法缺少匹配的结束大括号：{methodSignature}");
-            return null;
-        }
-
-        private static string Between(string source, string startMarker, string endMarker)
-        {
-            var start = source.IndexOf(startMarker, StringComparison.Ordinal);
-            Assert.IsTrue(start >= 0, $"找不到起始标记：{startMarker}");
-
-            start += startMarker.Length;
-            var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
-            Assert.IsTrue(end >= 0, $"找不到结束标记：{endMarker}");
-
-            return source.Substring(start, end - start);
-        }
-
-        private static string ReadRepositoryFile(string relativePath)
-        {
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null)
-            {
-                var candidate = Path.Combine(directory.FullName, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(candidate))
-                {
-                    return File.ReadAllText(candidate);
-                }
-
-                directory = directory.Parent;
-            }
-
-            Assert.Fail($"找不到仓库文件：{relativePath}");
-            return null;
-        }
     }
 }

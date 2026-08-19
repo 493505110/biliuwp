@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -11,8 +10,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void RecommendPage_CoverUsesUniformAndLegacyImageRequest()
         {
-            var pagePath = FindRepositoryFile();
-            var coverLine = File.ReadAllLines(pagePath)
+            var coverLine = TestRepository.ReadLines("BiliBili.UWP/Pages/Home/RecommendPage.xaml")
                 .Single(line => line.Contains("ImageEx") && line.Contains("Path=cover"));
 
             StringAssert.Contains(coverLine, "Stretch=\"Uniform\"");
@@ -23,8 +21,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void RecommendPage_CoverCardUsesContentDrivenHeight()
         {
-            var pagePath = FindRepositoryFile();
-            var lines = File.ReadAllLines(pagePath);
+            var lines = TestRepository.ReadLines("BiliBili.UWP/Pages/Home/RecommendPage.xaml");
             var gridLine = lines.Single(line => line.Contains("AdaptiveGridView x:Name=\"ls_feed\""));
             var rowDefinitionsIndex = Array.FindIndex(lines, line => line.Contains("<Grid.RowDefinitions>"));
 
@@ -32,27 +29,5 @@ namespace BiliBili.Tests
             Assert.AreEqual("<RowDefinition Height=\"Auto\"/>", lines[rowDefinitionsIndex + 1].Trim());
         }
 
-        private static string FindRepositoryFile()
-        {
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null)
-            {
-                var candidate = Path.Combine(
-                    directory.FullName,
-                    "BiliBili.UWP",
-                    "Pages",
-                    "Home",
-                    "RecommendPage.xaml");
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-
-                directory = directory.Parent;
-            }
-
-            Assert.Fail("Unable to locate RecommendPage.xaml from the test output directory.");
-            return null;
-        }
     }
 }

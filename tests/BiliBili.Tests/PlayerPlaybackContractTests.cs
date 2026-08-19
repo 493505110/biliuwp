@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
+using static BiliBili.Tests.TestRepository;
 
 namespace BiliBili.Tests
 {
@@ -125,8 +126,7 @@ namespace BiliBili.Tests
                 "BiliBili.UWP/Pages/PlayerPage.xaml"
             })
             {
-                var root = FindRepositoryRoot();
-                var document = XDocument.Load(Path.Combine(root, relativePath));
+                var document = XDocument.Load(GetPath(relativePath));
                 var comboBox = document
                     .Descendants()
                     .SingleOrDefault(element =>
@@ -170,8 +170,7 @@ namespace BiliBili.Tests
                 "BiliBili.UWP/Pages/PlayerPage.xaml"
             })
             {
-                var root = FindRepositoryRoot();
-                var document = XDocument.Load(Path.Combine(root, relativePath));
+                var document = XDocument.Load(GetPath(relativePath));
                 var toggle = document
                     .Descendants()
                     .SingleOrDefault(element =>
@@ -239,8 +238,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void ForcedSoftwareDashUsesFfmpegSoftwareDecoder()
         {
-            var root = FindRepositoryRoot();
-            var project = XDocument.Load(Path.Combine(root, "BiliBili.UWP/BiliBili.UWP.csproj"));
+            var project = XDocument.Load(GetPath("BiliBili.UWP/BiliBili.UWP.csproj"));
 
             var packageReference = project.Descendants().SingleOrDefault(element =>
                 element.Name.LocalName == "PackageReference"
@@ -264,7 +262,7 @@ namespace BiliBili.Tests
                     configuration + " 必须启用真实 FFmpegInteropX 实现");
             }
 
-            var ffmpegSourcePath = Path.Combine(root, "BiliBili.UWP/Helper/FFmpegDashSource.cs");
+            var ffmpegSourcePath = GetPath("BiliBili.UWP/Helper/FFmpegDashSource.cs");
             Assert.IsTrue(File.Exists(ffmpegSourcePath), "缺少 FFmpegDashSource.cs");
             var ffmpegFactory = ReadMethod(
                 "BiliBili.UWP/Helper/FFmpegDashSource.cs",
@@ -324,7 +322,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(biliPlusEntry, "biliplusdash?.ffmpegDashSource != null");
             StringAssert.Contains(videoEntry, "bilidash?.ffmpegDashSource != null");
 
-            var ffmpegSource = File.ReadAllText(ffmpegSourcePath);
+            var ffmpegSource = ReadFile("BiliBili.UWP/Helper/FFmpegDashSource.cs");
             StringAssert.Contains(ffmpegSource, "#if FFMPEG_INTEROP_SUPPORTED");
             StringAssert.Contains(ffmpegSource, "Task.FromResult<FFmpegDashSource>(null)");
             StringAssert.Contains(ffmpegSource, "private FFmpegMediaSource videoSource;");
@@ -337,7 +335,7 @@ namespace BiliBili.Tests
             Assert.IsFalse(ffmpegSource.Contains("GetAudioMediaStreamSource"),
                 "FFmpegInteropX 源必须通过 MediaPlaybackItem 暴露给 MediaPlayer");
 
-            var playerSource = File.ReadAllText(Path.Combine(root, "BiliBili.UWP/Pages/PlayerPage.xaml.cs"));
+            var playerSource = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
             Assert.IsFalse(playerSource.Contains("GetVideoMediaStreamSource"),
                 "PlayerPage 不得直接消费尚未创建 MediaPlaybackItem 的 MediaStreamSource");
             Assert.IsFalse(playerSource.Contains("GetAudioMediaStreamSource"),
@@ -349,8 +347,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void PlayerRetainsAndDisposesFfmpegDashSource()
         {
-            var root = FindRepositoryRoot();
-            var player = File.ReadAllText(Path.Combine(root, "BiliBili.UWP/Pages/PlayerPage.xaml.cs"));
+            var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
             Assert.IsTrue(player.Contains("FFmpegDashSource ffmpegDashSource;"),
                 "PlayerPage 必须持有当前 FFmpeg DASH 源");
 
@@ -460,28 +457,5 @@ namespace BiliBili.Tests
                 "位置回调必须只通过局部快照访问辅助播放器");
         }
 
-        private static string ReadMethod(string relativePath, string startMarker, string endMarker)
-        {
-            var root = FindRepositoryRoot();
-            var source = File.ReadAllText(Path.Combine(root, relativePath));
-            var start = source.IndexOf(startMarker, StringComparison.Ordinal);
-            var end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
-
-            Assert.IsTrue(start >= 0, $"找不到方法起点: {startMarker}");
-            Assert.IsTrue(end > start, $"找不到方法终点: {endMarker}");
-            return source.Substring(start, end - start);
-        }
-
-        private static string FindRepositoryRoot()
-        {
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null && !File.Exists(Path.Combine(directory.FullName, "BiliBili.sln")))
-            {
-                directory = directory.Parent;
-            }
-
-            Assert.IsNotNull(directory, "找不到 BiliBili.sln 所在目录");
-            return directory.FullName;
-        }
     }
 }
