@@ -1409,6 +1409,32 @@ namespace BiliBili.UWP.Pages
                 && ReferenceEquals(playNow, item);
         }
 
+        private async Task<List<NSDanmaku.Model.DanmakuModel>> LoadDanmakuOrEmptyAsync(long cid)
+        {
+            try
+            {
+                return await danmakuParse.ParseBiliBili(cid)
+                    ?? new List<NSDanmaku.Model.DanmakuModel>();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("加载弹幕失败，继续播放", LogType.ERROR, ex);
+                return new List<NSDanmaku.Model.DanmakuModel>();
+            }
+        }
+
+        private string GetPlaybackRequestStrategy()
+        {
+            if (!SettingHelper.Get_UseDASH())
+            {
+                return "传统流 + SYEngine";
+            }
+
+            return SettingHelper.Get_ForceVideo()
+                ? "DASH + FFmpeg 软解"
+                : "DASH + 系统决定";
+        }
+
         private void UpdateSoftwareDecodeInfo(ReturnPlayModel result)
         {
             string status;
@@ -1579,7 +1605,7 @@ namespace BiliBili.UWP.Pages
                 {
                     return;
                 }
-                UpdateSoftwareDecodeInfo(null);
+                AddLog("请求策略：" + GetPlaybackRequestStrategy());
                 cb_Quity.IsEnabled = true;
                 var quality = (cb_Quity.SelectedItem as QualityModel)?.qn ?? 64;
                 switch (item.Mode)
@@ -1613,7 +1639,7 @@ namespace BiliBili.UWP.Pages
                     case PlayMode.Video:
                         pr.Text = "填充弹幕中...";
                         AddLog("开始填充弹幕...");
-                        var videoDanmakuTask = danmakuParse.ParseBiliBili(Convert.ToInt64(item.Mid));
+                        var videoDanmakuTask = LoadDanmakuOrEmptyAsync(Convert.ToInt64(item.Mid));
                         var videoSourceTask = PlayurlHelper.GetVideoUrl(item.Aid, item.Mid, quality);
                         await Task.WhenAll(videoDanmakuTask, videoSourceTask);
                         var videoSource = videoSourceTask.Result;

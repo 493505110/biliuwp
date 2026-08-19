@@ -213,6 +213,46 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void VideoDanmakuFailureDoesNotAbortPlayback()
+        {
+            var source = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+            var video = ReadMethod(
+                "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
+                "case PlayMode.Video:",
+                "case PlayMode.QQ:");
+            var danmakuLoader = MethodBody(
+                source,
+                "private async Task<List<NSDanmaku.Model.DanmakuModel>> LoadDanmakuOrEmptyAsync");
+
+            StringAssert.Contains(video, "LoadDanmakuOrEmptyAsync(Convert.ToInt64(item.Mid))");
+            StringAssert.Contains(video, "await Task.WhenAll(videoDanmakuTask, videoSourceTask)");
+            StringAssert.Contains(danmakuLoader, "catch (Exception ex)");
+            StringAssert.Contains(danmakuLoader, "加载弹幕失败，继续播放");
+            StringAssert.Contains(danmakuLoader, "return new List<NSDanmaku.Model.DanmakuModel>()");
+        }
+
+        [TestMethod]
+        public void PlaybackInitializationLogsRequestStrategy()
+        {
+            var source = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+            var openVideo = ReadMethod(
+                "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
+                "private async Task OpenVideoAsync(PlayerModel item)",
+                "private void LaodSubTitleMenu");
+            var strategy = MethodBody(
+                source,
+                "private string GetPlaybackRequestStrategy");
+
+            StringAssert.Contains(openVideo, "AddLog(\"请求策略：\" + GetPlaybackRequestStrategy())");
+            Assert.IsFalse(openVideo.Contains("UpdateSoftwareDecodeInfo(null)"));
+            StringAssert.Contains(strategy, "SettingHelper.Get_UseDASH()");
+            StringAssert.Contains(strategy, "SettingHelper.Get_ForceVideo()");
+            StringAssert.Contains(strategy, "DASH + FFmpeg 软解");
+            StringAssert.Contains(strategy, "DASH + 系统决定");
+            StringAssert.Contains(strategy, "传统流 + SYEngine");
+        }
+
+        [TestMethod]
         public void ForcedCodecModeDoesNotFallBackToLegacySources()
         {
             var bangumi = ReadMethod(
