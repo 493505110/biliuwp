@@ -78,6 +78,11 @@ namespace BiliBili.UWP.Pages
         int pendingPlaybackRequest;
         PlaybackRestoreState pendingPlaybackRestoreState;
         int subtitleLoadVersion;
+        int biliJumpLoadVersion;
+        List<BiliJumpAdSegment> biliJumpAds = new List<BiliJumpAdSegment>();
+        BiliJumpAdSegment biliJumpCurrentAd;
+        string biliJumpLastNotifiedKey;
+        string biliJumpLastHandledKey;
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
@@ -239,6 +244,35 @@ namespace BiliBili.UWP.Pages
             if (mediaPlayer == null || !ReferenceEquals(sender, mediaPlayer.PlaybackSession))
             {
                 return;
+            }
+
+            try
+            {
+                if (Dispatcher.HasThreadAccess)
+                {
+                    HandleBiliJumpPosition();
+                }
+                else
+                {
+                    _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        try
+                        {
+                            if (mediaPlayer != null && ReferenceEquals(sender, mediaPlayer.PlaybackSession))
+                            {
+                                HandleBiliJumpPosition();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogHelper.WriteLog("处理 BiliJump AI 播放位置失败", LogType.ERROR, ex);
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("处理 BiliJump AI 播放位置失败", LogType.ERROR, ex);
             }
 
             var audioPlayer = mediaPlayer_audio;
@@ -975,6 +1009,7 @@ namespace BiliBili.UWP.Pages
                 DisposeMediaPlayer(true);
                 try
                 {
+                    ClearBiliJumpAds();
                     ClearSubTitle();
                     MTC.timer2.Stop();
                     MTC.DanmuLoaded -= MTC_DanmuLoaded;
@@ -1263,6 +1298,8 @@ namespace BiliBili.UWP.Pages
                         }
                     }
                 }
+
+                HandleBiliJumpPosition();
             }
             catch (Exception ex)
             {
@@ -1593,6 +1630,7 @@ namespace BiliBili.UWP.Pages
                 }
 
                 LastPost = 0;
+                ClearBiliJumpAds();
                 ClearSubTitle();
                 MTC.ClearLog();
                 MTC.VideoTitle = item.Title + " - " + item.VideoTitle;
@@ -1702,6 +1740,7 @@ namespace BiliBili.UWP.Pages
                     var hasSub = await PlayurlHelper.GetHasSubTitle(item.Aid, item.Mid);
                     if (!IsPlaybackRequestCurrent(requestId, item)) return;
                     LaodSubTitleMenu(hasSub);
+                    _ = LoadBiliJumpAdsAsync(item, requestId, hasSub);
                 }
 
                 AddLog("准备开始播放...");
@@ -1862,6 +1901,178 @@ namespace BiliBili.UWP.Pages
                 subtitleTimer.Tick -= SubtitleTimer_Tick;
                 subtitleTimer = null;
             }
+        }
+
+        private async Task LoadBiliJumpAdsAsync(PlayerModel item, int requestId, HasSubtitleModel hasSub)
+        {
+            if (item == null || item.Mode == PlayMode.Local || item.Mode == PlayMode.FormLocal
+                || !SettingHelper.Get_BiliJumpAiEnabled())
+            {
+                return;
+            }
+
+            var loadVersion = ++biliJumpLoadVersion;
+            try
+            {
+                UpdateBiliJumpInfo("识别中...", null);
+                var duration = mediaPlayer?.PlaybackSession.NaturalDuration.TotalSeconds ?? 0;
+                var result = await BiliJumpAiService.RecognizeAsync(
+                    item.Aid,
+                    item.Mid,
+                    item.VideoTitle,
+                    duration,
+                    hasSub);
+
+                if (!IsPlaybackRequestCurrent(requestId, item) || loadVersion != biliJumpLoadVersion)
+                {
+                    return;
+                }
+
+                if (!result.success || result.data == null)
+                {
+                    UpdateBiliJumpInfo("识别失败：" + (result.message ?? "未知错误"), null);
+                    return;
+                }
+
+                biliJumpAds = BiliJumpAiParser.NormalizeSegments(result.data.ads, duration);
+                biliJumpCurrentAd = null;
+                biliJumpLastNotifiedKey = null;
+                biliJumpLastHandledKey = null;
+                menuitem_BiliJumpSkipCurrent.IsEnabled = false;
+                UpdateBiliJumpInfo(
+                    biliJumpAds.Count == 0 ? "识别完成，未识别到植入广告" : $"识别完成，识别到{biliJumpAds.Count}个植入广告",
+                    biliJumpAds);
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("加载 BiliJump AI 结果失败", LogType.ERROR, ex);
+                if (IsPlaybackRequestCurrent(requestId, item) && loadVersion == biliJumpLoadVersion)
+                {
+                    UpdateBiliJumpInfo("识别失败", null);
+                }
+            }
+        }
+
+        private void UpdateBiliJumpInfo(string status, IEnumerable<BiliJumpAdSegment> segments)
+        {
+            if (txt_BiliJumpStatus != null)
+            {
+                txt_BiliJumpStatus.Text = status ?? string.Empty;
+            }
+
+            if (list_BiliJumpAds != null)
+            {
+                list_BiliJumpAds.ItemsSource = segments == null
+                    ? null
+                    : segments.Select(FormatBiliJumpAd).ToList();
+            }
+        }
+
+        private static string FormatBiliJumpAd(BiliJumpAdSegment segment)
+        {
+            var start = FormatBiliJumpTime(segment.start_time);
+            var end = FormatBiliJumpTime(segment.end_time);
+            var text = $"{start} - {end}";
+            if (!string.IsNullOrWhiteSpace(segment.product_name))
+            {
+                text += " " + segment.product_name;
+            }
+            if (!string.IsNullOrWhiteSpace(segment.ad_content))
+            {
+                text += ": " + segment.ad_content;
+            }
+            return text;
+        }
+
+        private static string FormatBiliJumpTime(double seconds)
+        {
+            var time = TimeSpan.FromSeconds(Math.Max(0, seconds));
+            return time.TotalHours >= 1
+                ? $"{(int)time.TotalHours:00}:{time.Minutes:00}:{time.Seconds:00}"
+                : $"{time.Minutes:00}:{time.Seconds:00}";
+        }
+
+        private void HandleBiliJumpPosition()
+        {
+            if (!SettingHelper.Get_BiliJumpAiEnabled()
+                || mediaPlayer?.PlaybackSession.PlaybackState != MediaPlaybackState.Playing
+                || biliJumpAds == null
+                || biliJumpAds.Count == 0)
+            {
+                menuitem_BiliJumpSkipCurrent.IsEnabled = false;
+                biliJumpCurrentAd = null;
+                return;
+            }
+
+            var position = mediaPlayer.PlaybackSession.Position.TotalSeconds;
+            var current = biliJumpAds.FirstOrDefault(x => position >= x.start_time && position < x.end_time);
+            biliJumpCurrentAd = current;
+            menuitem_BiliJumpSkipCurrent.IsEnabled = current != null;
+            if (current == null)
+            {
+                biliJumpLastHandledKey = null;
+                return;
+            }
+
+            var key = GetBiliJumpAdKey(current);
+            if (SettingHelper.Get_BiliJumpAiAutoJump())
+            {
+                if (biliJumpLastHandledKey == key)
+                {
+                    return;
+                }
+
+                biliJumpLastHandledKey = key;
+                mediaPlayer.PlaybackSession.Position = TimeSpan.FromSeconds(current.end_time);
+                menuitem_BiliJumpSkipCurrent.IsEnabled = false;
+                Utils.ShowMessageToast("AI已跳过植入广告", 3000);
+                return;
+            }
+
+            if (biliJumpLastNotifiedKey != key)
+            {
+                biliJumpLastNotifiedKey = key;
+                Utils.ShowMessageToast("识别到植入广告，可从播放器更多菜单跳过", 3000);
+            }
+        }
+
+        private void SkipCurrentBiliJumpAd()
+        {
+            if (biliJumpCurrentAd == null || mediaPlayer == null)
+            {
+                return;
+            }
+
+            biliJumpLastHandledKey = GetBiliJumpAdKey(biliJumpCurrentAd);
+            mediaPlayer.PlaybackSession.Position = TimeSpan.FromSeconds(biliJumpCurrentAd.end_time);
+            menuitem_BiliJumpSkipCurrent.IsEnabled = false;
+            Utils.ShowMessageToast("已跳过植入广告", 2000);
+        }
+
+        private static string GetBiliJumpAdKey(BiliJumpAdSegment segment)
+        {
+            return segment.start_time.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                + "-"
+                + segment.end_time.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private void ClearBiliJumpAds()
+        {
+            biliJumpLoadVersion++;
+            biliJumpAds.Clear();
+            biliJumpCurrentAd = null;
+            biliJumpLastNotifiedKey = null;
+            biliJumpLastHandledKey = null;
+            UpdateBiliJumpInfo("未识别", null);
+            if (menuitem_BiliJumpSkipCurrent != null)
+            {
+                menuitem_BiliJumpSkipCurrent.IsEnabled = false;
+            }
+        }
+
+        private void menuitem_BiliJumpSkipCurrent_Click(object sender, RoutedEventArgs e)
+        {
+            SkipCurrentBiliJumpAd();
         }
 
 
@@ -3069,6 +3280,7 @@ namespace BiliBili.UWP.Pages
         }
         public async void ChangeNode(int node_id, string cid)
         {
+            ClearBiliJumpAds();
             var data = await interactionVideo.GetNodes(node_id);
             if (data == null)
             {

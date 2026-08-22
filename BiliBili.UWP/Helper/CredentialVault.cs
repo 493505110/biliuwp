@@ -10,6 +10,8 @@ namespace BiliBili.UWP.Helper
     {
         private const string ResourceName = "BiliBili.UWP.AccessKey";
         private const string UserName = "bili_access_key";
+        private const string BiliJumpResourceName = "BiliBili.UWP.BiliJumpAi";
+        private const string BiliJumpUserName = "bili_jump_ai_api_key";
 
         public static string Get()
         {
@@ -69,6 +71,50 @@ namespace BiliBili.UWP.Helper
             catch (Exception)
             {
                 //凭证不存在，无需处理
+            }
+        }
+
+        public static string GetBiliJumpApiKey()
+        {
+            try
+            {
+                var credential = new PasswordVault().Retrieve(BiliJumpResourceName, BiliJumpUserName);
+                return credential?.Password;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        public static void SetBiliJumpApiKey(string value)
+        {
+            var vault = new PasswordVault();
+            try
+            {
+                var credential = vault.Retrieve(BiliJumpResourceName, BiliJumpUserName);
+                if (credential != null)
+                {
+                    vault.Remove(credential);
+                }
+            }
+            catch (Exception)
+            {
+                // 凭证不存在，直接写入。
+            }
+
+            if (string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            try
+            {
+                vault.Add(new PasswordCredential(BiliJumpResourceName, BiliJumpUserName, value));
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("BiliJump AI 凭据写入失败", LogType.ERROR, ex);
             }
         }
     }

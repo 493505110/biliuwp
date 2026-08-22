@@ -1993,6 +1993,122 @@ namespace BiliBili.UWP
             container.Values["BiliplusCookie"] = value;
         }
 
+        public static bool Get_BiliJumpAiEnabled()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values[SettingKeys.BiliJumpAiEnabled] != null)
+            {
+                return (bool)container.Values[SettingKeys.BiliJumpAiEnabled];
+            }
+
+            Set_BiliJumpAiEnabled(false);
+            return false;
+        }
+
+        public static void Set_BiliJumpAiEnabled(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiEnabled] = value;
+        }
+
+        public static bool Get_BiliJumpAiAutoJump()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values[SettingKeys.BiliJumpAiAutoJump] != null)
+            {
+                return (bool)container.Values[SettingKeys.BiliJumpAiAutoJump];
+            }
+
+            Set_BiliJumpAiAutoJump(false);
+            return false;
+        }
+
+        public static void Set_BiliJumpAiAutoJump(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiAutoJump] = value;
+        }
+
+        public static string Get_BiliJumpAiProvider()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            var provider = container.Values[SettingKeys.BiliJumpAiProvider] as string;
+            if (string.Equals(provider, BiliJumpAiProviders.Zhou2008, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(provider, BiliJumpAiProviders.DeepSeek, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(provider, BiliJumpAiProviders.Custom, StringComparison.OrdinalIgnoreCase))
+            {
+                return provider;
+            }
+
+            // 保留已有用户的自定义地址；新配置默认使用 zhou2008。
+            return container.Values[SettingKeys.BiliJumpAiApiUrl] != null
+                || container.Values[SettingKeys.BiliJumpAiModel] != null
+                ? BiliJumpAiProviders.Custom
+                : BiliJumpAiProviders.Zhou2008;
+        }
+
+        public static void Set_BiliJumpAiProvider(string value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiProvider] = value ?? BiliJumpAiProviders.Custom;
+        }
+
+        public static string Get_BiliJumpAiApiUrl()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            var provider = Get_BiliJumpAiProvider();
+            if (!BiliJumpAiProviders.IsCustom(provider))
+            {
+                return BiliJumpAiProviders.GetDefaultApiUrl(provider);
+            }
+
+            if (container.Values[SettingKeys.BiliJumpAiApiUrl] != null)
+            {
+                return (string)container.Values[SettingKeys.BiliJumpAiApiUrl];
+            }
+
+            return BiliJumpAiProviders.GetDefaultApiUrl(BiliJumpAiProviders.Custom);
+        }
+
+        public static void Set_BiliJumpAiApiUrl(string value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiApiUrl] = value ?? string.Empty;
+        }
+
+        public static string Get_BiliJumpAiModel()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            var provider = Get_BiliJumpAiProvider();
+            if (!BiliJumpAiProviders.IsCustom(provider))
+            {
+                return BiliJumpAiProviders.GetDefaultModel(provider);
+            }
+
+            if (container.Values[SettingKeys.BiliJumpAiModel] != null)
+            {
+                return (string)container.Values[SettingKeys.BiliJumpAiModel];
+            }
+
+            return BiliJumpAiProviders.GetDefaultModel(BiliJumpAiProviders.Custom);
+        }
+
+        public static void Set_BiliJumpAiModel(string value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiModel] = value ?? string.Empty;
+        }
+
+        public static string Get_BiliJumpAiApiKey()
+        {
+            return CredentialVault.GetBiliJumpApiKey() ?? string.Empty;
+        }
+
+        public static void Set_BiliJumpAiApiKey(string value)
+        {
+            CredentialVault.SetBiliJumpApiKey(value);
+        }
+
 
         public static string Get_Refresh_Token()
         {

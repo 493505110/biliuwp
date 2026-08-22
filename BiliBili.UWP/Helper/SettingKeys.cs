@@ -10,5 +10,10 @@
         public const string DT = "DT";
         public const string FJ = "FJ";
         public const string TsDt = "TsDt";
+        public const string BiliJumpAiEnabled = "BiliJumpAiEnabled";
+        public const string BiliJumpAiAutoJump = "BiliJumpAiAutoJump";
+        public const string BiliJumpAiProvider = "BiliJumpAiProvider";
+        public const string BiliJumpAiApiUrl = "BiliJumpAiApiUrl";
+        public const string BiliJumpAiModel = "BiliJumpAiModel";
     }
 }

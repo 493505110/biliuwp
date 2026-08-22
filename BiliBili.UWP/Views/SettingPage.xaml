@@ -692,6 +692,44 @@
             </PivotItem>
             <PivotItem Margin="0">
                 <PivotItem.Header>
+                    <TextBlock FontSize="16">AI跳过</TextBlock>
+                </PivotItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="10">
+                        <StackPanel Margin="0 0 0 10">
+                            <TextBlock FontSize="16">植入广告识别</TextBlock>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">启用字幕广告识别</TextBlock>
+                                <ToggleSwitch x:Name="sw_BiliJumpAi" Toggled="sw_BiliJumpAi_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"/>
+                            </Grid>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">自动跳过识别到的广告</TextBlock>
+                                <ToggleSwitch x:Name="sw_BiliJumpAiAutoJump" Toggled="sw_BiliJumpAiAutoJump_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"/>
+                            </Grid>
+                            <TextBlock Foreground="Gray" Margin="0 10 0 0">AI提供商</TextBlock>
+                            <ComboBox x:Name="cb_BiliJumpAiProvider" SelectionChanged="cb_BiliJumpAiProvider_SelectionChanged" Margin="0 4 0 0">
+                                <ComboBoxItem Content="zhou2008" Tag="zhou2008" />
+                                <ComboBoxItem Content="DeepSeek" Tag="deepseek" />
+                                <ComboBoxItem Content="自定义" Tag="custom" />
+                            </ComboBox>
+                            <StackPanel x:Name="panel_BiliJumpAiApiUrl" Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray">OpenAI兼容接口地址</TextBlock>
+                                <TextBox x:Name="txt_BiliJumpAiApiUrl" TextChanged="txt_BiliJumpAiApiUrl_TextChanged" TextWrapping="NoWrap" Margin="0 4 0 0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="panel_BiliJumpAiModel" Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray">模型名称</TextBlock>
+                                <TextBox x:Name="txt_BiliJumpAiModel" TextChanged="txt_BiliJumpAiModel_TextChanged" TextWrapping="NoWrap" Margin="0 4 0 0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="panel_BiliJumpAiApiKey" Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray">API密钥</TextBlock>
+                                <PasswordBox x:Name="pwd_BiliJumpAiApiKey" PasswordChanged="pwd_BiliJumpAiApiKey_PasswordChanged" Margin="0 4 0 0"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </PivotItem>
+            <PivotItem Margin="0">
+                <PivotItem.Header>
                     <TextBlock FontSize="16">关于</TextBlock>
                 </PivotItem.Header>
                 <ScrollViewer VerticalScrollMode="Auto" >
@@ -788,6 +826,7 @@
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">VLC.MediaElement(https://github.com/kakone/VLC.MediaElement)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">VLC(https://code.videolan.org/videolan/vlc-winrt)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">AppStudio.Uwp(https://github.com/wasteam/waslibs)</TextBlock>
+                        <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">bilijump-ai(https://github.com/qingmeng1/bilijump-ai)</TextBlock>
                     </StackPanel>
                 </ScrollViewer>
             </PivotItem>

@@ -258,11 +258,20 @@
                                 <TextBlock Foreground="White"><Run>视频高度:</Run><Run x:Name="txt_VideoHeight"></Run></TextBlock>
                                 <TextBlock Foreground="White"><Run>缓冲进度:</Run><Run x:Name="txt_BufferingProgress"></Run></TextBlock>
 
-                                <TextBlock Foreground="White"><Run>视频编码:</Run><Run x:Name="txt_VideoCodec"></Run></TextBlock>
-                                <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
-                                <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>
-                            </StackPanel>
-                        </ScrollViewer>
+                                 <TextBlock Foreground="White"><Run>视频编码:</Run><Run x:Name="txt_VideoCodec"></Run></TextBlock>
+                                 <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
+                                 <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>
+                                 <TextBlock Foreground="White" Margin="0 8 0 0">AI广告识别</TextBlock>
+                                 <TextBlock Foreground="White" TextWrapping="Wrap"><Run x:Name="txt_BiliJumpStatus">未识别</Run></TextBlock>
+                                 <ItemsControl x:Name="list_BiliJumpAds" Margin="0 2 0 0">
+                                     <ItemsControl.ItemTemplate>
+                                         <DataTemplate>
+                                             <TextBlock Foreground="White" TextWrapping="Wrap" Margin="0 2 0 0" Text="{Binding}" />
+                                         </DataTemplate>
+                                     </ItemsControl.ItemTemplate>
+                                 </ItemsControl>
+                             </StackPanel>
+                         </ScrollViewer>
                     </Grid>
                 </SplitView.Pane>
                 <Grid Background="Black" >
@@ -311,6 +320,7 @@
                                         <MenuFlyoutItem x:Name="menuitem_tantan" Click="menuitem_tantan_Click">加载弹弹Play弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_UpdateDanmu" Click="menuitem_UpdateDanmu_Click">更新弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_SubtitleSetting" Click="Menuitem_SubtitleSetting_Click">字幕设置</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_BiliJumpSkipCurrent" IsEnabled="False" Click="menuitem_BiliJumpSkipCurrent_Click">跳过当前广告</MenuFlyoutItem>
                                         <!--<MenuFlyoutItem x:Name="menuitem_Capture" Click="menuitem_Capture_Click">视频截图</MenuFlyoutItem>-->
                                         <MenuFlyoutItem x:Uid="menuitem_QR" Click="MenuFlyoutItem_Click">手机上看</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_Info" Click="menuitem_Info_Click">视频信息</MenuFlyoutItem>

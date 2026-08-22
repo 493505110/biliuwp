@@ -23,6 +23,8 @@
              Link="Production\ArticleContentParser.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\ArticleParameterParser.cs"
              Link="Production\ArticleParameterParser.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\BiliJumpAiParser.cs"
+             Link="Production\BiliJumpAiParser.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\PlaylistParameterParser.cs"
              Link="Production\PlaylistParameterParser.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\PlaylistPagination.cs"

@@ -373,6 +373,7 @@
     <Compile Include="Converters\RankColorConvert.cs" />
     <Compile Include="Helper\ApiHelper.cs" />
     <Compile Include="Helper\AppHelper.cs" />
+    <Compile Include="Helper\BiliJumpAi.cs" />
     <Compile Include="Helper\BiliLiveDanmu.cs" />
     <Compile Include="Helper\DownloadHelper2.cs" />
     <Compile Include="Helper\DynamicJObject.cs" />
@@ -414,6 +415,7 @@
     <Compile Include="Modules\Account.cs" />
     <Compile Include="Modules\ArticleContentParser.cs" />
     <Compile Include="Modules\ArticleParameterParser.cs" />
+    <Compile Include="Modules\BiliJumpAiParser.cs" />
     <Compile Include="Modules\Playlist.cs" />
     <Compile Include="Modules\PlaylistCloudHistory.cs" />
     <Compile Include="Modules\PlaylistCloudHistorySelector.cs" />
