@@ -244,7 +244,7 @@ namespace BiliBili.UWP.Pages.Live
                     cb_quality.Visibility = Visibility.Visible;
                     cb_line.Visibility = Visibility.Visible;
                     //加载直播地址
-                    LoadPlayUrl();
+                    await LoadPlayUrl();
                 }
                 else if (liveStatus == LiveStatus.Stop)
                 {
@@ -354,55 +354,74 @@ namespace BiliBili.UWP.Pages.Live
         /// 读取直播播放地址
         /// </summary>
         /// <param name="quality">清晰度</param>
-        private async void LoadPlayUrl(int quality = 0)
+        private async Task LoadPlayUrl(int quality = 0)
         {
-            //加载播放地址
             loadPlayurling = true;
-            var playUrl = await liveRoom.GetRoomPlayurl(roomId, quality);
-            if (playUrl.success)
+            try
             {
-                durls = playUrl.data.durl;
-                if (!media.Options.ContainsKey("http-referrer"))
+                var playUrl = await liveRoom.GetRoomPlayurl(roomId, quality);
+                if (!playUrl.success || playUrl.data == null || playUrl.data.durl == null || playUrl.data.durl.Count == 0)
                 {
-                    media.Options.Add("http-user-agent", "Mozilla/5.0 BiliDroid/1.12.0 (bbcallen@gmail.com)");
-                    media.Options.Add("http-referrer", "https://live.bilibili.com/" + roomId);
+                    mediaLoading.Visibility = Visibility.Collapsed;
+                    await new MessageDialog(playUrl.message ?? "未获取到可用的直播流").ShowAsync();
+                    return;
                 }
+
+                durls = playUrl.data.durl;
+                ConfigureLiveMediaOptions();
                 media.Source = durls[0].url;
                 cb_quality.ItemsSource = playUrl.data.quality_description;
                 cb_line.ItemsSource = playUrl.data.durl;
                 cb_line.SelectedIndex = 0;
                 cb_quality.SelectedIndex = playUrl.data.quality_description.FindIndex(x => x.qn == playUrl.data.current_qn);
             }
-            else
+            catch (Exception ex)
             {
-                MessageDialog md = new MessageDialog("加载直播失败了，请重试");
-                await md.ShowAsync();
+                mediaLoading.Visibility = Visibility.Collapsed;
+                LogHelper.WriteLog("加载直播播放地址失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("读取直播地址失败，请重试");
             }
-            loadPlayurling = false;
-        }
-        private async void ChangeQuality(int quality)
-        {
-            //加载播放地址
-            loadPlayurling = true;
-            var playUrl = await liveRoom.GetRoomPlayurl(roomId, quality);
-            if (playUrl.success)
+            finally
             {
-                durls = playUrl.data.durl;
-                if (!media.Options.ContainsKey("http-referrer"))
+                loadPlayurling = false;
+            }
+        }
+
+        private async Task ChangeQuality(int quality)
+        {
+            loadPlayurling = true;
+            try
+            {
+                var playUrl = await liveRoom.GetRoomPlayurl(roomId, quality);
+                if (!playUrl.success || playUrl.data == null || playUrl.data.durl == null || playUrl.data.durl.Count == 0)
                 {
-                    media.Options.Add("http-user-agent", "Mozilla/5.0 BiliDroid/1.12.0 (bbcallen@gmail.com)");
-                    media.Options.Add("http-referrer", "https://live.bilibili.com/" + roomId);
+                    Utils.ShowMessageToast(playUrl.message ?? "清晰度切换失败");
+                    return;
                 }
+
+                durls = playUrl.data.durl;
+                ConfigureLiveMediaOptions();
                 media.Source = durls[0].url;
                 cb_line.ItemsSource = playUrl.data.durl;
                 cb_line.SelectedIndex = 0;
-                //cb_quality.SelectedIndex = (cb_quality.ItemsSource as List<quality_description_item>).FindIndex(x => x.qn == quality); ;
             }
-            else
+            catch (Exception ex)
             {
+                LogHelper.WriteLog("切换直播清晰度失败", LogType.ERROR, ex);
                 Utils.ShowMessageToast("清晰度切换失败");
             }
-            loadPlayurling = false;
+            finally
+            {
+                loadPlayurling = false;
+            }
+        }
+
+        private void ConfigureLiveMediaOptions()
+        {
+            media.Options.Remove("http-user-agent");
+            media.Options.Remove("http-referrer");
+            media.Options.Add("http-user-agent", "Mozilla/5.0 BiliDroid/1.12.0 (bbcallen@gmail.com)");
+            media.Options.Add("http-referrer", "https://live.bilibili.com/" + roomId);
         }
 
         /// <summary>
@@ -1001,13 +1020,13 @@ namespace BiliBili.UWP.Pages.Live
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void cb_quality_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void cb_quality_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (loadPlayurling)
+            if (loadPlayurling || cb_quality.SelectedItem == null)
             {
                 return;
             }
-            ChangeQuality((cb_quality.SelectedItem as quality_description_item).qn);
+            await ChangeQuality((cb_quality.SelectedItem as quality_description_item).qn);
             //LoadPlayUrl((cb_quality.SelectedItem as quality_description_item).qn);
         }
         /// <summary>
@@ -1186,6 +1205,7 @@ namespace BiliBili.UWP.Pages.Live
                     case MediaElementState.Closed:
                         await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                         {
+                            mediaLoading.Visibility = Visibility.Collapsed;
                             if (_systemMediaTransportControls != null)
                             {
                                 _systemMediaTransportControls.PlaybackStatus = MediaPlaybackStatus.Closed;
@@ -1232,6 +1252,7 @@ namespace BiliBili.UWP.Pages.Live
                     case MediaElementState.Stopped:
                         await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                         {
+                            mediaLoading.Visibility = Visibility.Collapsed;
                             btn_Play.Visibility = Visibility.Visible;
                             btn_Pause.Visibility = Visibility.Collapsed;
                             if (_systemMediaTransportControls != null)
@@ -1255,9 +1276,11 @@ namespace BiliBili.UWP.Pages.Live
         /// <param name="e"></param>
         private async void media_MediaFailed(object sender, VLC.MediaFailedRoutedEventArgs e)
         {
+            mediaLoading.Visibility = Visibility.Collapsed;
+            loadPlayurling = false;
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                new MessageDialog("无法加载直播").ShowAsync();
+                new MessageDialog(string.IsNullOrEmpty(e.ErrorMessage) ? "无法加载直播" : "无法加载直播\r\n" + e.ErrorMessage).ShowAsync();
             });
 
         }

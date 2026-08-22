@@ -188,8 +188,9 @@ namespace BiliBili.UWP.Api.Live
             {
                 method = HttpMethod.GET,
                 baseUrl = RoomPlayInfoUrl,
-                parameter = "room_id=" + roomId + "&protocol=0,1&format=0,1,2&codec=0&qn=" + requestedQuality + "&platform=web&ptype=8",
-                headers = GetWebHeaders()
+                parameter = "room_id=" + roomId + "&protocol=0,1&format=0,1,2&codec=0&qn=" + requestedQuality + "&platform=web&ptype=8&web_location=444.8",
+                headers = GetWebHeaders(),
+                useWbi = true
             };
         }
 

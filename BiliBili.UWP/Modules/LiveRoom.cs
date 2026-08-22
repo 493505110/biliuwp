@@ -348,16 +348,19 @@ namespace BiliBili.UWP.Modules
                         durl = new List<Durl>(),
                         quality_description = play?["g_qn_desc"]?.ToObject<List<quality_description_item>>() ?? new List<quality_description_item>()
                     };
-                    int i = 1;
                     var streams = play?["stream"] as JArray;
                     if (streams != null)
                     {
+                        var preferredCodecs = new List<JToken>();
+                        var fallbackCodecs = new List<JToken>();
                         foreach (var stream in streams)
                         {
+                            var isHttpFlv = string.Equals(stream.Value<string>("protocol_name"), "http_stream", StringComparison.OrdinalIgnoreCase);
                             var formats = stream["format"] as JArray;
                             if (formats == null) continue;
                             foreach (var format in formats)
                             {
+                                var isFlv = string.Equals(format.Value<string>("format_name"), "flv", StringComparison.OrdinalIgnoreCase);
                                 var codecs = format["codec"] as JArray;
                                 if (codecs == null) continue;
                                 foreach (var codec in codecs)
@@ -366,19 +369,39 @@ namespace BiliBili.UWP.Modules
                                     {
                                         continue;
                                     }
-                                    m.current_qn = codec.Value<int?>("current_qn") ?? quality;
-                                    var baseUrl = codec.Value<string>("base_url") ?? string.Empty;
-                                    var urlInfos = codec["url_info"] as JArray;
-                                    if (urlInfos == null) continue;
-                                    foreach (var urlInfo in urlInfos)
+                                    if (isHttpFlv && isFlv)
                                     {
-                                        m.durl.Add(new Durl
-                                        {
-                                            url = (urlInfo.Value<string>("host") ?? string.Empty) + baseUrl + (urlInfo.Value<string>("extra") ?? string.Empty),
-                                            display = "线路" + i++
-                                        });
+                                        preferredCodecs.Add(codec);
+                                    }
+                                    else
+                                    {
+                                        fallbackCodecs.Add(codec);
                                     }
                                 }
+                            }
+                        }
+
+                        var codecsToUse = preferredCodecs.Count > 0 ? preferredCodecs : fallbackCodecs;
+                        int currentQuality = quality > 0 ? quality : 10000;
+                        int line = 1;
+                        foreach (var codec in codecsToUse)
+                        {
+                            m.current_qn = codec.Value<int?>("current_qn") ?? currentQuality;
+                            var baseUrl = codec.Value<string>("base_url") ?? string.Empty;
+                            var urlInfos = codec["url_info"] as JArray;
+                            if (urlInfos == null) continue;
+                            foreach (var urlInfo in urlInfos)
+                            {
+                                var url = BuildLiveStreamUrl(urlInfo, baseUrl);
+                                if (string.IsNullOrEmpty(url) || m.durl.Any(x => x.url == url))
+                                {
+                                    continue;
+                                }
+                                m.durl.Add(new Durl
+                                {
+                                    url = url,
+                                    display = "线路" + line++
+                                });
                             }
                         }
                     }
@@ -411,6 +434,23 @@ namespace BiliBili.UWP.Modules
                 return HandelError<LivePlayUrlsModel>(ex);
 
             }
+        }
+
+        private static string BuildLiveStreamUrl(JToken urlInfo, string baseUrl)
+        {
+            var host = urlInfo?.Value<string>("host") ?? string.Empty;
+            var extra = urlInfo?.Value<string>("extra") ?? string.Empty;
+            if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(baseUrl))
+            {
+                return string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(extra) || baseUrl.EndsWith("?") || baseUrl.EndsWith("&"))
+            {
+                return host + baseUrl + extra;
+            }
+
+            return host + baseUrl + (baseUrl.Contains("?") ? "&" : "?") + extra;
         }
 
 

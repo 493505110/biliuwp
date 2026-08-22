@@ -88,7 +88,7 @@ namespace BiliBili.UWP.Helper
                 _timer.Tick += Timer_Tick;
                 _timer.Start();
 
-                await Task.Run(() => Listen());
+                _ = Task.Run(() => Listen());
             }
             catch (Exception ex)
             {
