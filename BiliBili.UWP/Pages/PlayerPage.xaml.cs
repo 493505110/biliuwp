@@ -84,6 +84,7 @@ namespace BiliBili.UWP.Pages
         BiliJumpAdSegment biliJumpCurrentAd;
         string biliJumpLastNotifiedKey;
         string biliJumpLastHandledKey;
+        private const double BiliJumpMinimumDurationSeconds = 150;
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
@@ -1915,6 +1916,24 @@ namespace BiliBili.UWP.Pages
                 && string.IsNullOrWhiteSpace(item.banId);
         }
 
+        private double GetBiliJumpVideoDuration(PlayerModel item)
+        {
+            var duration = item?.Duration ?? 0;
+            if (duration <= 0)
+            {
+                duration = mediaPlayer?.PlaybackSession.NaturalDuration.TotalSeconds ?? 0;
+            }
+
+            return double.IsNaN(duration) || double.IsInfinity(duration)
+                ? 0
+                : Math.Max(0, duration);
+        }
+
+        private bool IsBiliJumpDurationEligible(PlayerModel item)
+        {
+            return GetBiliJumpVideoDuration(item) > BiliJumpMinimumDurationSeconds;
+        }
+
         private async Task<int?> LoadBiliJumpOwnerFansAsync(string aid)
         {
             if (string.IsNullOrWhiteSpace(aid))
@@ -1946,6 +1965,18 @@ namespace BiliBili.UWP.Pages
             if (!IsBiliJumpVideo(item)
                 || !SettingHelper.Get_BiliJumpAiEnabled())
             {
+                return;
+            }
+
+            var duration = GetBiliJumpVideoDuration(item);
+            if (duration <= BiliJumpMinimumDurationSeconds)
+            {
+                ClearBiliJumpAds();
+                UpdateBiliJumpInfo(
+                    duration > 0
+                        ? "未识别：视频时长不超过 2 分 30 秒"
+                        : "未识别：无法获取视频时长",
+                    null);
                 return;
             }
 
@@ -1985,9 +2016,6 @@ namespace BiliBili.UWP.Pages
                 }
 
                 UpdateBiliJumpInfo("识别中...", null);
-                var duration = item.Duration > 0
-                    ? item.Duration
-                    : mediaPlayer?.PlaybackSession.NaturalDuration.TotalSeconds ?? 0;
                 var result = await BiliJumpAiService.RecognizeAsync(
                     item.Aid,
                     item.Mid,
@@ -2073,6 +2101,7 @@ namespace BiliBili.UWP.Pages
         {
             if (!IsBiliJumpVideo(playNow)
                 || !SettingHelper.Get_BiliJumpAiEnabled()
+                || !IsBiliJumpDurationEligible(playNow)
                 || mediaPlayer?.PlaybackSession.PlaybackState != MediaPlaybackState.Playing
                 || biliJumpAds == null
                 || biliJumpAds.Count == 0)
@@ -2116,7 +2145,10 @@ namespace BiliBili.UWP.Pages
 
         private void SkipCurrentBiliJumpAd()
         {
-            if (!IsBiliJumpVideo(playNow) || biliJumpCurrentAd == null || mediaPlayer == null)
+            if (!IsBiliJumpVideo(playNow)
+                || !IsBiliJumpDurationEligible(playNow)
+                || biliJumpCurrentAd == null
+                || mediaPlayer == null)
             {
                 return;
             }
