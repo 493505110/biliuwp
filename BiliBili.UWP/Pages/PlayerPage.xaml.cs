@@ -1675,11 +1675,10 @@ namespace BiliBili.UWP.Pages
                     && IsPlaybackRequestCurrent(requestId, item))
                 {
                     SetDanmakuPool(completed.Items, false);
-                    AddLog("后台补齐弹幕完成，共 " + completed.Items.Count + " 条");
+                    //AddLog("后台补齐弹幕完成，共 " + completed.Items.Count + " 条");
                     if (completed.UnsupportedDanmakuCount > 0)
                     {
-                        AddLog("跳过当前渲染器不支持的弹幕: "
-                            + completed.UnsupportedDanmakuCount + " 条");
+                        Utils.ShowMessageToast("跳过当前渲染器不支持的弹幕: " + completed.UnsupportedDanmakuCount + " 条", 3000);
                     }
                 }
             }

@@ -346,7 +346,7 @@ namespace BiliBili.UWP.Helper
                         command.Command = GetString(field);
                         break;
                     case 5:
-                        command.Content = GetString(field);
+                        command.Content = GetString(field); // "关注弹幕"字样的来源
                         break;
                     case 6:
                         command.Progress = (int)field.Varint;
