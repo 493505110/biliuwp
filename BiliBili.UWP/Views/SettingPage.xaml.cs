@@ -78,7 +78,9 @@ namespace BiliBili.UWP.Views
                 txt_BiliJumpAiApiUrl.Text = SettingHelper.Get_BiliJumpAiApiUrl();
                 txt_BiliJumpAiModel.Text = SettingHelper.Get_BiliJumpAiModel();
                 pwd_BiliJumpAiApiKey.Password = SettingHelper.Get_BiliJumpAiApiKey();
+                sw_BiliJumpAiCacheEnabled.IsOn = SettingHelper.Get_BiliJumpAiCacheEnabled();
                 UpdateBiliJumpAiProviderFields(SettingHelper.Get_BiliJumpAiProvider(), false);
+                UpdateBiliJumpAiCacheState(SettingHelper.Get_BiliJumpAiProvider());
 
                 sw_DownFLV.IsOn= SettingHelper.Get_DownFLV();
 
@@ -927,6 +929,14 @@ namespace BiliBili.UWP.Views
                 SettingHelper.Set_BiliJumpAiProvider(provider);
             }
             UpdateBiliJumpAiProviderFields(provider, !loadsetting);
+            UpdateBiliJumpAiCacheState(provider);
+        }
+
+        private void UpdateBiliJumpAiCacheState(string provider)
+        {
+            var forceEnabled = string.Equals(provider, BiliJumpAiProviders.Zhou2008, StringComparison.OrdinalIgnoreCase);
+            sw_BiliJumpAiCacheEnabled.IsEnabled = !forceEnabled;
+            sw_BiliJumpAiCacheEnabled.IsOn = forceEnabled || SettingHelper.Get_BiliJumpAiCacheEnabled();
         }
 
         private string GetSelectedBiliJumpAiProvider()
@@ -996,6 +1006,17 @@ namespace BiliBili.UWP.Views
             if (!loadsetting)
             {
                 SettingHelper.Set_BiliJumpAiApiKey(pwd_BiliJumpAiApiKey.Password);
+            }
+        }
+
+        private void sw_BiliJumpAiCacheEnabled_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (!loadsetting && !string.Equals(
+                    GetSelectedBiliJumpAiProvider(),
+                    BiliJumpAiProviders.Zhou2008,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                SettingHelper.Set_BiliJumpAiCacheEnabled(sw_BiliJumpAiCacheEnabled.IsOn);
             }
         }
 

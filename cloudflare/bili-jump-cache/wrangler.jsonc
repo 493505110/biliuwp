@@ -1,0 +1,17 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "bili-jump-cache",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-23",
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "bili-jump-cache",
+			"database_id": "5cb0ca59-9a72-46b7-94d5-3b470a6d0e53",
+			"migrations_dir": "migrations"
+		}
+	]
+}

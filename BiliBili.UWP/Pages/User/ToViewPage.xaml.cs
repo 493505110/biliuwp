@@ -96,7 +96,8 @@ namespace BiliBili.UWP.Pages.User
                             Mid = item1.cid.ToString(),
                             Mode = PlayMode.Video,
                             Title = item.title,
-                            VideoTitle = $"{item.title}\r\nP{item1.page + "  " + item1.part}"
+                            VideoTitle = $"{item.title}\r\nP{item1.page + "  " + item1.part}",
+                            Duration = item1.duration
                         });
                         i++;
                     }
@@ -117,7 +118,8 @@ namespace BiliBili.UWP.Pages.User
                             banId= item.bangumi.season.season_id.ToString(),
                             episode_id=item.bangumi.ep_id.ToString(),
                             playMode= PlayMode.Bangumi,
-                            VideoTitle = $"{item.bangumi.season.title}\r\nP{item.bangumi.title + "  " + item.bangumi.long_title}"
+                            VideoTitle = $"{item.bangumi.season.title}\r\nP{item.bangumi.title + "  " + item.bangumi.long_title}",
+                            Duration = item1.duration
                         });
                         i++;
                     }

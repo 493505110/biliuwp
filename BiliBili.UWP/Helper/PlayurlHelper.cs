@@ -1514,6 +1514,10 @@ namespace BiliBili.UWP.Helper
         public string Mid { get; set; }
         public string Title { get; set; }
         public string VideoTitle { get; set; }
+        /// <summary>
+        /// 视频元数据时长，单位为秒。
+        /// </summary>
+        public double Duration { get; set; }
         public string episode_id { get; set; }
         public string Path { get; set; }
         public object Parameter { get; set; }

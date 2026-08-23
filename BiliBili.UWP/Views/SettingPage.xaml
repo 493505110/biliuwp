@@ -706,12 +706,18 @@
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">自动跳过识别到的广告</TextBlock>
                                 <ToggleSwitch x:Name="sw_BiliJumpAiAutoJump" Toggled="sw_BiliJumpAiAutoJump_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"/>
                             </Grid>
-                            <TextBlock Foreground="Gray" Margin="0 10 0 0">AI提供商</TextBlock>
-                            <ComboBox x:Name="cb_BiliJumpAiProvider" SelectionChanged="cb_BiliJumpAiProvider_SelectionChanged" Margin="0 4 0 0">
-                                <ComboBoxItem Content="zhou2008" Tag="zhou2008" />
-                                <ComboBoxItem Content="DeepSeek" Tag="deepseek" />
-                                <ComboBoxItem Content="自定义" Tag="custom" />
-                            </ComboBox>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">启用公共缓存</TextBlock>
+                                <ToggleSwitch x:Name="sw_BiliJumpAiCacheEnabled" Toggled="sw_BiliJumpAiCacheEnabled_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"/>
+                            </Grid>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">AI提供商</TextBlock>
+                                <ComboBox x:Name="cb_BiliJumpAiProvider" SelectionChanged="cb_BiliJumpAiProvider_SelectionChanged" Margin="2 0" HorizontalAlignment="Right" VerticalAlignment="Center" Background="#00424959" BorderThickness="0">
+                                    <ComboBoxItem Content="zhou2008" Tag="zhou2008" />
+                                    <ComboBoxItem Content="DeepSeek" Tag="deepseek" />
+                                    <ComboBoxItem Content="自定义" Tag="custom" />
+                                </ComboBox>
+                            </Grid>
                             <StackPanel x:Name="panel_BiliJumpAiApiUrl" Margin="0 10 0 0">
                                 <TextBlock Foreground="Gray">OpenAI兼容接口地址</TextBlock>
                                 <TextBox x:Name="txt_BiliJumpAiApiUrl" TextChanged="txt_BiliJumpAiApiUrl_TextChanged" TextWrapping="NoWrap" Margin="0 4 0 0"/>

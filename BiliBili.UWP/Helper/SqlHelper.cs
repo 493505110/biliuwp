@@ -27,7 +27,6 @@ namespace BiliBili.UWP
             conn.CreateTable<HistoryClass>();
             conn.CreateTable<ViewPostHelperClass>();
             conn.CreateTable<DownloadGuidClass>();
-            conn.CreateTable<BiliJumpCacheClass>();
             //  conn.CreateTable<CommicCollectHelperClass>();
             return conn;
         }
@@ -286,28 +285,6 @@ namespace BiliBili.UWP
             }
         }
 
-        public static BiliJumpCacheClass GetBiliJumpCache(string cacheKey)
-        {
-            using (var conn = GetDbConnection())
-            {
-                return conn.Table<BiliJumpCacheClass>().FirstOrDefault(x => x.cacheKey == cacheKey);
-            }
-        }
-
-        public static bool SaveBiliJumpCache(BiliJumpCacheClass model)
-        {
-            if (model == null || string.IsNullOrWhiteSpace(model.cacheKey))
-            {
-                return false;
-            }
-
-            using (var conn = GetDbConnection())
-            {
-                return conn.InsertOrReplace(model) == 1;
-            }
-        }
-
-
     }
 
 
@@ -353,19 +330,5 @@ namespace BiliBili.UWP
 
         public string mode { get; set; }
     }
-
-    public class BiliJumpCacheClass
-    {
-        [PrimaryKey]
-        public string cacheKey { get; set; }
-        public string aid { get; set; }
-        public string cid { get; set; }
-        public string title { get; set; }
-        public string adsJson { get; set; }
-        public string model { get; set; }
-        public DateTime updatedAt { get; set; }
-    }
-
-
 
 }

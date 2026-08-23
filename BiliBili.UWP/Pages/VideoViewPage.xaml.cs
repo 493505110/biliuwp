@@ -1019,23 +1019,23 @@ namespace BiliBili.UWP.Pages
 
                         if (isMovie)
                         {
-                            ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Movie, No = "", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title });
+                            ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Movie, No = "", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Duration = item.duration });
                         }
                         else
                         {
                             switch (item.from)
                             {
                                 case "sohu":
-                                    ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), rich_vid = item.vid, ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Sohu, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title });
+                                    ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), rich_vid = item.vid, ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Sohu, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Duration = item.duration });
                                     break;
                                 default:
                                     if (isSeason)
                                     {
-                                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Bangumi, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, episode_id = (this.DataContext as VideoInfoModels).season.newest_ep_id });
+                                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Bangumi, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, episode_id = (this.DataContext as VideoInfoModels).season.newest_ep_id, Duration = item.duration });
                                     }
                                     else
                                     {
-                                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Video, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title });
+                                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Video, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Duration = item.duration });
                                     }
 
                                     break;
@@ -1045,7 +1045,7 @@ namespace BiliBili.UWP.Pages
                     }
                     else
                     {
-                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Local, No = "", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Path = DownloadHelper2.downloadeds[item.cid.ToString()] });
+                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Local, No = "", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Path = DownloadHelper2.downloadeds[item.cid.ToString()], Duration = item.duration });
                     }
                 }
 
@@ -1406,7 +1406,8 @@ namespace BiliBili.UWP.Pages
                             Mode = PlayMode.Movie,
                             No = "",
                             VideoTitle = item.View,
-                            Title = data.title
+                            Title = data.title,
+                            Duration = item.duration
                         });
                     }
                     else
@@ -1414,7 +1415,7 @@ namespace BiliBili.UWP.Pages
                         switch (item.from)
                         {
                             case "sohu":
-                                ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), rich_vid = item.vid, ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Sohu, No = i.ToString(), VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title });
+                                ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), rich_vid = item.vid, ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Sohu, No = i.ToString(), VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Duration = item.duration });
                                 break;
                             default:
                                 if (isSeason)
@@ -1428,7 +1429,8 @@ namespace BiliBili.UWP.Pages
                                         No = i.ToString(),
                                         VideoTitle = item.View,
                                         Title = data.title,
-                                        episode_id = data.season.newest_ep_id
+                                        episode_id = data.season.newest_ep_id,
+                                        Duration = item.duration
                                     });
                                 }
                                 else
@@ -1443,7 +1445,8 @@ namespace BiliBili.UWP.Pages
                                         Mode = PlayMode.Video,
                                         No = i.ToString(),
                                         VideoTitle = item.View,
-                                        Title = data.title
+                                        Title = data.title,
+                                        Duration = item.duration
                                     });
                                 }
                                 break;
@@ -1454,7 +1457,7 @@ namespace BiliBili.UWP.Pages
                 else
                 {
 
-                    ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Local, No = "", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Path = DownloadHelper2.downloadeds[item.cid.ToString()] });
+                    ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Local, No = "", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Path = DownloadHelper2.downloadeds[item.cid.ToString()], Duration = item.duration });
                 }
             }
 

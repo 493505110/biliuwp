@@ -1915,7 +1915,9 @@ namespace BiliBili.UWP.Pages
             try
             {
                 UpdateBiliJumpInfo("识别中...", null);
-                var duration = mediaPlayer?.PlaybackSession.NaturalDuration.TotalSeconds ?? 0;
+                var duration = item.Duration > 0
+                    ? item.Duration
+                    : mediaPlayer?.PlaybackSession.NaturalDuration.TotalSeconds ?? 0;
                 var result = await BiliJumpAiService.RecognizeAsync(
                     item.Aid,
                     item.Mid,
@@ -1939,8 +1941,13 @@ namespace BiliBili.UWP.Pages
                 biliJumpLastNotifiedKey = null;
                 biliJumpLastHandledKey = null;
                 menuitem_BiliJumpSkipCurrent.IsEnabled = false;
+                var source = (result.message ?? string.Empty).IndexOf("缓存", StringComparison.Ordinal) >= 0
+                    ? "公共缓存"
+                    : "AI 实时识别";
                 UpdateBiliJumpInfo(
-                    biliJumpAds.Count == 0 ? "识别完成，未识别到植入广告" : $"识别完成，识别到{biliJumpAds.Count}个植入广告",
+                    biliJumpAds.Count == 0
+                        ? $"AI识别来源：{source}，未识别到植入广告"
+                        : $"AI识别来源：{source}，识别到 {biliJumpAds.Count} 个植入广告",
                     biliJumpAds);
             }
             catch (Exception ex)
@@ -2025,14 +2032,14 @@ namespace BiliBili.UWP.Pages
                 biliJumpLastHandledKey = key;
                 mediaPlayer.PlaybackSession.Position = TimeSpan.FromSeconds(current.end_time);
                 menuitem_BiliJumpSkipCurrent.IsEnabled = false;
-                Utils.ShowMessageToast("AI已跳过植入广告", 3000);
+                Utils.ShowMessageToast("已自动跳过广告", 3000);
                 return;
             }
 
             if (biliJumpLastNotifiedKey != key)
             {
                 biliJumpLastNotifiedKey = key;
-                Utils.ShowMessageToast("识别到植入广告，可从播放器更多菜单跳过", 3000);
+                Utils.ShowMessageToast("识别到植入广告，可在播放器更多菜单中跳过", 3000);
             }
         }
 

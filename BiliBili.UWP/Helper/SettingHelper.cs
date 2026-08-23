@@ -2109,6 +2109,23 @@ namespace BiliBili.UWP
             CredentialVault.SetBiliJumpApiKey(value);
         }
 
+        public static bool Get_BiliJumpAiCacheEnabled()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values[SettingKeys.BiliJumpAiCacheEnabled] != null)
+            {
+                return (bool)container.Values[SettingKeys.BiliJumpAiCacheEnabled];
+            }
+
+            Set_BiliJumpAiCacheEnabled(false);
+            return false;
+        }
+
+        public static void Set_BiliJumpAiCacheEnabled(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiCacheEnabled] = value;
+        }
 
         public static string Get_Refresh_Token()
         {

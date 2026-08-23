@@ -6,6 +6,8 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace BiliBili.UWP.Helper
@@ -80,47 +82,76 @@ namespace BiliBili.UWP.Helper
                 : SettingHelper.Get_BiliJumpAiApiKey();
             var apiUrl = SettingHelper.Get_BiliJumpAiApiUrl();
             var model = SettingHelper.Get_BiliJumpAiModel();
-            var cacheKey = aid + ":" + cid;
-            if (!forceRefresh)
-            {
-                var cached = SqlHelper.GetBiliJumpCache(cacheKey);
-                if (cached != null
-                    && !string.IsNullOrWhiteSpace(cached.adsJson)
-                    && (string.IsNullOrWhiteSpace(cached.model)
-                        || string.Equals(cached.model, model, StringComparison.OrdinalIgnoreCase)))
-                {
-                    try
-                    {
-                        var cachedResult = JsonConvert.DeserializeObject<BiliJumpAiResult>(cached.adsJson);
-                        if (cachedResult != null)
-                        {
-                            cachedResult.ads = BiliJumpAiParser.NormalizeSegments(cachedResult.ads, duration);
-                            return Success(cachedResult, "已使用本地 AI 识别缓存");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        LogHelper.WriteLog("读取 BiliJump AI 缓存失败", LogType.ERROR, ex);
-                    }
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(apiKey))
-            {
-                return Failure("请先在设置中填写 AI API 密钥");
-            }
-            if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var endpoint)
-                || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
-            {
-                return Failure("AI API 地址必须是 HTTP 或 HTTPS 地址");
-            }
-            if (string.IsNullOrWhiteSpace(model))
-            {
-                return Failure("请先在设置中填写 AI 模型名称");
-            }
-
+            string cacheKey = null;
+            string leaseToken = null;
+            var cacheSaved = false;
+            var cacheLeaseWasPending = false;
             try
             {
+                if (!forceRefresh && BiliJumpAiCacheService.IsConfigured())
+                {
+                    var claim = await BiliJumpAiCacheService.ClaimAsync(
+                        aid, cid, provider, apiUrl, model, title, duration);
+                    if (claim.IsHit)
+                    {
+                        claim.Result.ads = BiliJumpAiParser.NormalizeSegments(claim.Result.ads, duration);
+                        return Success(claim.Result, "已使用远程 AI 识别缓存");
+                    }
+
+                    if (claim.IsPending)
+                    {
+                        cacheLeaseWasPending = true;
+                        var waited = await BiliJumpAiCacheService.WaitForHitAsync(
+                            aid, cid, provider, apiUrl, model);
+                        if (waited.IsHit)
+                        {
+                            waited.Result.ads = BiliJumpAiParser.NormalizeSegments(waited.Result.ads, duration);
+                            return Success(waited.Result, "已使用远程 AI 识别缓存");
+                        }
+
+                        if (waited.IsPending)
+                        {
+                            return Failure("其他设备正在识别该视频，请稍后重试");
+                        }
+
+                        if (!waited.Available)
+                        {
+                            return Failure("远程缓存暂时不可用，请稍后重试");
+                        }
+
+                        claim = await BiliJumpAiCacheService.ClaimAsync(
+                            aid, cid, provider, apiUrl, model, title, duration);
+                    }
+
+                    if (claim.IsLeader)
+                    {
+                        cacheKey = claim.CacheKey;
+                        leaseToken = claim.LeaseToken;
+                    }
+                    else if (claim.Available && !claim.IsLeader && !claim.IsHit)
+                    {
+                        return Failure("远程缓存暂时无法申请识别任务");
+                    }
+                    else if (cacheLeaseWasPending)
+                    {
+                        return Failure("远程缓存暂时无法确认识别状态，请稍后重试");
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(apiKey))
+                {
+                    return Failure("请先在设置中填写 AI API 密钥");
+                }
+                if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var endpoint)
+                    || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+                {
+                    return Failure("AI API 地址必须是 HTTP 或 HTTPS 地址");
+                }
+                if (string.IsNullOrWhiteSpace(model))
+                {
+                    return Failure("请先在设置中填写 AI 模型名称");
+                }
+
                 subtitleInfo = subtitleInfo ?? await PlayurlHelper.GetHasSubTitle(aid, cid);
                 var subtitle = subtitleInfo?.subtitles?.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.subtitle_url));
                 if (subtitle == null)
@@ -146,6 +177,7 @@ namespace BiliBili.UWP.Helper
                     return Failure("字幕内容为空");
                 }
 
+                var subtitleHash = ComputeSha256(subtitleText);
                 var requestBody = new
                 {
                     model = model,
@@ -173,22 +205,41 @@ namespace BiliBili.UWP.Helper
                     return Failure(parseError);
                 }
 
-                SqlHelper.SaveBiliJumpCache(new BiliJumpCacheClass
+                if (!string.IsNullOrWhiteSpace(cacheKey) && !string.IsNullOrWhiteSpace(leaseToken))
                 {
-                    cacheKey = cacheKey,
-                    aid = aid,
-                    cid = cid,
-                    title = title ?? string.Empty,
-                    adsJson = JsonConvert.SerializeObject(result),
-                    model = model,
-                    updatedAt = DateTime.Now
-                });
+                    var saved = await BiliJumpAiCacheService.SaveAsync(
+                        cacheKey, leaseToken, subtitleHash, result);
+                    cacheSaved = saved.IsSaved;
+                    if (!cacheSaved && saved.Available)
+                    {
+                        LogHelper.WriteLog(
+                            "远程 AI 缓存提交失败：" + (saved.Message ?? saved.Status),
+                            LogType.ERROR);
+                    }
+                }
+
                 return Success(result, "AI 识别完成");
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("BiliJump AI 识别失败", LogType.ERROR, ex);
                 return Failure("AI 识别失败：" + ex.Message);
+            }
+            finally
+            {
+                if (!cacheSaved)
+                {
+                    await BiliJumpAiCacheService.ReleaseAsync(cacheKey, leaseToken);
+                }
+            }
+        }
+
+        private static string ComputeSha256(string value)
+        {
+            using (var sha = SHA256.Create())
+            {
+                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
+                return BitConverter.ToString(bytes).Replace("-", string.Empty).ToLowerInvariant();
             }
         }
 

@@ -374,6 +374,7 @@
     <Compile Include="Helper\ApiHelper.cs" />
     <Compile Include="Helper\AppHelper.cs" />
     <Compile Include="Helper\BiliJumpAi.cs" />
+    <Compile Include="Helper\BiliJumpAiCacheService.cs" />
     <Compile Include="Helper\BiliLiveDanmu.cs" />
     <Compile Include="Helper\DownloadHelper2.cs" />
     <Compile Include="Helper\DynamicJObject.cs" />
