@@ -133,6 +133,14 @@
                                     <TextBlock Foreground="White" VerticalAlignment="Center">半屏显示</TextBlock>
                                     <ToggleSwitch x:Name="sw_DanmuNotSubtitle" Foreground="White" Toggled="sw_DanmuNotSubtitle_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
+                                <Grid Margin="0 10 0 0">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">显示互动弹幕</TextBlock>
+                                    <ToggleSwitch x:Name="sw_InteractiveDanmaku" Foreground="White" Toggled="sw_InteractiveDanmaku_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
+                                </Grid>
+                                <Grid Margin="0 10 0 0">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">使用新版弹幕接口</TextBlock>
+                                    <ToggleSwitch x:Name="sw_UseNewDanmakuInterface" Foreground="White" Toggled="sw_UseNewDanmakuInterface_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
+                                </Grid>
                                 <StackPanel Margin="0 10 0 0" >
                                     <Grid >
                                         <TextBlock Foreground="White" VerticalAlignment="Center">弹幕缩放</TextBlock>
@@ -333,6 +341,7 @@
                             </c:DanmakuMTC>
                         </MediaPlayerElement.TransportControls>
                     </MediaPlayerElement>
+                    <c:InteractiveDanmakuControl x:Name="interactiveDanmakuControl" ActionRequested="InteractiveDanmakuControl_ActionRequested" />
                     <GridView x:Name="gridview_node" SelectionMode="None" IsItemClickEnabled="True" Visibility="Collapsed" ItemClick="Gridview_node_ItemClick" SizeChanged="Gridview_node_SizeChanged" VerticalAlignment="Bottom"  Margin="0 0 0 100" >
                         <GridView.ItemTemplate>
                             <DataTemplate>

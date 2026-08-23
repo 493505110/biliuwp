@@ -13,7 +13,6 @@ using Windows.Storage.Streams;
 using Windows.UI.Popups;
 using System.Diagnostics;
 using BiliBili.UWP.Pages;
-using NSDanmaku;
 using BiliBili.UWP.Modules;
 using BiliBili.UWP.Controls;
 
@@ -66,7 +65,7 @@ namespace BiliBili.UWP.Helper
                 {
                     await SetVideoInfo(m, folder);
                     await SetPartInfo(m, folder);
-                    await DownloadDanmu(m.cid, folder);
+                    await DownloadDanmu(m, folder);
                     await DownThumb(m.thumb, await folder.GetParentAsync());
                 });
                 for (int i = 0; i < downloadUrls.Count; i++)
@@ -150,15 +149,18 @@ namespace BiliBili.UWP.Helper
 
         }
 
-        private static async Task DownloadDanmu(string cid, StorageFolder folder)
+        private static async Task DownloadDanmu(DownloadTaskModel model, StorageFolder folder)
         {
             try
             {
+                var cid = model.cid;
                 if (await ExistsFile(folder.Path + @"\" + cid + ".xml"))
                 {
                     return;
                 }
-                string results = await new NSDanmaku.Helper.DanmakuParse().GetBiliBili(Convert.ToInt64(cid));
+                long aid;
+                long.TryParse(model.avid, out aid);
+                string results = await BiliDanmakuService.GetXmlAsync(aid, Convert.ToInt64(cid));
                 //将弹幕存在在应用文件夹
                 //StorageFolder folder = ApplicationData.Current.LocalFolder;
                 //StorageFolder DowFolder = await KnownFolders.VideosLibrary.CreateFolderAsync("Bili-Download", CreationCollisionOption.OpenIfExists);
@@ -175,7 +177,7 @@ namespace BiliBili.UWP.Helper
         {
             try
             {
-                string results = await new NSDanmaku.Helper.DanmakuParse().GetBiliBili(Convert.ToInt64(cid));
+                string results = await BiliDanmakuService.GetXmlAsync(0, Convert.ToInt64(cid));
 
                 StorageFile fileWrite = await StorageFile.GetFileFromPathAsync(path);
                 await FileIO.WriteTextAsync(fileWrite, results);

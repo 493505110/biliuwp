@@ -326,6 +326,9 @@
       <DependentUpon>CommentV2Control.xaml</DependentUpon>
     </Compile>
     <Compile Include="Controls\DanmakuMTC.cs" />
+    <Compile Include="Controls\InteractiveDanmakuControl.xaml.cs">
+      <DependentUpon>InteractiveDanmakuControl.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\DownloadDialog.xaml.cs">
       <DependentUpon>DownloadDialog.xaml</DependentUpon>
     </Compile>
@@ -376,6 +379,7 @@
     <Compile Include="Helper\BiliJumpAi.cs" />
     <Compile Include="Helper\BiliJumpAiCacheService.cs" />
     <Compile Include="Helper\BiliLiveDanmu.cs" />
+    <Compile Include="Helper\BiliDanmakuService.cs" />
     <Compile Include="Helper\DownloadHelper2.cs" />
     <Compile Include="Helper\DynamicJObject.cs" />
     <Compile Include="Helper\ExceptionHandler.cs" />
@@ -386,6 +390,7 @@
     <Compile Include="Helper\MediaProcessing.cs" />
     <Compile Include="Helper\MessageCenter.cs" />
     <Compile Include="Helper\MusicHelper.cs" />
+    <Compile Include="Helper\InteractiveDanmakuService.cs" />
     <Compile Include="Helper\PlayurlHelper.cs" />
     <Compile Include="Helper\SettingHelper.cs" />
     <Compile Include="Helper\SqlHelper.cs" />
@@ -406,6 +411,7 @@
     <Compile Include="Models\BanInfoModel.cs" />
     <Compile Include="Models\FaceModels.cs" />
     <Compile Include="Models\HomeModels.cs" />
+    <Compile Include="Models\InteractiveDanmakuModels.cs" />
     <Compile Include="Models\LiveModels.cs" />
     <Compile Include="Models\MessageUnreadState.cs" />
     <Compile Include="Models\PlaylistModels.cs" />
@@ -851,6 +857,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Controls\DownloadDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Controls\InteractiveDanmakuControl.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

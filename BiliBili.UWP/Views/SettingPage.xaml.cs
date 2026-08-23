@@ -118,6 +118,8 @@ namespace BiliBili.UWP.Views
                 sw_NotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
                 sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
                 sw_StatusDanmu.IsOn = SettingHelper.Get_DMStatus();
+                sw_InteractiveDanmaku.IsOn = SettingHelper.Get_InteractiveDanmakuStatus();
+                sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
 
                 sw_DTCT.IsOn = SettingHelper.Get_DTCT();
                 sw_DT.IsOn = SettingHelper.Get_DT();
@@ -809,6 +811,26 @@ namespace BiliBili.UWP.Views
         private void sw_StatusDanmu_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_DMStatus(sw_StatusDanmu.IsOn);
+        }
+
+        private void sw_InteractiveDanmaku_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            SettingHelper.Set_InteractiveDanmakuStatus(sw_InteractiveDanmaku.IsOn);
+        }
+
+        private void sw_UseNewDanmakuInterface_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            SettingHelper.Set_UseNewDanmakuInterface(sw_UseNewDanmakuInterface.IsOn);
         }
 
         private void sw_BoldDanmu_Toggled(object sender, RoutedEventArgs e)

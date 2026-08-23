@@ -1119,6 +1119,42 @@ namespace BiliBili.UWP
             }
         }
 
+        public static void Set_InteractiveDanmakuStatus(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["InteractiveDanmakuStatus"] = value;
+        }
+
+        public static bool Get_InteractiveDanmakuStatus()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["InteractiveDanmakuStatus"] != null)
+            {
+                return Convert.ToBoolean(container.Values["InteractiveDanmakuStatus"]);
+            }
+
+            Set_InteractiveDanmakuStatus(true);
+            return true;
+        }
+
+        public static void Set_UseNewDanmakuInterface(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["UseNewDanmakuInterface"] = value;
+        }
+
+        public static bool Get_UseNewDanmakuInterface()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["UseNewDanmakuInterface"] != null)
+            {
+                return Convert.ToBoolean(container.Values["UseNewDanmakuInterface"]);
+            }
+
+            Set_UseNewDanmakuInterface(true);
+            return true;
+        }
+
         public static void Set_NewDMTran(double value)
         {
             container = ApplicationData.Current.LocalSettings;
