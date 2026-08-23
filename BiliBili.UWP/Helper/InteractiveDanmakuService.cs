@@ -45,7 +45,11 @@ namespace BiliBili.UWP.Helper
                     var item = CreateModel(command);
                     if (item != null)
                     {
-                        RestoreSubmissionState(aid, cid, item);
+                        if (item.Type == InteractiveDanmakuType.Vote
+                            || item.Type == InteractiveDanmakuType.Grade)
+                        {
+                            RestoreSubmissionState(aid, cid, item);
+                        }
                         result.Add(item);
                     }
                 }
@@ -332,6 +336,12 @@ namespace BiliBili.UWP.Helper
                     case 1:
                         command.Id = ToLong(field.Varint);
                         break;
+                    case 2:
+                        command.Oid = ToLong(field.Varint);
+                        break;
+                    case 3:
+                        command.Mid = ToLong(field.Varint);
+                        break;
                     case 4:
                         command.Command = GetString(field);
                         break;
@@ -344,6 +354,9 @@ namespace BiliBili.UWP.Helper
                     case 9:
                         command.Extra = GetString(field);
                         break;
+                    case 10:
+                        command.IdStr = GetString(field);
+                        break;
                 }
             }
 
@@ -353,7 +366,11 @@ namespace BiliBili.UWP.Helper
         private static InteractiveDanmakuModel CreateModel(CommandData command)
         {
             var normalizedCommand = (command.Command ?? string.Empty).Trim().ToUpperInvariant();
-            if (normalizedCommand != "#VOTE#" && normalizedCommand != "#GRADE#")
+            if (normalizedCommand != "#VOTE#"
+                && normalizedCommand != "#GRADE#"
+                && normalizedCommand != "#UP#"
+                && normalizedCommand != "#LINK#"
+                && normalizedCommand != "#ATTENTION#")
             {
                 return null;
             }
@@ -374,14 +391,69 @@ namespace BiliBili.UWP.Helper
             var item = new InteractiveDanmakuModel
             {
                 Id = command.Id,
+                IdStr = command.IdStr,
+                Oid = command.Oid,
+                SenderMid = command.Mid,
                 Command = normalizedCommand,
                 Progress = Math.Max(0, command.Progress),
                 Duration = GetDuration(extra),
-                Title = GetString(extra["question"])
+                Title = GetString(extra["title"])
+                    ?? GetString(extra["question"])
                     ?? GetString(extra["msg"])
                     ?? command.Content
                     ?? string.Empty
             };
+
+            if (normalizedCommand == "#UP#")
+            {
+                item.Type = InteractiveDanmakuType.Up;
+                item.IconUrl = GetString(extra["icon"]);
+                if (string.IsNullOrWhiteSpace(item.Title))
+                {
+                    item.Title = "UP 主互动弹幕";
+                }
+
+                return item.SenderMid > 0 ? item : null;
+            }
+
+            if (normalizedCommand == "#LINK#")
+            {
+                item.Type = InteractiveDanmakuType.Link;
+                item.RelatedAid = GetLong(extra["aid"]);
+                item.RelatedBvid = GetString(extra["bvid"])
+                    ?? GetString(extra["bv_id"]);
+                item.IconUrl = GetString(extra["icon"]);
+                if (string.IsNullOrWhiteSpace(item.Title))
+                {
+                    item.Title = "关联视频";
+                }
+
+                return item.RelatedAid > 0 || !string.IsNullOrWhiteSpace(item.RelatedBvid)
+                    ? item
+                    : null;
+            }
+
+            if (normalizedCommand == "#ATTENTION#")
+            {
+                item.Type = InteractiveDanmakuType.Attention;
+                var attentionType = GetInt(extra["type"]);
+                item.AttentionType = attentionType >= 0 && attentionType <= 2
+                    ? attentionType
+                    : 0;
+                item.PositionX = extra["posX"] == null
+                    ? GetDouble(extra["pos_x"])
+                    : GetDouble(extra["posX"]);
+                item.PositionY = extra["posY"] == null
+                    ? GetDouble(extra["pos_y"])
+                    : GetDouble(extra["posY"]);
+                item.IconUrl = GetString(extra["icon"]);
+                if (string.IsNullOrWhiteSpace(item.Title))
+                {
+                    item.Title = "喜欢就关注吧";
+                }
+
+                return item.SenderMid > 0 ? item : null;
+            }
 
             if (normalizedCommand == "#GRADE#")
             {
@@ -731,10 +803,13 @@ namespace BiliBili.UWP.Helper
         private sealed class CommandData
         {
             public long Id { get; set; }
+            public long Oid { get; set; }
+            public long Mid { get; set; }
             public string Command { get; set; }
             public string Content { get; set; }
             public int Progress { get; set; }
             public string Extra { get; set; }
+            public string IdStr { get; set; }
         }
 
         private sealed class ProtoField

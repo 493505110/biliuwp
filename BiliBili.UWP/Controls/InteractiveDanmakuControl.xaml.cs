@@ -8,19 +8,26 @@ using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Imaging;
 
 namespace BiliBili.UWP.Controls
 {
     public sealed partial class InteractiveDanmakuControl : UserControl
     {
+        private const double AttentionCoordinateWidth = 667d;
+        private const double AttentionCoordinateHeight = 375d;
+        private static readonly Thickness DefaultPanelMargin = new Thickness(16, 16, 16, 112);
         private InteractiveDanmakuModel currentItem;
         private readonly List<VoteOptionVisual> voteOptionVisuals = new List<VoteOptionVisual>();
         private readonly List<GradeOptionVisual> gradeOptionVisuals = new List<GradeOptionVisual>();
+        private readonly List<CommandActionVisual> commandActionVisuals = new List<CommandActionVisual>();
         private bool resultVisible;
 
         public InteractiveDanmakuControl()
         {
             InitializeComponent();
+            SizeChanged += InteractiveDanmakuControl_SizeChanged;
+            panel.SizeChanged += Panel_SizeChanged;
         }
 
         public event EventHandler<InteractiveDanmakuActionEventArgs> ActionRequested;
@@ -36,6 +43,7 @@ namespace BiliBili.UWP.Controls
             resultVisible = false;
             voteOptionVisuals.Clear();
             gradeOptionVisuals.Clear();
+            commandActionVisuals.Clear();
             optionsPanel.Children.Clear();
             optionsPanel.RowDefinitions.Clear();
             statusText.Text = string.Empty;
@@ -48,9 +56,9 @@ namespace BiliBili.UWP.Controls
             }
 
             titleText.Text = item.Title;
-            summaryText.Text = item.Type == InteractiveDanmakuType.Vote
-                ? "请选择一个选项"
-                : BuildGradeSummary(item);
+            summaryText.Text = BuildSummary(item);
+            UpdateIcon(item.IconUrl);
+            UpdatePanelPosition(item);
 
             if (item.Type == InteractiveDanmakuType.Vote)
             {
@@ -77,7 +85,7 @@ namespace BiliBili.UWP.Controls
                     voteOptionVisuals.Add(new VoteOptionVisual(option, button, percentageText));
                 }
             }
-            else
+            else if (item.Type == InteractiveDanmakuType.Grade)
             {
                 var gradePanel = new StackPanel
                 {
@@ -104,8 +112,13 @@ namespace BiliBili.UWP.Controls
                 });
                 optionsPanel.Children.Add(gradePanel);
             }
+            else
+            {
+                AddCommandActions(item);
+            }
 
             Visibility = Visibility.Visible;
+            UpdatePanelPosition(item);
             if (item.Type == InteractiveDanmakuType.Vote && item.VoteSubmitted)
             {
                 ShowVoteResult(item.SelectedVoteOption);
@@ -113,6 +126,16 @@ namespace BiliBili.UWP.Controls
             else if (item.Type == InteractiveDanmakuType.Grade && item.GradeSubmitted)
             {
                 ShowGradeResult(item.SelectedGradeScore);
+            }
+            else if (item.Type == InteractiveDanmakuType.Attention
+                && item.AttentionSubmitted)
+            {
+                ShowAttentionResult();
+            }
+            if (item.Type == InteractiveDanmakuType.Attention
+                && item.TripleSubmitted)
+            {
+                ShowTripleResult();
             }
         }
 
@@ -122,10 +145,13 @@ namespace BiliBili.UWP.Controls
             resultVisible = false;
             voteOptionVisuals.Clear();
             gradeOptionVisuals.Clear();
+            commandActionVisuals.Clear();
             optionsPanel.Children.Clear();
             optionsPanel.RowDefinitions.Clear();
             statusText.Text = string.Empty;
             statusText.Visibility = Visibility.Collapsed;
+            UpdateIcon(null);
+            ResetPanelPosition();
             Visibility = Visibility.Collapsed;
         }
 
@@ -155,6 +181,13 @@ namespace BiliBili.UWP.Controls
                     }
                 }
             }
+        }
+
+        public bool IsShowingItem(InteractiveDanmakuModel item)
+        {
+            return item != null
+                && ReferenceEquals(currentItem, item)
+                && Visibility == Visibility.Visible;
         }
 
         public void ShowStatus(string message)
@@ -253,6 +286,49 @@ namespace BiliBili.UWP.Controls
             }
         }
 
+        public void ShowAttentionResult()
+        {
+            if (currentItem == null
+                || currentItem.Type != InteractiveDanmakuType.Attention)
+            {
+                return;
+            }
+
+            currentItem.AttentionSubmitted = true;
+            UpdateAttentionActionState();
+        }
+
+        public void ShowTripleResult()
+        {
+            if (currentItem == null
+                || currentItem.Type != InteractiveDanmakuType.Attention)
+            {
+                return;
+            }
+
+            currentItem.TripleSubmitted = true;
+            UpdateAttentionActionState();
+        }
+
+        private void UpdateAttentionActionState()
+        {
+            foreach (var visual in commandActionVisuals)
+            {
+                if (visual.Action == InteractiveDanmakuActionKind.Follow)
+                {
+                    visual.Button.Content = currentItem.AttentionSubmitted ? "已关注" : "关注 UP";
+                    visual.Button.IsEnabled = !currentItem.AttentionSubmitted;
+                    continue;
+                }
+
+                if (visual.Action == InteractiveDanmakuActionKind.Triple)
+                {
+                    visual.Button.Content = currentItem.TripleSubmitted ? "已三连" : "一键三连";
+                    visual.Button.IsEnabled = !currentItem.TripleSubmitted;
+                }
+            }
+        }
+
         private void ApplySelectionVisual(Button button, bool selected, bool voteResult = false)
         {
             if (button == null)
@@ -289,8 +365,117 @@ namespace BiliBili.UWP.Controls
                 return;
             }
 
+            if (button.Tag is InteractiveDanmakuActionKind)
+            {
+                ActionRequested?.Invoke(
+                    this,
+                    new InteractiveDanmakuActionEventArgs(
+                        currentItem,
+                        0,
+                        (InteractiveDanmakuActionKind)button.Tag));
+                return;
+            }
+
             var value = button.Tag is int ? (int)button.Tag : 0;
             ActionRequested?.Invoke(this, new InteractiveDanmakuActionEventArgs(currentItem, value));
+        }
+
+        private void AddCommandActions(InteractiveDanmakuModel item)
+        {
+            switch (item.Type)
+            {
+                case InteractiveDanmakuType.Up:
+                    AddCommandAction("查看 UP 主页", InteractiveDanmakuActionKind.OpenUser, true);
+                    break;
+                case InteractiveDanmakuType.Link:
+                    AddCommandAction("打开关联视频", InteractiveDanmakuActionKind.OpenVideo, true);
+                    break;
+                case InteractiveDanmakuType.Attention:
+                    if (item.AttentionType != 1)
+                    {
+                        AddCommandAction(
+                            item.AttentionSubmitted ? "已关注" : "关注 UP",
+                            InteractiveDanmakuActionKind.Follow,
+                            !item.AttentionSubmitted);
+                    }
+                    if (item.AttentionType != 0)
+                    {
+                        AddCommandAction(
+                            item.TripleSubmitted ? "已三连" : "一键三连",
+                            InteractiveDanmakuActionKind.Triple,
+                            !item.TripleSubmitted);
+                    }
+                    break;
+            }
+        }
+
+        private void AddCommandAction(
+            string text,
+            InteractiveDanmakuActionKind action,
+            bool isEnabled)
+        {
+            var button = new InteractiveDanmakuOptionButton
+            {
+                Content = text,
+                Tag = action,
+                Style = (Style)Resources["InteractiveDanmakuOptionButtonStyle"],
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 3, 0, 0),
+                Padding = new Thickness(10, 6, 10, 6),
+                IsEnabled = isEnabled
+            };
+            button.Click += OptionButton_Click;
+            optionsPanel.RowDefinitions.Add(new RowDefinition
+            {
+                Height = GridLength.Auto
+            });
+            Grid.SetRow(button, optionsPanel.RowDefinitions.Count - 1);
+            optionsPanel.Children.Add(button);
+            commandActionVisuals.Add(new CommandActionVisual(action, button));
+        }
+
+        private void InteractiveDanmakuControl_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdatePanelPosition(currentItem);
+        }
+
+        private void Panel_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdatePanelPosition(currentItem);
+        }
+
+        private void UpdatePanelPosition(InteractiveDanmakuModel item)
+        {
+            if (item == null
+                || item.Type != InteractiveDanmakuType.Attention
+                || item.PositionX <= 0
+                || item.PositionY <= 0
+                || ActualWidth <= 0
+                || ActualHeight <= 0)
+            {
+                ResetPanelPosition();
+                return;
+            }
+
+            panel.HorizontalAlignment = HorizontalAlignment.Left;
+            panel.VerticalAlignment = VerticalAlignment.Top;
+            var panelWidth = panel.ActualWidth > 0
+                ? panel.ActualWidth
+                : Math.Min(panel.MaxWidth, Math.Max(0, ActualWidth - 32));
+            var panelHeight = panel.ActualHeight;
+            var x = item.PositionX / AttentionCoordinateWidth * ActualWidth - panelWidth / 2;
+            var y = item.PositionY / AttentionCoordinateHeight * ActualHeight - panelHeight / 2;
+            x = Math.Max(0, Math.Min(Math.Max(0, ActualWidth - panelWidth), x));
+            y = Math.Max(0, Math.Min(Math.Max(0, ActualHeight - panelHeight), y));
+            panel.Margin = new Thickness(x, y, 0, 0);
+        }
+
+        private void ResetPanelPosition()
+        {
+            panel.HorizontalAlignment = HorizontalAlignment.Center;
+            panel.VerticalAlignment = VerticalAlignment.Bottom;
+            panel.Margin = DefaultPanelMargin;
         }
 
         private static Grid CreateVoteOptionContent(string text, out TextBlock percentageText)
@@ -329,6 +514,52 @@ namespace BiliBili.UWP.Controls
             }
 
             return string.Format("当前平均 {0:0.0} 分，共 {1} 人参与", item.AverageScore / 2, item.Count);
+        }
+
+        private static string BuildSummary(InteractiveDanmakuModel item)
+        {
+            switch (item.Type)
+            {
+                case InteractiveDanmakuType.Vote:
+                    return "请选择一个选项";
+                case InteractiveDanmakuType.Grade:
+                    return BuildGradeSummary(item);
+                case InteractiveDanmakuType.Up:
+                    return "UP 主头像弹幕";
+                case InteractiveDanmakuType.Link:
+                    return "关联视频弹幕";
+                case InteractiveDanmakuType.Attention:
+                    if (item.AttentionType == 1)
+                    {
+                        return "三连支持";
+                    }
+                    if (item.AttentionType == 2)
+                    {
+                        return "关注并三连支持";
+                    }
+                    return "关注 UP 主";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private void UpdateIcon(string iconUrl)
+        {
+            iconImage.Source = null;
+            iconBorder.Visibility = Visibility.Collapsed;
+            if (string.IsNullOrWhiteSpace(iconUrl))
+            {
+                return;
+            }
+
+            try
+            {
+                iconImage.Source = new BitmapImage(new Uri(iconUrl));
+                iconBorder.Visibility = Visibility.Visible;
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private sealed class InteractiveDanmakuOptionButton : Button
@@ -464,17 +695,34 @@ namespace BiliBili.UWP.Controls
             public int Score { get; }
             public Button Button { get; }
         }
+
+        private sealed class CommandActionVisual
+        {
+            public CommandActionVisual(InteractiveDanmakuActionKind action, Button button)
+            {
+                Action = action;
+                Button = button;
+            }
+
+            public InteractiveDanmakuActionKind Action { get; }
+            public Button Button { get; }
+        }
     }
 
     public sealed class InteractiveDanmakuActionEventArgs : EventArgs
     {
-        public InteractiveDanmakuActionEventArgs(InteractiveDanmakuModel item, int value)
+        public InteractiveDanmakuActionEventArgs(
+            InteractiveDanmakuModel item,
+            int value,
+            InteractiveDanmakuActionKind action = InteractiveDanmakuActionKind.Submit)
         {
             Item = item;
             Value = value;
+            Action = action;
         }
 
         public InteractiveDanmakuModel Item { get; }
         public int Value { get; }
+        public InteractiveDanmakuActionKind Action { get; }
     }
 }

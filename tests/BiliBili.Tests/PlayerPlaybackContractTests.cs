@@ -224,21 +224,25 @@ namespace BiliBili.Tests
                 source,
                 "private async Task<BiliDanmakuLoadResult> LoadDanmakuOrEmptyAsync");
 
-            StringAssert.Contains(video, "LoadDanmakuOrEmptyAsync(\n                            Convert.ToInt64(item.Aid),\n                            Convert.ToInt64(item.Mid),\n                            item.Duration)");
+            StringAssert.Contains(video, "LoadDanmakuOrEmptyAsync(");
+            StringAssert.Contains(video, "item.Duration,\n                            danmakuCancellationToken)");
             StringAssert.Contains(video, "await Task.WhenAll(videoDanmakuTask, videoSourceTask)");
             StringAssert.Contains(video, "var videoSource = videoSourceTask.Result;");
-            StringAssert.Contains(video, "ApplyInitialDanmaku(videoDanmakuTask.Result, requestId, item)");
+            StringAssert.Contains(video, "ApplyInitialDanmaku(");
+            StringAssert.Contains(video, "videoDanmakuTask.Result,\n                            requestId,\n                            item,\n                            danmakuCancellationToken)");
             StringAssert.Contains(video, "await ApplyPlaybackSourceAsync(videoSource, requestId, item)");
 
             var loadIndex = video.IndexOf("await Task.WhenAll(videoDanmakuTask, videoSourceTask)", StringComparison.Ordinal);
-            var danmakuIndex = video.IndexOf("ApplyInitialDanmaku(videoDanmakuTask.Result, requestId, item)", StringComparison.Ordinal);
+            var danmakuIndex = video.IndexOf("ApplyInitialDanmaku(", StringComparison.Ordinal);
             var applyIndex = video.IndexOf("await ApplyPlaybackSourceAsync(videoSource, requestId, item)", StringComparison.Ordinal);
             Assert.IsTrue(loadIndex >= 0 && danmakuIndex > loadIndex, "弹幕与播放源应先完成加载");
             Assert.IsTrue(applyIndex > danmakuIndex, "弹幕应在播放源应用前设置");
             StringAssert.Contains(danmakuLoader, "catch (Exception ex)");
             StringAssert.Contains(danmakuLoader, "加载弹幕失败，继续播放");
             StringAssert.Contains(danmakuLoader, "new BiliDanmakuLoadResult");
-            StringAssert.Contains(source, "LoadInitialAsync(aid, cid, durationSeconds)");
+            StringAssert.Contains(source, "CancellationToken cancellationToken = default(CancellationToken)");
+            StringAssert.Contains(source, "LoadInitialAsync(");
+            StringAssert.Contains(source, "LoadSupplementAsync(initial, cancellationToken)");
             StringAssert.Contains(source, "ApplyDanmakuSupplementWhenReadyAsync");
         }
 
@@ -248,18 +252,21 @@ namespace BiliBili.Tests
             var service = ReadFile("BiliBili.UWP/Helper/BiliDanmakuService.cs");
             var segmentCount = MethodBody(service, "private static bool TryGetSegmentCount");
             var segmentRequest = MethodBody(service, "private static async Task<byte[]> GetSegmentBytesAsync");
-            var webLoader = MethodBody(service, "private static async Task<WebDanmakuResult> LoadWebAsync");
+            var webInitial = MethodBody(service, "private static async Task<BiliDanmakuLoadResult> LoadWebInitialAsync");
+            var supplement = MethodBody(service, "public static async Task<BiliDanmakuLoadResult> LoadSupplementAsync");
 
             StringAssert.Contains(segmentCount, "durationSeconds * 1000d / pageSize");
             StringAssert.Contains(segmentCount, "MaxUnknownDurationSegmentCount");
-            Assert.IsFalse(segmentCount.Contains("maxSegmentCount"), "不能把 dm_seg.total 当作分段循环次数");
+            Assert.IsFalse(segmentCount.Contains("segmentField.Number == 2"), "不能把 dmSge.total 当作分段循环次数");
             StringAssert.Contains(segmentRequest, "response.IsNotModified");
             StringAssert.Contains(segmentRequest, "response.Bytes == null");
             StringAssert.Contains(segmentRequest, "return null;");
             StringAssert.Contains(service, "long aid,");
             StringAssert.Contains(segmentRequest, "\"&pid=\" + aid.ToString(CultureInfo.InvariantCulture)");
-            StringAssert.Contains(webLoader, "TryGetDurationSecondsAsync(aid, cid)");
-            StringAssert.Contains(webLoader, "GetTotalDanmakuCount(viewResponse.Bytes)");
+            StringAssert.Contains(webInitial, "TryGetDurationSecondsAsync(aid, cid)");
+            StringAssert.Contains(webInitial, "LoadSegmentAsync(plan, 1, cancellationToken)");
+            StringAssert.Contains(supplement, "LoadRemainingSegmentsAsync(plan, cancellationToken)");
+            StringAssert.Contains(supplement, "LoadLegacyAsync(plan.Cid)");
         }
 
         [TestMethod]
@@ -286,8 +293,9 @@ namespace BiliBili.Tests
             StringAssert.Contains(settings, "Set_UseNewDanmakuInterface(true);");
             StringAssert.Contains(service, "SettingHelper.Get_UseNewDanmakuInterface()");
             StringAssert.Contains(service, "if (!SettingHelper.Get_UseNewDanmakuInterface())");
-            StringAssert.Contains(service, "LoadInitialAsync(aid, cid, durationSeconds)");
-            StringAssert.Contains(service, "LoadLegacySupplementAsync(cid, initial.Items)");
+            StringAssert.Contains(service, "LoadInitialAsync(");
+            StringAssert.Contains(service, "LoadSupplementAsync(initial, cancellationToken)");
+            StringAssert.Contains(service, "if (failedRegularSegmentCount != 0)");
             StringAssert.Contains(settingPage, "x:Name=\"sw_UseNewDanmakuInterface\"");
             StringAssert.Contains(settingPage, "Toggled=\"sw_UseNewDanmakuInterface_Toggled\"");
             StringAssert.Contains(settingCode, "sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();");

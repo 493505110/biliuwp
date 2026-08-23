@@ -47,6 +47,8 @@
              Link="Production\DashStreamSelector.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackTimelineIndex.cs"
              Link="Production\PlaybackTimelineIndex.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackEventTimeline.cs"
+             Link="Production\PlaybackEventTimeline.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackUrl.cs"
              Link="Production\PlaybackUrl.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackRestoreState.cs"

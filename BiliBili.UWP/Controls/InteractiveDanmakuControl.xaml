@@ -104,19 +104,39 @@
             BorderThickness="1"
             CornerRadius="6">
             <StackPanel>
-                <TextBlock
-                    x:Name="titleText"
-                    Foreground="{ThemeResource Bili-Highlight-TextColor}"
-                    FontSize="18"
-                    FontWeight="SemiBold"
-                    TextWrapping="Wrap" />
-                <TextBlock
-                    x:Name="summaryText"
-                    Margin="0,6,0,10"
-                    Foreground="{ThemeResource Bili-FontColor-Light}"
-                    FontSize="13"
-                    TextWrapping="Wrap" />
-                <Grid x:Name="optionsPanel" HorizontalAlignment="Stretch" />
+                <StackPanel Orientation="Horizontal">
+                    <Border
+                        x:Name="iconBorder"
+                        Width="42"
+                        Height="42"
+                        Margin="0,0,10,0"
+                        CornerRadius="21"
+                        Visibility="Collapsed">
+                        <Image
+                            x:Name="iconImage"
+                            Width="42"
+                            Height="42"
+                            Stretch="UniformToFill" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock
+                            x:Name="titleText"
+                            Foreground="{ThemeResource Bili-Highlight-TextColor}"
+                            FontSize="18"
+                            FontWeight="SemiBold"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            x:Name="summaryText"
+                            Margin="0,6,0,0"
+                            Foreground="{ThemeResource Bili-FontColor-Light}"
+                            FontSize="13"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+                <Grid
+                    x:Name="optionsPanel"
+                    Margin="0,10,0,0"
+                    HorizontalAlignment="Stretch" />
                 <TextBlock
                     x:Name="statusText"
                     Margin="0,8,0,0"

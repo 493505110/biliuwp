@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using BiliBili.UWP;
@@ -24,44 +25,36 @@ namespace BiliBili.UWP.Helper
         private const string SegmentUrl = "https://api.bilibili.com/x/v2/dm/wbi/web/seg.so";
         private const int MaxSegmentCount = 10000;
         private const int MaxUnknownDurationSegmentCount = 100;
+        private const int MaxConcurrentSegmentRequests = 4;
+        private const long DanmakuClosedState = 1;
 
         public static async Task<List<DanmakuModel>> LoadAsync(
             long aid,
             long cid,
-            double durationSeconds = 0)
+            double durationSeconds = 0,
+            CancellationToken cancellationToken = default(CancellationToken))
         {
-            var initial = await LoadInitialAsync(aid, cid, durationSeconds);
+            var initial = await LoadInitialAsync(aid, cid, durationSeconds, cancellationToken);
             if (initial == null || initial.Items == null)
             {
                 return new List<DanmakuModel>();
             }
 
-            if (!initial.NeedsLegacySupplement)
-            {
-                return initial.Items;
-            }
-
-            try
-            {
-                return await LoadLegacySupplementAsync(cid, initial.Items);
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("补齐旧版弹幕失败，保留新版结果", LogType.ERROR, ex);
-                return initial.Items;
-            }
+            var completed = await LoadSupplementAsync(initial, cancellationToken);
+            return completed?.Items ?? initial.Items;
         }
 
         /// <summary>
-        /// Loads the fast initial pool. The player can start with this result and
-        /// fetch the legacy supplement in the background when the web metadata
-        /// indicates that the segmented response is incomplete.
+        /// Loads the first segmented packet so the player can start without
+        /// waiting for the complete danmaku timeline.
         /// </summary>
         public static async Task<BiliDanmakuLoadResult> LoadInitialAsync(
             long aid,
             long cid,
-            double durationSeconds = 0)
+            double durationSeconds = 0,
+            CancellationToken cancellationToken = default(CancellationToken))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (cid <= 0)
             {
                 return new BiliDanmakuLoadResult(
@@ -74,10 +67,17 @@ namespace BiliBili.UWP.Helper
             {
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var legacy = await LoadLegacyAsync(cid);
+                    cancellationToken.ThrowIfCancellationRequested();
                     return new BiliDanmakuLoadResult(
-                        await LoadLegacyAsync(cid),
+                        legacy,
                         false,
                         false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -91,22 +91,28 @@ namespace BiliBili.UWP.Helper
 
             try
             {
-                var webResult = await LoadWebAsync(aid, cid, durationSeconds);
-                var items = webResult.Items ?? new List<DanmakuModel>();
-                var needsSupplement = webResult.TotalCount < 0
-                    ? items.Count != 0
-                    : webResult.TotalCount != items.Count;
-                return new BiliDanmakuLoadResult(items, needsSupplement, true);
+                return await LoadWebInitialAsync(aid, cid, durationSeconds, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("加载新版弹幕失败，回退旧接口", LogType.ERROR, ex);
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var legacy = await LoadLegacyAsync(cid);
+                    cancellationToken.ThrowIfCancellationRequested();
                     return new BiliDanmakuLoadResult(
-                        await LoadLegacyAsync(cid),
+                        legacy,
                         false,
                         false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception fallbackException)
                 {
@@ -120,13 +126,99 @@ namespace BiliBili.UWP.Helper
         }
 
         /// <summary>
+        /// Completes the remaining segmented requests. Successful packets are
+        /// retained when individual packets fail; the legacy XML endpoint is
+        /// only used to recover those failed packets.
+        /// </summary>
+        public static async Task<BiliDanmakuLoadResult> LoadSupplementAsync(
+            BiliDanmakuLoadResult initial,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (initial == null || initial.WebLoadPlan == null || initial.IsDanmakuClosed)
+            {
+                return initial ?? new BiliDanmakuLoadResult(
+                    new List<DanmakuModel>(),
+                    false,
+                    false);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var plan = initial.WebLoadPlan;
+            var items = new List<DanmakuModel>(initial.Items ?? new List<DanmakuModel>());
+            var failedRegularSegmentCount = 0;
+            var failedSpecialPackageCount = 0;
+            var unsupportedDanmakuCount = initial.UnsupportedDanmakuCount;
+
+            var segmentResults = await LoadRemainingSegmentsAsync(plan, cancellationToken);
+            foreach (var segmentResult in segmentResults)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                unsupportedDanmakuCount += segmentResult.UnsupportedDanmakuCount;
+                if (segmentResult.Error != null)
+                {
+                    if (segmentResult.IsSpecialPackage)
+                    {
+                        failedSpecialPackageCount++;
+                    }
+                    else
+                    {
+                        failedRegularSegmentCount++;
+                    }
+
+                    LogHelper.WriteLog(
+                        segmentResult.IsSpecialPackage
+                            ? "加载 BAS/代码弹幕专包失败: " + segmentResult.Source
+                            : "加载新版弹幕分段失败: " + segmentResult.SegmentIndex,
+                        LogType.ERROR,
+                        segmentResult.Error);
+                    continue;
+                }
+
+                if (segmentResult.Items != null && segmentResult.Items.Count != 0)
+                {
+                    items.AddRange(segmentResult.Items);
+                }
+            }
+
+            if (failedRegularSegmentCount != 0)
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var legacy = await LoadLegacyAsync(plan.Cid);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    items = MergeDanmaku(items, legacy);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    LogHelper.WriteLog("补齐失败分段的旧版弹幕失败，保留新版结果", LogType.ERROR, ex);
+                }
+            }
+
+            return new BiliDanmakuLoadResult(
+                items,
+                failedRegularSegmentCount != 0 || failedSpecialPackageCount != 0,
+                true,
+                false,
+                initial.SpecialDanmakuPackageCount,
+                unsupportedDanmakuCount,
+                null);
+        }
+
+        /// <summary>
         /// Loads the legacy pool and merges it without dropping repeated comments
         /// that have different danmaku ids.
         /// </summary>
         public static async Task<List<DanmakuModel>> LoadLegacySupplementAsync(
             long cid,
-            IEnumerable<DanmakuModel> initial)
+            IEnumerable<DanmakuModel> initial,
+            CancellationToken cancellationToken = default(CancellationToken))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (cid <= 0)
             {
                 return initial == null
@@ -135,6 +227,7 @@ namespace BiliBili.UWP.Helper
             }
 
             var legacy = await LoadLegacyAsync(cid);
+            cancellationToken.ThrowIfCancellationRequested();
             return MergeDanmaku(initial, legacy);
         }
 
@@ -145,8 +238,8 @@ namespace BiliBili.UWP.Helper
             var result = new List<DanmakuModel>();
             var identities = new HashSet<string>(StringComparer.Ordinal);
 
-            AddUniqueDanmaku(result, identities, supplement);
             AddUniqueDanmaku(result, identities, initial);
+            AddUniqueDanmaku(result, identities, supplement);
             return result;
         }
 
@@ -241,11 +334,13 @@ namespace BiliBili.UWP.Helper
             return builder.ToString();
         }
 
-        private static async Task<WebDanmakuResult> LoadWebAsync(
+        private static async Task<BiliDanmakuLoadResult> LoadWebInitialAsync(
             long aid,
             long cid,
-            double durationSeconds)
+            double durationSeconds,
+            CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var viewUrl = ViewUrl
                 + "?type=1&oid=" + cid.ToString(CultureInfo.InvariantCulture);
             if (aid > 0)
@@ -259,41 +354,238 @@ namespace BiliBili.UWP.Helper
                 throw new InvalidDataException("新版弹幕分段信息为空");
             }
 
+            var state = GetDanmakuState(viewResponse.Bytes);
+            var specialDanmakuUrls = GetSpecialDanmakuUrls(viewResponse.Bytes);
+            if (state == DanmakuClosedState)
+            {
+                return new BiliDanmakuLoadResult(
+                    new List<DanmakuModel>(),
+                    false,
+                    true,
+                    true,
+                    specialDanmakuUrls.Count,
+                    0,
+                    null);
+            }
+
             var resolvedDuration = durationSeconds;
             if (resolvedDuration <= 0 || double.IsNaN(resolvedDuration) || double.IsInfinity(resolvedDuration))
             {
                 resolvedDuration = await TryGetDurationSecondsAsync(aid, cid);
             }
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (!TryGetSegmentCount(viewResponse.Bytes, resolvedDuration, out var segmentCount))
             {
                 throw new InvalidDataException("新版弹幕分段配置无效");
             }
 
-            var result = new List<DanmakuModel>();
-            for (var segmentIndex = 1; segmentIndex <= segmentCount; segmentIndex++)
+            var plan = new BiliDanmakuLoadPlan(aid, cid, segmentCount, specialDanmakuUrls);
+            var firstSegment = await LoadSegmentAsync(plan, 1, cancellationToken);
+            plan.RetryFirstSegment = firstSegment.Error != null;
+            if (firstSegment.Error != null)
             {
-                var segmentBytes = await GetSegmentBytesAsync(aid, cid, segmentIndex);
-                if (segmentBytes != null && segmentBytes.Length != 0)
+                LogHelper.WriteLog("加载新版弹幕首段失败，继续后台补齐", LogType.ERROR, firstSegment.Error);
+            }
+
+            return new BiliDanmakuLoadResult(
+                firstSegment.Items,
+                plan.RetryFirstSegment,
+                true,
+                false,
+                specialDanmakuUrls.Count,
+                firstSegment.UnsupportedDanmakuCount,
+                plan);
+        }
+
+        private static async Task<List<SegmentLoadResult>> LoadRemainingSegmentsAsync(
+            BiliDanmakuLoadPlan plan,
+            CancellationToken cancellationToken)
+        {
+            var results = new List<SegmentLoadResult>();
+            if (plan == null || !plan.HasPendingSegments)
+            {
+                return results;
+            }
+
+            using (var limiter = new SemaphoreSlim(MaxConcurrentSegmentRequests))
+            {
+                var tasks = new List<Task<SegmentLoadResult>>();
+                for (var segmentIndex = 1; segmentIndex <= plan.SegmentCount; segmentIndex++)
                 {
-                    ParseSegment(segmentBytes, result);
+                    if (segmentIndex == 1 && !plan.RetryFirstSegment)
+                    {
+                        continue;
+                    }
+
+                    cancellationToken.ThrowIfCancellationRequested();
+                    tasks.Add(LoadSegmentWithLimitAsync(plan, segmentIndex, limiter, cancellationToken));
+                }
+
+                foreach (var specialUrl in plan.SpecialDanmakuUrls)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    tasks.Add(LoadSpecialPackageWithLimitAsync(
+                        specialUrl,
+                        limiter,
+                        cancellationToken));
+                }
+
+                if (tasks.Count != 0)
+                {
+                    results.AddRange(await Task.WhenAll(tasks));
                 }
             }
 
-            return new WebDanmakuResult(result, GetTotalDanmakuCount(viewResponse.Bytes));
+            return results;
         }
 
-        private static long GetTotalDanmakuCount(byte[] bytes)
+        private static async Task<SegmentLoadResult> LoadSegmentWithLimitAsync(
+            BiliDanmakuLoadPlan plan,
+            int segmentIndex,
+            SemaphoreSlim limiter,
+            CancellationToken cancellationToken)
+        {
+            await limiter.WaitAsync(cancellationToken);
+            try
+            {
+                return await LoadSegmentAsync(plan, segmentIndex, cancellationToken);
+            }
+            finally
+            {
+                limiter.Release();
+            }
+        }
+
+        private static async Task<SegmentLoadResult> LoadSegmentAsync(
+            BiliDanmakuLoadPlan plan,
+            int segmentIndex,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var segmentBytes = await GetSegmentBytesAsync(
+                    plan.Aid,
+                    plan.Cid,
+                    segmentIndex,
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (segmentBytes == null || segmentBytes.Length == 0)
+                {
+                    return new SegmentLoadResult(
+                        segmentIndex,
+                        false,
+                        segmentIndex.ToString(CultureInfo.InvariantCulture),
+                        new List<DanmakuModel>(),
+                        0,
+                        null);
+                }
+
+                var unsupportedDanmakuCount = 0;
+                var items = ParseSegment(segmentBytes, ref unsupportedDanmakuCount);
+                return new SegmentLoadResult(
+                    segmentIndex,
+                    false,
+                    segmentIndex.ToString(CultureInfo.InvariantCulture),
+                    items,
+                    unsupportedDanmakuCount,
+                    null);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new SegmentLoadResult(
+                    segmentIndex,
+                    false,
+                    segmentIndex.ToString(CultureInfo.InvariantCulture),
+                    new List<DanmakuModel>(),
+                    0,
+                    ex);
+            }
+        }
+
+        private static async Task<SegmentLoadResult> LoadSpecialPackageWithLimitAsync(
+            string url,
+            SemaphoreSlim limiter,
+            CancellationToken cancellationToken)
+        {
+            await limiter.WaitAsync(cancellationToken);
+            try
+            {
+                return await LoadSpecialPackageAsync(url, cancellationToken);
+            }
+            finally
+            {
+                limiter.Release();
+            }
+        }
+
+        private static async Task<SegmentLoadResult> LoadSpecialPackageAsync(
+            string url,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    throw new InvalidDataException("特殊弹幕包地址为空");
+                }
+
+                var response = await GetBytesAsync(new Uri(url));
+                cancellationToken.ThrowIfCancellationRequested();
+                if (response.IsNotModified || response.Bytes == null || response.Bytes.Length == 0)
+                {
+                    return new SegmentLoadResult(0, true, url, new List<DanmakuModel>(), 0, null);
+                }
+
+                var unsupportedDanmakuCount = 0;
+                var items = ParseSegment(response.Bytes, ref unsupportedDanmakuCount);
+                return new SegmentLoadResult(0, true, url, items, unsupportedDanmakuCount, null);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new SegmentLoadResult(0, true, url, new List<DanmakuModel>(), 0, ex);
+            }
+        }
+
+        private static long GetDanmakuState(byte[] bytes)
         {
             foreach (var field in ReadFields(bytes))
             {
-                if (field.Number == 8 && field.WireType == 0)
+                if (field.Number == 1 && field.WireType == 0)
                 {
                     return ToLong(field.Varint);
                 }
             }
 
-            return -1;
+            return 0;
+        }
+
+        private static List<string> GetSpecialDanmakuUrls(byte[] bytes)
+        {
+            var urls = new List<string>();
+            foreach (var field in ReadFields(bytes))
+            {
+                if (field.Number == 6 && field.WireType == 2 && field.Bytes != null)
+                {
+                    var url = GetString(field);
+                    if (!string.IsNullOrWhiteSpace(url))
+                    {
+                        urls.Add(url);
+                    }
+                }
+            }
+
+            return urls;
         }
 
         private static async Task<double> TryGetDurationSecondsAsync(long aid, long cid)
@@ -401,8 +693,11 @@ namespace BiliBili.UWP.Helper
             return true;
         }
 
-        private static void ParseSegment(byte[] bytes, List<DanmakuModel> result)
+        private static List<DanmakuModel> ParseSegment(
+            byte[] bytes,
+            ref int unsupportedDanmakuCount)
         {
+            var result = new List<DanmakuModel>();
             foreach (var field in ReadFields(bytes))
             {
                 if (field.Number != 1 || field.WireType != 2 || field.Bytes == null)
@@ -410,15 +705,19 @@ namespace BiliBili.UWP.Helper
                     continue;
                 }
 
-                var item = ParseDanmaku(field.Bytes);
+                var item = ParseDanmaku(field.Bytes, ref unsupportedDanmakuCount);
                 if (item != null)
                 {
                     result.Add(item);
                 }
             }
+
+            return result;
         }
 
-        private static DanmakuModel ParseDanmaku(byte[] bytes)
+        private static DanmakuModel ParseDanmaku(
+            byte[] bytes,
+            ref int unsupportedDanmakuCount)
         {
             long id = 0;
             long progress = 0;
@@ -478,6 +777,13 @@ namespace BiliBili.UWP.Helper
                 ? id.ToString(CultureInfo.InvariantCulture)
                 : idString;
             var modeValue = mode > int.MaxValue ? 1 : (int)mode;
+            DanmakuLocation location;
+            if (!TryToLocation(modeValue, out location))
+            {
+                unsupportedDanmakuCount++;
+                return null;
+            }
+
             var sizeValue = size > 0 ? size : 25;
             var colorValue = unchecked((uint)color);
             return new DanmakuModel
@@ -495,24 +801,33 @@ namespace BiliBili.UWP.Helper
                 pool = pool.ToString(CultureInfo.InvariantCulture),
                 sendID = midHash,
                 rowID = rowId,
-                location = ToLocation(modeValue),
+                location = location,
                 fromSite = DanmakuSite.Bilibili,
                 source = BuildSource(progress, modeValue, sizeValue, colorValue, ctime, pool, midHash, rowId)
             };
         }
 
-        private static DanmakuLocation ToLocation(int mode)
+        private static bool TryToLocation(int mode, out DanmakuLocation location)
         {
             switch (mode)
             {
+                case 1:
+                case 2:
+                case 3:
+                    location = DanmakuLocation.Roll;
+                    return true;
                 case 4:
-                    return DanmakuLocation.Bottom;
+                    location = DanmakuLocation.Bottom;
+                    return true;
                 case 5:
-                    return DanmakuLocation.Top;
+                    location = DanmakuLocation.Top;
+                    return true;
                 case 7:
-                    return DanmakuLocation.Position;
+                    location = DanmakuLocation.Position;
+                    return true;
                 default:
-                    return DanmakuLocation.Roll;
+                    location = DanmakuLocation.Roll;
+                    return false;
             }
         }
 
@@ -595,8 +910,10 @@ namespace BiliBili.UWP.Helper
         private static async Task<byte[]> GetSegmentBytesAsync(
             long aid,
             long cid,
-            int segmentIndex)
+            int segmentIndex,
+            CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var originalParameter = "type=1"
                 + "&oid=" + cid.ToString(CultureInfo.InvariantCulture)
                 + (aid > 0
@@ -610,13 +927,16 @@ namespace BiliBili.UWP.Helper
             {
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var signedParameter = await ApiHelper.GetWbiSign(originalParameter);
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (string.IsNullOrEmpty(signedParameter))
                     {
                         throw new InvalidDataException("Wbi 签名失败");
                     }
 
                     var response = await GetBytesAsync(new Uri(SegmentUrl + "?" + signedParameter));
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (response.IsNotModified
                         || response.Bytes == null
                         || response.Bytes.Length == 0)
@@ -629,6 +949,10 @@ namespace BiliBili.UWP.Helper
                     }
 
                     lastException = new InvalidDataException("新版弹幕分段接口返回 JSON 错误");
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -817,16 +1141,30 @@ namespace BiliBili.UWP.Helper
             public bool IsNotModified => StatusCode == 304;
         }
 
-        private sealed class WebDanmakuResult
+        private sealed class SegmentLoadResult
         {
-            public WebDanmakuResult(List<DanmakuModel> items, long totalCount)
+            public SegmentLoadResult(
+                int segmentIndex,
+                bool isSpecialPackage,
+                string source,
+                List<DanmakuModel> items,
+                int unsupportedDanmakuCount,
+                Exception error)
             {
-                Items = items;
-                TotalCount = totalCount;
+                SegmentIndex = segmentIndex;
+                IsSpecialPackage = isSpecialPackage;
+                Source = source;
+                Items = items ?? new List<DanmakuModel>();
+                UnsupportedDanmakuCount = unsupportedDanmakuCount;
+                Error = error;
             }
 
+            public int SegmentIndex { get; }
+            public bool IsSpecialPackage { get; }
+            public string Source { get; }
             public List<DanmakuModel> Items { get; }
-            public long TotalCount { get; }
+            public int UnsupportedDanmakuCount { get; }
+            public Exception Error { get; }
         }
 
         private sealed class ProtoField
@@ -846,20 +1184,80 @@ namespace BiliBili.UWP.Helper
         }
     }
 
+    internal sealed class BiliDanmakuLoadPlan
+    {
+        public BiliDanmakuLoadPlan(
+            long aid,
+            long cid,
+            int segmentCount,
+            IEnumerable<string> specialDanmakuUrls)
+        {
+            Aid = aid;
+            Cid = cid;
+            SegmentCount = Math.Max(1, segmentCount);
+            SpecialDanmakuUrls = specialDanmakuUrls == null
+                ? new List<string>()
+                : new List<string>(specialDanmakuUrls);
+        }
+
+        public long Aid { get; }
+        public long Cid { get; }
+        public int SegmentCount { get; }
+        public List<string> SpecialDanmakuUrls { get; }
+        public bool RetryFirstSegment { get; set; }
+
+        public bool HasPendingSegments
+        {
+            get
+            {
+                return RetryFirstSegment
+                    || SegmentCount > 1
+                    || SpecialDanmakuUrls.Count != 0;
+            }
+        }
+    }
+
     public sealed class BiliDanmakuLoadResult
     {
         public BiliDanmakuLoadResult(
             List<DanmakuModel> items,
             bool needsLegacySupplement,
             bool usedNewInterface)
+            : this(
+                items,
+                needsLegacySupplement,
+                usedNewInterface,
+                false,
+                0,
+                0,
+                null)
+        {
+        }
+
+        internal BiliDanmakuLoadResult(
+            List<DanmakuModel> items,
+            bool needsLegacySupplement,
+            bool usedNewInterface,
+            bool isDanmakuClosed,
+            int specialDanmakuPackageCount,
+            int unsupportedDanmakuCount,
+            BiliDanmakuLoadPlan webLoadPlan)
         {
             Items = items ?? new List<DanmakuModel>();
             NeedsLegacySupplement = needsLegacySupplement;
             UsedNewInterface = usedNewInterface;
+            IsDanmakuClosed = isDanmakuClosed;
+            SpecialDanmakuPackageCount = Math.Max(0, specialDanmakuPackageCount);
+            UnsupportedDanmakuCount = Math.Max(0, unsupportedDanmakuCount);
+            WebLoadPlan = webLoadPlan;
         }
 
         public List<DanmakuModel> Items { get; }
         public bool NeedsLegacySupplement { get; }
         public bool UsedNewInterface { get; }
+        public bool IsDanmakuClosed { get; }
+        public int SpecialDanmakuPackageCount { get; }
+        public int UnsupportedDanmakuCount { get; }
+        internal BiliDanmakuLoadPlan WebLoadPlan { get; }
     }
 }
