@@ -1,32 +1,34 @@
-# Bili Jump Cache Worker
+# Bili Jump 公共缓存 Worker
 
-This Cloudflare Worker provides shared cache storage for the UWP subtitle ad recognizer. The Worker does not call an AI provider. Clients query D1 before calling AI, then submit a validated result after recognition.
+这是用于哔哩哔哩 UWP 客户端字幕广告 AI 识别的 Cloudflare Worker 公共缓存服务。Worker 本身不会调用 AI 提供商，客户端在请求 AI 前先查询 D1 缓存，识别完成后再提交经过校验的结果。
 
-## Setup
+## 部署
 
-1. Install Node.js and run `npm install`.
-2. Run `npx wrangler login`.
-3. Create the database with `npx wrangler d1 create bili-jump-cache`.
-4. Put the returned `database_id` into `wrangler.jsonc`.
-5. Copy `.dev.vars.example` to `.dev.vars` and replace the admin token.
-6. Apply the local migration with `npm run db:migrate:local`.
-7. Start local development with `npm run dev`.
-8. Apply the remote migration with `npm run db:migrate:remote`.
-9. Configure the production admin secret with `npx wrangler secret put CACHE_ADMIN_TOKEN`.
-10. Deploy with `npm run deploy`.
+1. 安装 Node.js，并运行 `npm install`。
+2. 登录 Cloudflare：`npx wrangler login`。
+3. 创建 D1 数据库：`npx wrangler d1 create bili-jump-cache`。
+4. 将命令返回的 `database_id` 填入 `wrangler.jsonc`。
+5. 将 `.dev.vars.example` 复制为 `.dev.vars`，并替换管理员令牌。
+6. 应用本地数据库迁移：`npm run db:migrate:local`。
+7. 启动本地开发服务：`npm run dev`。
+8. 应用远程数据库迁移：`npm run db:migrate:remote`。
+9. 设置生产环境管理员密钥：`npx wrangler secret put CACHE_ADMIN_TOKEN`。
+10. 部署 Worker：`npm run deploy`。
 
-## Client API
+## 客户端接口
 
-The production base URL is `https://api.zhou2008.cn/biliuwp/video_ad_jump`. The Worker removes this fixed prefix before routing requests, so the following paths are available:
+生产环境固定地址为 `https://api.zhou2008.cn/biliuwp/video_ad_jump`。Worker 会自动移除这个固定路径前缀，然后处理以下接口：
 
-- `POST /biliuwp/video_ad_jump/v1/cache/query`: return `hit`, `miss`, or `pending`.
-- `POST /biliuwp/video_ad_jump/v1/cache/claim`: atomically acquire a short AI recognition lease.
-- `POST /biliuwp/video_ad_jump/v1/cache/save`: commit a result held by the lease.
-- `POST /biliuwp/video_ad_jump/v1/cache/release`: release a failed recognition lease.
-- `GET /biliuwp/video_ad_jump/v1/health`: unauthenticated health check.
+- `POST /biliuwp/video_ad_jump/v1/cache/query`：查询缓存，返回 `hit`、`miss` 或 `pending`。
+- `POST /biliuwp/video_ad_jump/v1/cache/claim`：原子申请短期 AI 识别租约。
+- `POST /biliuwp/video_ad_jump/v1/cache/save`：提交租约对应的识别结果。
+- `POST /biliuwp/video_ad_jump/v1/cache/release`：释放识别失败或取消的租约。
+- `GET /biliuwp/video_ad_jump/v1/health`：健康检查，无需身份验证。
 
-For local development, the same endpoints can also be called directly as `/v1/cache/...` and `/v1/health`.
+本地开发时，也可以直接使用 `/v1/cache/...` 和 `/v1/health` 路径访问同一组接口。
 
-The cache endpoints are public and do not require a client token. The admin endpoints use `Authorization: Bearer <CACHE_ADMIN_TOKEN>` and are intended for maintenance only.
+缓存接口面向公众开放，不需要客户端令牌。管理员接口使用 `Authorization: Bearer <CACHE_ADMIN_TOKEN>` 请求头，仅用于维护缓存。
 
-The D1 database stores normalized result JSON and metadata, never subtitles, API keys, cookies, or user login data.
+## 数据存储
+
+D1 只保存规范化后的广告识别结果和视频元数据，不保存字幕内容、AI API 密钥、Cookie 或用户登录信息。
