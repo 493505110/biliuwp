@@ -28,7 +28,12 @@ namespace BiliBili.Tests
 
         public static string ReadFile(string relativePath)
         {
-            return File.ReadAllText(GetPath(relativePath));
+            // Normalize CRLF → LF so source-contract assertions (which use \n
+            // in their expected substrings) pass identically on Windows CI
+            // (git autocrlf converts checked-out files to CRLF) and on
+            // Linux/macOS runners. Without this, StringAssert.Contains on a
+            // "X,\n..." pattern fails only on Windows (e.g. VideoDanmakuFailureDoesNotAbortPlayback).
+            return File.ReadAllText(GetPath(relativePath)).Replace("\r\n", "\n");
         }
 
         public static string[] ReadLines(string relativePath)
