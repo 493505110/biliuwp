@@ -1518,6 +1518,10 @@ namespace BiliBili.UWP.Helper
         /// 视频元数据时长，单位为秒。
         /// </summary>
         public double Duration { get; set; }
+        /// <summary>
+        /// UP主粉丝数。
+        /// </summary>
+        public int? OwnerFans { get; set; }
         public string episode_id { get; set; }
         public string Path { get; set; }
         public object Parameter { get; set; }

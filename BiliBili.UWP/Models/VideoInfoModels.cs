@@ -301,7 +301,7 @@ namespace BiliBili.UWP.Models
 
     public class owner_extModel
     {
-
+        public int fans { get; set; }
     }
     public class FavboxModel : INotifyPropertyChanged
     {

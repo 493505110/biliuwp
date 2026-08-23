@@ -74,6 +74,7 @@ namespace BiliBili.UWP.Views
                 sw_UseDASH.IsOn = SettingHelper.Get_UseDASH();
                 sw_BiliJumpAi.IsOn = SettingHelper.Get_BiliJumpAiEnabled();
                 sw_BiliJumpAiAutoJump.IsOn = SettingHelper.Get_BiliJumpAiAutoJump();
+                txt_BiliJumpAiMinFans.Text = SettingHelper.Get_BiliJumpAiMinFans().ToString();
                 SetBiliJumpAiProviderSelection(SettingHelper.Get_BiliJumpAiProvider());
                 txt_BiliJumpAiApiUrl.Text = SettingHelper.Get_BiliJumpAiApiUrl();
                 txt_BiliJumpAiModel.Text = SettingHelper.Get_BiliJumpAiModel();
@@ -913,6 +914,16 @@ namespace BiliBili.UWP.Views
             if (!loadsetting)
             {
                 SettingHelper.Set_BiliJumpAiAutoJump(sw_BiliJumpAiAutoJump.IsOn);
+            }
+        }
+
+        private void txt_BiliJumpAiMinFans_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!loadsetting
+                && int.TryParse(txt_BiliJumpAiMinFans.Text?.Trim(), out var value)
+                && value >= 0)
+            {
+                SettingHelper.Set_BiliJumpAiMinFans(value);
             }
         }
 

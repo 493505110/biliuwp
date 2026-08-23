@@ -16,5 +16,6 @@
         public const string BiliJumpAiApiUrl = "BiliJumpAiApiUrl";
         public const string BiliJumpAiModel = "BiliJumpAiModel";
         public const string BiliJumpAiCacheEnabled = "BiliJumpAiCacheEnabled";
+        public const string BiliJumpAiMinFans = "BiliJumpAiMinFans";
     }
 }

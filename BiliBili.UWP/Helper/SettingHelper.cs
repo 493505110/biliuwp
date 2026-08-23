@@ -2029,6 +2029,30 @@ namespace BiliBili.UWP
             container.Values[SettingKeys.BiliJumpAiAutoJump] = value;
         }
 
+        public static int Get_BiliJumpAiMinFans()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values[SettingKeys.BiliJumpAiMinFans] != null)
+            {
+                try
+                {
+                    return Math.Max(0, Convert.ToInt32(container.Values[SettingKeys.BiliJumpAiMinFans]));
+                }
+                catch (Exception)
+                {
+                }
+            }
+
+            Set_BiliJumpAiMinFans(10);
+            return 10;
+        }
+
+        public static void Set_BiliJumpAiMinFans(int value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BiliJumpAiMinFans] = Math.Max(0, value);
+        }
+
         public static string Get_BiliJumpAiProvider()
         {
             container = ApplicationData.Current.LocalSettings;

@@ -1035,7 +1035,7 @@ namespace BiliBili.UWP.Pages
                                     }
                                     else
                                     {
-                                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Video, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Duration = item.duration });
+                                        ls.Add(new PlayerModel() { Aid = _aid, Mid = item.cid.ToString(), ImageSrc = (this.DataContext as VideoInfoModels).pic, Mode = PlayMode.Video, No = "1", VideoTitle = item.View, Title = (this.DataContext as VideoInfoModels).title, Duration = item.duration, OwnerFans = (this.DataContext as VideoInfoModels).owner_ext?.fans });
                                     }
 
                                     break;
@@ -1446,7 +1446,8 @@ namespace BiliBili.UWP.Pages
                                         No = i.ToString(),
                                         VideoTitle = item.View,
                                         Title = data.title,
-                                        Duration = item.duration
+                                        Duration = item.duration,
+                                        OwnerFans = data.owner_ext?.fans
                                     });
                                 }
                                 break;

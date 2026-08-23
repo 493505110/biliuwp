@@ -38,6 +38,7 @@ using Windows.Graphics.Imaging;
 using SYEngine;
 using System.Diagnostics;
 using BiliBili.UWP.Modules;
+using BiliBili.UWP.Modules.Detail;
 using BiliBili.UWP.Modules.Playback;
 using BiliBili.UWP.Api;
 using Windows.Media.Streaming.Adaptive;
@@ -1740,7 +1741,10 @@ namespace BiliBili.UWP.Pages
                     var hasSub = await PlayurlHelper.GetHasSubTitle(item.Aid, item.Mid);
                     if (!IsPlaybackRequestCurrent(requestId, item)) return;
                     LaodSubTitleMenu(hasSub);
-                    _ = LoadBiliJumpAdsAsync(item, requestId, hasSub);
+                    if (IsBiliJumpVideo(item))
+                    {
+                        _ = LoadBiliJumpAdsAsync(item, requestId, hasSub);
+                    }
                 }
 
                 AddLog("准备开始播放...");
@@ -1903,9 +1907,43 @@ namespace BiliBili.UWP.Pages
             }
         }
 
+        private static bool IsBiliJumpVideo(PlayerModel item)
+        {
+            return item != null
+                && item.Mode == PlayMode.Video
+                && item.banInfo == null
+                && string.IsNullOrWhiteSpace(item.banId);
+        }
+
+        private async Task<int?> LoadBiliJumpOwnerFansAsync(string aid)
+        {
+            if (string.IsNullOrWhiteSpace(aid))
+            {
+                return null;
+            }
+
+            try
+            {
+                AddLog("读取UP主粉丝数...");
+                var response = await new VideoAPI().Detail(aid, false).Request();
+                if (response == null || !response.status)
+                {
+                    return null;
+                }
+
+                var detail = await response.GetJson<ApiDataModel<VideoDetailModel>>();
+                return detail?.success == true ? detail.data?.owner_ext?.fans : null;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("读取UP主粉丝数失败", LogType.ERROR, ex);
+                return null;
+            }
+        }
+
         private async Task LoadBiliJumpAdsAsync(PlayerModel item, int requestId, HasSubtitleModel hasSub)
         {
-            if (item == null || item.Mode == PlayMode.Local || item.Mode == PlayMode.FormLocal
+            if (!IsBiliJumpVideo(item)
                 || !SettingHelper.Get_BiliJumpAiEnabled())
             {
                 return;
@@ -1914,6 +1952,38 @@ namespace BiliBili.UWP.Pages
             var loadVersion = ++biliJumpLoadVersion;
             try
             {
+                var minFans = SettingHelper.Get_BiliJumpAiMinFans();
+                if (minFans > 0)
+                {
+                    var ownerFans = item.OwnerFans;
+                    if (!ownerFans.HasValue)
+                    {
+                        ownerFans = await LoadBiliJumpOwnerFansAsync(item.Aid);
+                        if (!IsPlaybackRequestCurrent(requestId, item) || loadVersion != biliJumpLoadVersion)
+                        {
+                            return;
+                        }
+
+                        if (ownerFans.HasValue)
+                        {
+                            item.OwnerFans = ownerFans;
+                        }
+                    }
+
+                    if (!ownerFans.HasValue)
+                    {
+                        UpdateBiliJumpInfo("未识别：无法获取UP主粉丝数", null);
+                        return;
+                    }
+
+                    var minFansCount = (long)minFans * 10000L;
+                    if (ownerFans.Value < minFansCount)
+                    {
+                        UpdateBiliJumpInfo($"未识别：UP主粉丝数低于 {minFans} 万阈值", null);
+                        return;
+                    }
+                }
+
                 UpdateBiliJumpInfo("识别中...", null);
                 var duration = item.Duration > 0
                     ? item.Duration
@@ -2001,7 +2071,8 @@ namespace BiliBili.UWP.Pages
 
         private void HandleBiliJumpPosition()
         {
-            if (!SettingHelper.Get_BiliJumpAiEnabled()
+            if (!IsBiliJumpVideo(playNow)
+                || !SettingHelper.Get_BiliJumpAiEnabled()
                 || mediaPlayer?.PlaybackSession.PlaybackState != MediaPlaybackState.Playing
                 || biliJumpAds == null
                 || biliJumpAds.Count == 0)
@@ -2045,7 +2116,7 @@ namespace BiliBili.UWP.Pages
 
         private void SkipCurrentBiliJumpAd()
         {
-            if (biliJumpCurrentAd == null || mediaPlayer == null)
+            if (!IsBiliJumpVideo(playNow) || biliJumpCurrentAd == null || mediaPlayer == null)
             {
                 return;
             }
