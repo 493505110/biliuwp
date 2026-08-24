@@ -841,17 +841,25 @@ namespace BiliBili.UWP.Pages
             }
 
         }
+        private void BeginExit()
+        {
+            _isExiting = true;
+            playbackRequestGate.Invalidate();
+            CancelDanmakuLoading();
+            pendingPlaybackRestoreState = null;
+            mediaPlayer?.Pause();
+        }
+
         protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
         {
             base.OnNavigatingFrom(e);
             try
             {
-                _isExiting = true;
-                playbackRequestGate.Invalidate();
-                CancelDanmakuLoading();
-                pendingPlaybackRestoreState = null;
-                mediaPlayer?.Pause();
-                _ = ClosePlayerAsync();
+                if (!_isExiting)
+                {
+                    BeginExit();
+                    _ = ClosePlayerAsync();
+                }
                 //Debug.WriteLine("开始返回");
                 CoreWindow.GetForCurrentThread().KeyDown -= PlayerPage_KeyDown;
                 this.Frame.Visibility = Visibility.Collapsed;
@@ -3690,6 +3698,17 @@ namespace BiliBili.UWP.Pages
                     {
                         interactiveDanmakuControl.ShowStatus("该互动弹幕没有关联视频");
                         return;
+                    }
+
+                    BeginExit();
+                    await ClosePlayerAsync();
+                    if (Frame?.CanGoBack == true)
+                    {
+                        Frame.GoBack();
+                    }
+                    else
+                    {
+                        Frame.Visibility = Visibility.Collapsed;
                     }
 
                     MessageCenter.SendNavigateTo(
