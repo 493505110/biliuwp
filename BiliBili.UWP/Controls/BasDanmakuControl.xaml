@@ -1,0 +1,10 @@
+<UserControl
+    x:Class="BiliBili.UWP.Controls.BasDanmakuControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    IsHitTestVisible="False">
+    <Grid Background="Transparent">
+        <muxc:WebView2 x:Name="webView" />
+    </Grid>
+</UserControl>

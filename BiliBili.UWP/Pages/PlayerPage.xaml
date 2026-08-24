@@ -282,7 +282,7 @@
                          </ScrollViewer>
                     </Grid>
                 </SplitView.Pane>
-                <Grid Background="Black" >
+                <Grid x:Name="playerSurface" Background="Black">
 
                     <MediaPlayerElement x:Name="mediaElement"  AreTransportControlsEnabled="True"  Stretch="Uniform" MinWidth="100" MinHeight="100"  PointerMoved="mediaElement_PointerMoved">
                         <MediaPlayerElement.TransportControls>
@@ -341,6 +341,7 @@
                             </c:DanmakuMTC>
                         </MediaPlayerElement.TransportControls>
                     </MediaPlayerElement>
+                    <c:BasDanmakuControl x:Name="basDanmakuControl" />
                     <c:InteractiveDanmakuControl x:Name="interactiveDanmakuControl" ActionRequested="InteractiveDanmakuControl_ActionRequested" />
                     <GridView x:Name="gridview_node" SelectionMode="None" IsItemClickEnabled="True" Visibility="Collapsed" ItemClick="Gridview_node_ItemClick" SizeChanged="Gridview_node_SizeChanged" VerticalAlignment="Bottom"  Margin="0 0 0 100" >
                         <GridView.ItemTemplate>

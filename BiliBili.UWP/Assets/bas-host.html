@@ -1,0 +1,486 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <style>
+        html, body, #player {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        #player {
+            position: relative;
+        }
+
+        #player * {
+            pointer-events: none;
+        }
+    </style>
+    <script src="bas-jquery-shim.js"></script>
+    <script src="bas.js"></script>
+</head>
+<body>
+    <div id="player"></div>
+    <script>
+        (function () {
+            var state = {
+                positionMs: 0,
+                playing: false,
+                rate: 1,
+                updatedAt: performance.now()
+            };
+            var instance = null;
+            var container = document.getElementById("player");
+            var pendingItemJson = "";
+            var renderObserver = null;
+            var renderedReported = false;
+            var parsedCount = 0;
+            var generation = 0;
+
+            function post(type, values) {
+                try {
+                    if (!window.chrome
+                        || !window.chrome.webview
+                        || typeof window.chrome.webview.postMessage !== "function") {
+                        return;
+                    }
+
+                    var message = { type: type };
+                    if (values) {
+                        for (var key in values) {
+                            if (Object.prototype.hasOwnProperty.call(values, key)) {
+                                message[key] = values[key];
+                            }
+                        }
+                    }
+
+                    window.chrome.webview.postMessage(JSON.stringify(message));
+                } catch (error) {
+                    // 消息桥不可用时仍让渲染器继续工作。
+                }
+            }
+
+            function getErrorMessage(error) {
+                if (!error) {
+                    return "未知错误";
+                }
+
+                if (typeof error === "string") {
+                    return error;
+                }
+
+                return error.message || String(error);
+            }
+
+            function reportError(stage, error, itemId) {
+                post("error", {
+                    stage: stage || "unknown",
+                    dmid: itemId || "",
+                    message: getErrorMessage(error)
+                });
+            }
+
+            function clearRenderObserver() {
+                if (renderObserver) {
+                    renderObserver.disconnect();
+                    renderObserver = null;
+                }
+            }
+
+            function reportRendered() {
+                if (renderedReported
+                    || !instance
+                    || !instance.wrap
+                    || !instance.wrap.children
+                    || instance.wrap.children.length === 0) {
+                    return;
+                }
+
+                renderedReported = true;
+                clearRenderObserver();
+                post("rendered", { count: parsedCount });
+            }
+
+            function observeRendered() {
+                clearRenderObserver();
+                if (!instance || !instance.wrap) {
+                    return;
+                }
+
+                reportRendered();
+                if (renderedReported || !window.MutationObserver) {
+                    return;
+                }
+
+                renderObserver = new MutationObserver(function (records) {
+                    for (var index = 0; index < records.length; index++) {
+                        if (records[index].addedNodes
+                            && records[index].addedNodes.length > 0) {
+                            reportRendered();
+                            return;
+                        }
+                    }
+                });
+                renderObserver.observe(instance.wrap, { childList: true });
+            }
+
+            function currentPositionMs() {
+                if (!state.playing) {
+                    return state.positionMs;
+                }
+
+                return state.positionMs
+                    + (performance.now() - state.updatedAt) * state.rate;
+            }
+
+            function patchClock(target) {
+                target.updateTime = function () {
+                    this.pTime = this.cTime;
+                    this.cTime = currentPositionMs();
+                };
+            }
+
+            function isPointInside(element, x, y) {
+                if (!element) {
+                    return false;
+                }
+
+                var style = window.getComputedStyle(element);
+                if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+                    return false;
+                }
+
+                var rectangles = element.getClientRects();
+                for (var index = 0; index < rectangles.length; index++) {
+                    var rectangle = rectangles[index];
+                    if (x >= rectangle.left
+                        && x <= rectangle.right
+                        && y >= rectangle.top
+                        && y <= rectangle.bottom) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            function findInteractiveTarget(x, y) {
+                if (!instance || !instance.wrap || !Array.isArray(instance.dmList)) {
+                    return null;
+                }
+
+                var wrappers = instance.wrap.getElementsByClassName("bas-danmaku-item-wrap");
+                for (var danmakuIndex = 0; danmakuIndex < instance.dmList.length; danmakuIndex++) {
+                    var danmaku = instance.dmList[danmakuIndex];
+                    if (!danmaku || !Array.isArray(danmaku.defs)) {
+                        continue;
+                    }
+
+                    var marker = "bas-" + String(danmaku.dmid || "") + "-";
+                    for (var wrapperIndex = 0; wrapperIndex < wrappers.length; wrapperIndex++) {
+                        var wrapper = wrappers[wrapperIndex];
+                        var style = wrapper.getElementsByTagName("style")[0];
+                        if (!style || style.textContent.indexOf(marker) < 0) {
+                            continue;
+                        }
+
+                        for (var definitionIndex = 0; definitionIndex < danmaku.defs.length; definitionIndex++) {
+                            var definition = danmaku.defs[definitionIndex];
+                            var target = definition && definition.attrs && definition.attrs.target;
+                            if (!target || !definition.name) {
+                                continue;
+                            }
+
+                            var elements = wrapper.getElementsByClassName(
+                                "bas-danmaku-item--" + definition.name);
+                            for (var itemIndex = 0; itemIndex < elements.length; itemIndex++) {
+                                if (isPointInside(elements[itemIndex], x, y)) {
+                                    return target;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return null;
+            }
+
+            function activateTarget(target) {
+                if (!target || !target.objType) {
+                    return false;
+                }
+
+                if (target.objType === "seek") {
+                    var seekSeconds = Number(target.time) / 1000;
+                    if (!isFinite(seekSeconds) || seekSeconds < 0) {
+                        return false;
+                    }
+
+                    post("action", { action: "seek", seconds: seekSeconds });
+                    return true;
+                }
+
+                if (target.objType === "av") {
+                    var videoId = target.bvid
+                        ? String(target.bvid)
+                        : target.av ? "av" + target.av : "";
+                    if (!videoId) {
+                        return false;
+                    }
+
+                    var videoUrl = "https://www.bilibili.com/video/" + videoId
+                        + "/?p=" + (target.page || "1");
+                    if (target.time) {
+                        videoUrl += "&t=" + Number(target.time) / 1000;
+                    }
+                    post("action", { action: "navigate", url: videoUrl });
+                    post("action", { action: "pause" });
+                    return true;
+                }
+
+                if (target.objType === "bangumi") {
+                    var seasonId = String(target.seasonId || "");
+                    if (!seasonId) {
+                        return false;
+                    }
+
+                    var bangumiUrl = "https://www.bilibili.com/bangumi/play/ss" + seasonId;
+                    if (target.time) {
+                        bangumiUrl += "?t=" + Number(target.time) / 1000;
+                    }
+                    if (target.episodeId) {
+                        bangumiUrl += "#" + target.episodeId;
+                    }
+                    post("action", { action: "navigate", url: bangumiUrl });
+                    post("action", { action: "pause" });
+                    return true;
+                }
+
+                return false;
+            }
+
+            function handleTap(normalizedX, normalizedY) {
+                if (!instance || !container) {
+                    return false;
+                }
+
+                var x = Number(normalizedX);
+                var y = Number(normalizedY);
+                if (!isFinite(x) || !isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) {
+                    return false;
+                }
+
+                var bounds = container.getBoundingClientRect();
+                if (bounds.width <= 0 || bounds.height <= 0) {
+                    return false;
+                }
+
+                return activateTarget(findInteractiveTarget(
+                    bounds.left + x * bounds.width,
+                    bounds.top + y * bounds.height));
+            }
+
+            function createInstance() {
+                if (!window.BasDanmaku) {
+                    throw new Error("未找到 BAS 弹幕渲染器");
+                }
+
+                clearRenderObserver();
+                if (instance) {
+                    instance.pause();
+                    if (instance.wrap && instance.wrap.parentNode) {
+                        instance.wrap.parentNode.removeChild(instance.wrap);
+                    }
+                }
+
+                instance = new window.BasDanmaku({
+                    container: container,
+                    resolutionWidth: 1920,
+                    resolutionHeight: 1080,
+                    visible: true,
+                    timeSyncFunc: currentPositionMs
+                });
+                patchClock(instance);
+                instance.resize(1920, 1080);
+                return instance;
+            }
+
+            function setState(positionSeconds, playing, rate) {
+                state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
+                state.playing = !!playing;
+                state.rate = Number(rate) > 0 ? Number(rate) : 1;
+                state.updatedAt = performance.now();
+
+                if (!instance) {
+                    return;
+                }
+
+                try {
+                    instance.seek(state.positionMs / 1000);
+                    observeRendered();
+                    if (state.playing) {
+                        instance.play();
+                    } else {
+                        instance.pause();
+                    }
+                    reportRendered();
+                } catch (error) {
+                    reportError("state", error);
+                }
+            }
+
+            function appendItem(item, itemGeneration, completed) {
+                var itemId = item && item.dmid ? String(item.dmid) : "";
+                try {
+                    instance.add({
+                        dm: item,
+                        noRefresh: true,
+                        success: function () {
+                            if (itemGeneration !== generation) {
+                                return;
+                            }
+
+                            parsedCount++;
+                            post("parsed", { count: parsedCount, dmid: itemId });
+                            completed();
+                            window.setTimeout(reportRendered, 0);
+                        },
+                        error: function (error) {
+                            if (itemGeneration !== generation) {
+                                return;
+                            }
+
+                            reportError("parse", error || "BAS 脚本解析失败", itemId);
+                            completed();
+                        }
+                    });
+                } catch (error) {
+                    if (itemGeneration === generation) {
+                        reportError("append", error, itemId);
+                        completed();
+                    }
+                }
+            }
+
+            function appendItems(items) {
+                if (!instance || !Array.isArray(items) || items.length === 0) {
+                    return;
+                }
+
+                var itemGeneration = generation;
+                var remaining = items.length;
+                function completed() {
+                    remaining--;
+                    if (remaining !== 0 || itemGeneration !== generation || !instance) {
+                        return;
+                    }
+
+                    try {
+                        instance.refresh();
+                        if (state.playing) {
+                            instance.play();
+                        }
+                        reportRendered();
+                    } catch (error) {
+                        reportError("refresh", error);
+                    }
+                }
+
+                for (var index = 0; index < items.length; index++) {
+                    appendItem(items[index], itemGeneration, completed);
+                }
+            }
+
+            window.basHost = {
+                reset: function (positionSeconds, playing, rate, visible) {
+                    generation++;
+                    pendingItemJson = "";
+                    parsedCount = 0;
+                    renderedReported = false;
+                    post("parsed", { count: 0 });
+                    try {
+                        createInstance();
+                        setState(positionSeconds, playing, rate);
+                        instance.visible(!!visible);
+                        if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+                            instance.resize();
+                        }
+                        observeRendered();
+                    } catch (error) {
+                        reportError("initialize", error);
+                    }
+                },
+                append: function (items) {
+                    if (!instance) {
+                        reportError("append", "BAS 渲染器尚未初始化");
+                        return;
+                    }
+
+                    appendItems(items);
+                },
+                beginItem: function () {
+                    pendingItemJson = "";
+                },
+                appendItemChunk: function (chunk) {
+                    pendingItemJson += String(chunk || "");
+                },
+                endItem: function () {
+                    if (!instance || !pendingItemJson) {
+                        pendingItemJson = "";
+                        return;
+                    }
+
+                    try {
+                        var item = JSON.parse(pendingItemJson);
+                        if (item) {
+                            appendItems([item]);
+                        }
+                    } catch (error) {
+                        reportError("decode", error);
+                    } finally {
+                        pendingItemJson = "";
+                    }
+                },
+                setState: setState,
+                seek: function (positionSeconds, playing, rate) {
+                    setState(positionSeconds, playing, rate);
+                },
+                handleTap: handleTap,
+                visible: function (visible) {
+                    if (instance) {
+                        try {
+                            instance.visible(!!visible);
+                            reportRendered();
+                        } catch (error) {
+                            reportError("visible", error);
+                        }
+                    }
+                },
+                resize: function () {
+                    if (instance && container.offsetWidth > 0 && container.offsetHeight > 0) {
+                        try {
+                            instance.resize();
+                            reportRendered();
+                        } catch (error) {
+                            reportError("resize", error);
+                        }
+                    }
+                }
+            };
+
+            window.addEventListener("resize", window.basHost.resize);
+            if (!window.BasDanmaku) {
+                reportError("initialize", "未找到 BAS 弹幕渲染器");
+                return;
+            }
+
+            post("ready");
+        })();
+    </script>
+</body>
+</html>

@@ -35,6 +35,8 @@ namespace BiliBili.UWP
         /// </summary>
         public App()
         {
+            // WebView2 UWP 的透明背景必须在首次创建 CoreWebView2 前设置。
+            Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
             this.InitializeComponent();
 
 
