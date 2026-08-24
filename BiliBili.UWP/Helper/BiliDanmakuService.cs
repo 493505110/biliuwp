@@ -933,7 +933,8 @@ namespace BiliBili.UWP.Helper
             }
 
             DanmakuLocation location;
-            if (!TryToLocation(modeValue, out location))
+            if (!TryToLocation(modeValue, out location)
+                || (location == DanmakuLocation.Position && !IsSupportedPositionDanmaku(text)))
             {
                 unsupportedDanmakuCount++;
                 AddUnsupportedDanmakuMode(unsupportedDanmakuModes, modeValue);
@@ -985,6 +986,109 @@ namespace BiliBili.UWP.Helper
                     location = DanmakuLocation.Roll;
                     return false;
             }
+        }
+
+        private static bool IsSupportedPositionDanmaku(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            try
+            {
+                var data = JArray.Parse(text);
+                // NSDanmaku reads data[10] whenever an item has more than seven fields.
+                if (data.Count < 5 || (data.Count > 7 && data.Count < 11))
+                {
+                    return false;
+                }
+
+                if (data[2].Type != JTokenType.String
+                    || data[4].Type != JTokenType.String
+                    || data[data.Count - 2].Type == JTokenType.Null
+                    || data[data.Count - 2].Type == JTokenType.Undefined
+                    || !IsFinitePositionDanmakuNumber(data[0])
+                    || !IsFinitePositionDanmakuNumber(data[1])
+                    || !IsFinitePositionDanmakuNumber(data[3]))
+                {
+                    return false;
+                }
+
+                var opacity = data[2].ToString().Split('-');
+                if (opacity.Length < 2
+                    || !IsFinitePositionDanmakuNumber(opacity[0])
+                    || !IsFinitePositionDanmakuNumber(opacity[1]))
+                {
+                    return false;
+                }
+
+                if (data.Count >= 7
+                    && (!IsFinitePositionDanmakuNumber(data[5])
+                        || !IsFinitePositionDanmakuNumber(data[6])))
+                {
+                    return false;
+                }
+
+                if (data.Count > 7
+                    && (!IsFinitePositionDanmakuNumber(data[7])
+                        || !IsFinitePositionDanmakuNumber(data[8])
+                        || !IsFinitePositionDanmakuNumber(data[10])))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool IsFinitePositionDanmakuNumber(JToken token)
+        {
+            if (token == null
+                || (token.Type != JTokenType.Integer
+                    && token.Type != JTokenType.Float
+                    && token.Type != JTokenType.String))
+            {
+                return false;
+            }
+
+            return IsFinitePositionDanmakuNumber(((JValue)token).Value);
+        }
+
+        private static bool IsFinitePositionDanmakuNumber(string value)
+        {
+            return IsFinitePositionDanmakuNumber((object)value);
+        }
+
+        private static bool IsFinitePositionDanmakuNumber(object value)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+
+            var valueText = value as string
+                ?? Convert.ToString(value, CultureInfo.InvariantCulture);
+            double number;
+            if (!double.TryParse(
+                    valueText,
+                    NumberStyles.Float | NumberStyles.AllowThousands,
+                    CultureInfo.InvariantCulture,
+                    out number)
+                && !double.TryParse(
+                    valueText,
+                    NumberStyles.Float | NumberStyles.AllowThousands,
+                    CultureInfo.CurrentCulture,
+                    out number))
+            {
+                return false;
+            }
+
+            return !double.IsNaN(number) && !double.IsInfinity(number);
         }
 
         private static void AddUnsupportedDanmakuMode(
