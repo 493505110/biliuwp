@@ -281,6 +281,21 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void ResolutionAspectModeResizesViewToNaturalVideoSize()
+        {
+            var playerPage = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+            var playerXaml = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml");
+
+            StringAssert.Contains(playerXaml, "x:Name=\"rb_resolution\"");
+            StringAssert.Contains(playerXaml, "严格按照视频分辨率");
+            StringAssert.Contains(playerPage, "private void cb_setting_resolution_Checked");
+            StringAssert.Contains(playerPage, "private void ResizeViewToVideoResolution");
+            StringAssert.Contains(playerPage, "NaturalVideoWidth");
+            StringAssert.Contains(playerPage, "NaturalVideoHeight");
+            StringAssert.Contains(playerPage, "TryResizeView(new Size(naturalWidth, naturalHeight))");
+        }
+
+        [TestMethod]
         public void NewDanmakuInterfaceSettingDefaultsOnAndControlsAllLoads()
         {
             var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");

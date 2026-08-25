@@ -341,6 +341,10 @@ namespace BiliBili.UWP.Pages
 
                 txt_VideoWidth.Text = sender.NaturalVideoWidth.ToString();
                 txt_VideoHeight.Text = sender.NaturalVideoHeight.ToString();
+                if (rb_resolution.IsChecked == true)
+                {
+                    ResizeViewToVideoResolution();
+                }
             });
         }
 
@@ -3195,6 +3199,31 @@ namespace BiliBili.UWP.Pages
             mediaElement.Width = this.ActualHeight * 16 / 9;
 
 
+        }
+
+        private void cb_setting_resolution_Checked(object sender, RoutedEventArgs e)
+        {
+            ResizeViewToVideoResolution();
+        }
+
+        private void ResizeViewToVideoResolution()
+        {
+            if (mediaElement == null || mediaPlayer == null)
+            {
+                return;
+            }
+
+            var naturalWidth = mediaPlayer.PlaybackSession.NaturalVideoWidth;
+            var naturalHeight = mediaPlayer.PlaybackSession.NaturalVideoHeight;
+            if (naturalWidth == 0 || naturalHeight == 0)
+            {
+                return;
+            }
+
+            mediaElement.Stretch = Stretch.Uniform;
+            mediaElement.Width = double.NaN;
+            mediaElement.Height = double.NaN;
+            ApplicationView.GetForCurrentView().TryResizeView(new Size(naturalWidth, naturalHeight));
         }
 
         //private void btn_HideInfo_Click(object sender, RoutedEventArgs e)

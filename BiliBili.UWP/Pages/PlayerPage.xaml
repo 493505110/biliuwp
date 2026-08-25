@@ -94,6 +94,7 @@
                                 <RadioButton Foreground="White" x:Name="rb_defu"  IsChecked="True" Checked="cb_setting_defu_Checked">默认比例</RadioButton>
                                 <RadioButton Foreground="White" x:Name="rb_43"  Checked="cb_setting_43_Checked">使用 4:3</RadioButton>
                                 <RadioButton Foreground="White" x:Name="rb_169" Checked="cb_setting_169_Checked">使用 16:9</RadioButton>
+                                <RadioButton Foreground="White" x:Name="rb_resolution" Checked="cb_setting_resolution_Checked">严格按照视频分辨率</RadioButton>
 
 
                             </StackPanel>
