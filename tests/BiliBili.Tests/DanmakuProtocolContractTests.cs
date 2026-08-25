@@ -165,6 +165,35 @@ namespace BiliBili.Tests
             StringAssert.Contains(player, "danmu.DanmakuDuration = Math.Max(1, Convert.ToInt32(danmuSpeed));");
         }
 
+        [TestMethod]
+        public void FixedDanmakuLifetimeMatchesOfficialTimerContract()
+        {
+            var control = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs");
+            var lifetime = MethodBody(control, "private sealed class FixedDanmakuLifetime");
+            var top = MethodBody(control, "public async Task AddTopDanmu");
+            var bottom = MethodBody(control, "public async Task AddBottomDanmu");
+            var remove = MethodBody(control, "private void RemoveFixedDanmaku");
+            var clear = MethodBody(control, "public void ClearAll");
+
+            StringAssert.Contains(control, "private const int FixedDanmakuTickMilliseconds = 350;");
+            StringAssert.Contains(control, "private const int FixedDanmakuTickCount = 10;");
+            StringAssert.Contains(lifetime, "Interval = TimeSpan.FromMilliseconds(FixedDanmakuTickMilliseconds)");
+            StringAssert.Contains(lifetime, "timer.Tick += OnTick;");
+            StringAssert.Contains(lifetime, "timer.Tick -= OnTick;");
+            StringAssert.Contains(lifetime, "tickCount++;");
+            StringAssert.Contains(lifetime, "if (tickCount < FixedDanmakuTickCount)");
+            StringAssert.Contains(lifetime, "completed?.Invoke();");
+            StringAssert.Contains(top, "new FixedDanmakuLifetime(() =>");
+            StringAssert.Contains(top, "RemoveFixedDanmaku(grid_Top, grid);");
+            StringAssert.Contains(bottom, "new FixedDanmakuLifetime(() =>");
+            StringAssert.Contains(bottom, "RemoveFixedDanmaku(grid_Bottom, grid);");
+            StringAssert.Contains(remove, "lifetime.Stop();");
+            StringAssert.Contains(remove, "element.Children.Clear();");
+            StringAssert.Contains(clear, "foreach (var item in positionStoryList.ToList())");
+            StringAssert.Contains(clear, "positionStoryList.Clear();");
+            StringAssert.Contains(clear, "fixedLifetimes.Clear();");
+        }
+
         private static void AssertField(string source, int fieldNumber, string assignment)
         {
             var marker = "case " + fieldNumber + ":";
