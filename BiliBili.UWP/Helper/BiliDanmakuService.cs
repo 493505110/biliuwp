@@ -979,6 +979,9 @@ namespace BiliBili.UWP.Helper
                 case 5:
                     location = DanmakuLocation.Top;
                     return true;
+                case 6:
+                    location = DanmakuLocation.ReverseScroll;
+                    return true;
                 case 7:
                     location = DanmakuLocation.Position;
                     return true;
@@ -1171,7 +1174,9 @@ namespace BiliBili.UWP.Helper
                 ? 4
                 : item.location == DanmakuLocation.Top
                     ? 5
-                    : item.location == DanmakuLocation.Position ? 7 : 1;
+                    : item.location == DanmakuLocation.ReverseScroll
+                        ? 6
+                        : item.location == DanmakuLocation.Position ? 7 : 1;
             var color = (item.color.R << 16) | (item.color.G << 8) | item.color.B;
             return string.Join(",", new[]
             {

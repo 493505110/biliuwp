@@ -82,6 +82,35 @@ namespace BiliBili.Tests
             StringAssert.Contains(player, "IsCurrentInteractiveDanmakuItem(item, playbackItem)");
         }
 
+        [TestMethod]
+        public void ReverseDanmakuModeIsMappedAndRendered()
+        {
+            var service = ReadFile("BiliBili.UWP/Helper/BiliDanmakuService.cs");
+            var model = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Model/DanmakuModel.cs");
+            var legacyParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Helper/DanmakuParse.cs");
+            var winUiParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Helper/DanmakuParse.cs");
+            var control = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs");
+            var winUiControl = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Controls/Danmaku.xaml.cs");
+            var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+
+            StringAssert.Contains(model, "ReverseScroll");
+            StringAssert.Contains(service, "case 6:");
+            StringAssert.Contains(service, "location = DanmakuLocation.ReverseScroll;");
+            StringAssert.Contains(service, "item.location == DanmakuLocation.ReverseScroll");
+            StringAssert.Contains(legacyParser, "case \"6\":");
+            StringAssert.Contains(winUiParser, "case \"6\":");
+            StringAssert.Contains(control, "AddReverseScrollDanmu");
+            StringAssert.Contains(control, "reverse ? -grid.ActualWidth : gv.ActualWidth");
+            StringAssert.Contains(control, "GetScrollAvailableRow(Grid item, bool reverse = false)");
+            StringAssert.Contains(control, "lastModel.location == DanmakuLocation.ReverseScroll");
+            StringAssert.Contains(winUiControl, "AddReverseScrollDanmu");
+            StringAssert.Contains(winUiControl, "reverse ? -grid.ActualWidth : mainContainer.ActualWidth");
+            StringAssert.Contains(winUiControl, "GetScrollAvailableRow(Grid item, bool reverse = false)");
+            StringAssert.Contains(winUiControl, "lastModel.location == DanmakuLocation.ReverseScroll");
+            StringAssert.Contains(player, "case NSDanmaku.Model.DanmakuLocation.ReverseScroll:");
+            StringAssert.Contains(player, "danmu.AddReverseScrollDanmu(item, false);");
+        }
+
         private static void AssertField(string source, int fieldNumber, string assignment)
         {
             var marker = "case " + fieldNumber + ":";

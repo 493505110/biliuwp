@@ -1539,6 +1539,9 @@ namespace BiliBili.UWP.Pages
                 case NSDanmaku.Model.DanmakuLocation.Position:
                     danmu.AddPositionDanmu(item);
                     break;
+                case NSDanmaku.Model.DanmakuLocation.ReverseScroll:
+                    danmu.AddReverseScrollDanmu(item, false);
+                    break;
                 default:
                     danmu.AddScrollDanmu(item, false);
                     break;
