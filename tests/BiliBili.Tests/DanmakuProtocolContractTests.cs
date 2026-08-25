@@ -93,6 +93,10 @@ namespace BiliBili.Tests
             var winUiParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Helper/DanmakuParse.cs");
             var tantanParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Helper/TanTanPlay.cs");
             var control = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs");
+            var refreshRowHeights = MethodBody(control, "private void RefreshRowHeights(Grid container)");
+            var setRowHeight = MethodBody(control, "private void SetRowHeight(Grid container, int row)");
+            var ensureRowsForItem = MethodBody(control, "private void EnsureRowsForItem(Grid container, Grid item)");
+            var scrollRowSelection = MethodBody(control, "private int GetScrollAvailableRow(Grid item, bool reverse = false)");
             var winUiControl = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Controls/Danmaku.xaml.cs");
             var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
 
@@ -116,6 +120,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(winUiParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
             StringAssert.Contains(tantanParser, "location != DanmakuLocation.Position && danmakuText != null");
             StringAssert.Contains(tantanParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
+            StringAssert.Contains(refreshRowHeights, "measuredRowHeights[grid] = container == grid_Scroll ? GetDefaultRowHeight() : MeasureDanmakuHeight(grid);");
+            StringAssert.Contains(setRowHeight, "var rowHeight = container == grid_Scroll ? GetDefaultRowHeight() : 0.0;");
+            StringAssert.Contains(ensureRowsForItem, "measuredRowHeights[item] = container == grid_Scroll ? GetDefaultRowHeight() : MeasureDanmakuHeight(item);");
+            StringAssert.Contains(scrollRowSelection, "var newHeight = GetDefaultRowHeight();");
         }
 
         private static void AssertField(string source, int fieldNumber, string assignment)
