@@ -1018,6 +1018,10 @@ namespace scripting
         public static object GetMember(object obj, string key)
         {
             if (obj == null) return null;
+            if (obj is IM8ScriptObject m8Object)
+            {
+                return m8Object.Get(key);
+            }
             if (obj is Dictionary<string, object> d)
             {
                 return d.TryGetValue(key, out var v) ? v : null;
@@ -1058,6 +1062,11 @@ namespace scripting
         public static void SetMember(object obj, string key, object val)
         {
             if (obj == null) return;
+            if (obj is IM8ScriptObject m8Object)
+            {
+                m8Object.Set(key, val);
+                return;
+            }
             if (obj is Dictionary<string, object> d)
             {
                 if (key == "__scope" && val != null && !(val is Dictionary<string, object>)) throw new Exception("不能用  __scope!");

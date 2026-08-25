@@ -82,8 +82,14 @@ namespace scripting
             return v;
         }
 
-        /// <summary>Injects all pure-logic globals into the VM's global object.</summary>
+        /// <summary>Injects the pure sandbox without a rendering host.</summary>
         public static GlobalStore Install(VirtualMachine vm, Dictionary<string, object> global, M8Host host)
+        {
+            return Install(vm, global, host, new M8NullRenderHost());
+        }
+
+        /// <summary>Injects the sandbox and the render/player APIs into the VM.</summary>
+        public static GlobalStore Install(VirtualMachine vm, Dictionary<string, object> global, M8Host host, IM8RenderHost renderHost)
         {
             var store = new GlobalStore();
 
@@ -239,6 +245,40 @@ namespace scripting
             global["Utils"] = utils;
             global["Global"] = g;
             global["$G"] = g;
+
+            if (renderHost == null) renderHost = new M8NullRenderHost();
+            var scriptManager = new M8ScriptManager(renderHost);
+            var player = new M8PlayerApi(renderHost, vm, scriptManager);
+            var display = new M8DisplayApi(renderHost, player, scriptManager);
+
+            global["Display"] = display;
+            global["$"] = display;
+            global["Player"] = player;
+            global["ScriptManager"] = scriptManager;
+
+            // BetweenAS3's common entry points are kept as a small pure facade.
+            global["Tween"] = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["to"] = (Func<object[], object>)(args => M8Tween.To(
+                    args.Length > 0 ? args[0] : null,
+                    args.Length > 1 ? args[1] : null,
+                    args.Length > 2 ? Number(args[2]) : 0d,
+                    args.Length > 3 ? Number(args[3]) : 0d,
+                    args.Length > 4 ? args[4] : null)),
+                ["fromTo"] = (Func<object[], object>)(args => M8Tween.FromTo(
+                    args.Length > 0 ? args[0] : null,
+                    args.Length > 1 ? args[1] : null,
+                    args.Length > 2 ? args[2] : null,
+                    args.Length > 3 ? Number(args[3]) : 0d,
+                    args.Length > 4 ? Number(args[4]) : 0d,
+                    args.Length > 5 ? args[5] : null)),
+                ["from"] = (Func<object[], object>)(args => M8Tween.From(
+                    args.Length > 0 ? args[0] : null,
+                    args.Length > 1 ? args[1] : null,
+                    args.Length > 2 ? Number(args[2]) : 0d,
+                    args.Length > 3 ? Number(args[3]) : 0d,
+                    args.Length > 4 ? args[4] : null))
+            };
 
             return store;
         }
