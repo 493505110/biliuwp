@@ -97,37 +97,54 @@ namespace scripting
         public bool execute()
         {
             List<object> loc1 = this.byteCode;
-            int loc2 = this.programCounter;
+            int loc2 = (int)this.programCounter;
             int loc3 = this.byteCodeLength;
             if (this.optimized)
             {
                 while (loc2 < loc3)
                 {
-                    object loc4 = ((Delegate)loc1[loc2]).DynamicInvoke(loc1, (double)loc2);
+                    object loc4;
+                    try
+                    {
+                        loc4 = ((Delegate)loc1[loc2]).DynamicInvoke(loc1, (double)loc2);
+                    }
+                    catch (TargetInvocationException tie)
+                    {
+                        // DynamicInvoke wraps exceptions; surface the real one
+                        // (M8StopException from stopExecution() is control flow, not an error).
+                        if (tie.InnerException != null) throw tie.InnerException;
+                        throw;
+                    }
                     if (loc4 == null)
                     {
                         break;
                     }
                     loc2 = ToIndex(loc4);
                 }
-                this.programCounter = loc2 + 1;
-                loc1[0] = null;
-                return true;
             }
-            while (loc2 < loc3)
+            else
             {
-                object loc4 = this.Dispatch((string)loc1[loc2], loc1, loc2);
-                if (loc4 == null)
+                while (loc2 < loc3)
                 {
-                    this.programCounter = loc2 + 1;
-                    loc1[0] = null;
-                    return true;
+                    object loc4 = this.Dispatch((string)loc1[loc2], loc1, loc2);
+                    if (loc4 == null)
+                    {
+                        break;
+                    }
+                    loc2 = ToIndex(loc4);
                 }
-                loc2 = ToIndex(loc4);
             }
-            this.programCounter = loc2;
+            if (loc2 >= loc3)
+            {
+                // Reached the end of the bytecode: normal completion.
+                this.programCounter = loc2;
+                loc1[0] = null;
+                return false;
+            }
+            // Interrupted by an explicit stop (SPD / coroutine suspension).
+            this.programCounter = loc2 + 1;
             loc1[0] = null;
-            return false;
+            return true;
         }
 
         private object executeFunction(object param1, List<object> param2, int param3, Dictionary<string, object> param4)
@@ -267,7 +284,7 @@ namespace scripting
                 loc8.RemoveAt(loc8.Count - 1);
             }
             loc9.Reverse();
-            if (loc5 is FuncObject fo && fo.hasEntryPoint)
+            if (loc5 is Dictionary<string, object> cd && cd.ContainsKey("__entryPoint"))
             {
                 loc8.Add((double)(param2 + 4));
                 loc8.Add(this.thisObject);
@@ -277,9 +294,9 @@ namespace scripting
                 this.localObject = new Dictionary<string, object>
                 {
                     { "arguments", loc9 },
-                    { "__scope", fo.scope }
+                    { "__scope", cd["__scope"] }
                 };
-                return (double)fo.entryPoint;
+                return (double)ToNumber(cd["__entryPoint"]);
             }
             SetSlot(param1, GetI(param1, (int)param2 + 3), CallFunction(loc5, this.global, loc9));
             return param2 + 4;
@@ -297,7 +314,7 @@ namespace scripting
                 loc6.RemoveAt(loc6.Count - 1);
             }
             loc7.Reverse();
-            if (loc4 is FuncObject fo && fo.hasEntryPoint)
+            if (loc4 is Dictionary<string, object> cd && cd.ContainsKey("__entryPoint"))
             {
                 loc6.Add((double)(param2 + 4));
                 loc6.Add(this.thisObject);
@@ -307,9 +324,9 @@ namespace scripting
                 this.localObject = new Dictionary<string, object>
                 {
                     { "arguments", loc7 },
-                    { "__scope", fo.scope }
+                    { "__scope", cd["__scope"] }
                 };
-                return (double)fo.entryPoint;
+                return (double)ToNumber(cd["__entryPoint"]);
             }
             SetSlot(param1, GetI(param1, (int)param2 + 3), CallFunction(loc4, this.global, loc7));
             return param2 + 4;
@@ -328,7 +345,7 @@ namespace scripting
                 loc7.RemoveAt(loc7.Count - 1);
             }
             loc8.Reverse();
-            if (loc5 is FuncObject fo && fo.hasEntryPoint)
+            if (loc5 is Dictionary<string, object> cd && cd.ContainsKey("__entryPoint"))
             {
                 loc7.Add((double)(param2 + 5));
                 loc7.Add(this.thisObject);
@@ -338,9 +355,9 @@ namespace scripting
                 this.localObject = new Dictionary<string, object>
                 {
                     { "arguments", loc8 },
-                    { "__scope", fo.scope }
+                    { "__scope", cd["__scope"] }
                 };
-                return (double)fo.entryPoint;
+                return (double)ToNumber(cd["__entryPoint"]);
             }
             SetSlot(param1, GetI(param1, (int)param2 + 4), CallFunction(loc5, loc4, loc8));
             return param2 + 5;
@@ -358,7 +375,7 @@ namespace scripting
                 loc6.RemoveAt(loc6.Count - 1);
             }
             loc7.Reverse();
-            if (loc4 is FuncObject fo && fo.hasEntryPoint)
+            if (loc4 is Dictionary<string, object> cd && cd.ContainsKey("__entryPoint"))
             {
                 loc6.Add((double)(param2 + 4));
                 loc6.Add(this.thisObject);
@@ -368,9 +385,9 @@ namespace scripting
                 this.localObject = new Dictionary<string, object>
                 {
                     { "arguments", loc7 },
-                    { "__scope", fo.scope }
+                    { "__scope", cd["__scope"] }
                 };
-                return (double)fo.entryPoint;
+                return (double)ToNumber(cd["__entryPoint"]);
             }
             SetSlot(param1, GetI(param1, (int)param2 + 3), CallFunction(loc4, this.global, loc7));
             return param2 + 4;
@@ -892,7 +909,7 @@ namespace scripting
                 this.vm = vm;
                 this.entryPoint = ep;
                 this.scope = scope;
-                this.hasEntryPoint = true;
+                this.hasEntryPoint = false;
             }
 
             public object Invoke(object thisArg, List<object> args)
@@ -904,6 +921,16 @@ namespace scripting
             {
                 return "function" + (name != null ? " " + name : "") + "() { [native] }";
             }
+        }
+
+        /// <summary>
+        /// Invokes a callable value (script function or host delegate) with the given
+        /// arguments. Exposed for sandbox host APIs (e.g. Utils.foreach / interval).
+        /// </summary>
+        public object InvokeFunction(object fn, object thisArg, List<object> args)
+        {
+            if (fn == null) return null;
+            return this.CallFunction(fn, thisArg, args);
         }
 
         private object CallFunction(object fn, object thisArg, List<object> args)
@@ -923,6 +950,20 @@ namespace scripting
 
         private object InvokeHost(Delegate d, object thisArg, List<object> args)
         {
+            var ps = d.Method.GetParameters();
+            // Variadic host functions (JS-style parseInt / Math.max / Math.min ...)
+            // declare a single object[] parameter: pass the whole argument list.
+            if (ps.Length == 1 && ps[0].ParameterType == typeof(object[]))
+            {
+                try
+                {
+                    return d.DynamicInvoke(new object[] { args.ToArray() });
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+            }
             try
             {
                 object[] p = args.ToArray();
@@ -932,8 +973,12 @@ namespace scripting
             {
                 return null;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Control-flow exception from the sandbox (stopExecution etc.) must propagate
+                // unwrapped (DynamicInvoke wraps it in TargetInvocationException).
+                if (ex is M8StopException) throw;
+                if (ex.InnerException is M8StopException) throw ex.InnerException;
                 return null;
             }
         }

@@ -55,6 +55,8 @@
              Link="Production\PlaybackRestoreState.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackHistory.cs"
              Link="Production\PlaybackHistory.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Scripting\**\*.cs"
+             Link="Production\Scripting\%(RecursiveDir)%(Filename)%(Extension)" />
     <None Update="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
