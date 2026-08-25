@@ -1,0 +1,3 @@
+[submodule "Libraries/NSDanmaku-Fork"]
+	path = Libraries/NSDanmaku-Fork
+	url = https://github.com/493505110/NSDanmaku-Fork.git

@@ -971,7 +971,7 @@ namespace BiliBili.UWP.Helper
                 case 1:
                 case 2:
                 case 3:
-                    location = DanmakuLocation.Roll;
+                    location = DanmakuLocation.Scroll;
                     return true;
                 case 4:
                     location = DanmakuLocation.Bottom;
@@ -983,7 +983,7 @@ namespace BiliBili.UWP.Helper
                     location = DanmakuLocation.Position;
                     return true;
                 default:
-                    location = DanmakuLocation.Roll;
+                    location = DanmakuLocation.Scroll;
                     return false;
             }
         }
