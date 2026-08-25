@@ -541,6 +541,11 @@
                             </Grid>
 
                             <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">普通权限弹幕视频播放模式</TextBlock>
+                                <ToggleSwitch x:Name="sw_NormalDanmakuVideoPlaybackMode" Toggled="sw_NormalDanmakuVideoPlaybackMode_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
+                            </Grid>
+
+                            <Grid Margin="0 10 0 0">
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">半屏显示</TextBlock>
                                 <ToggleSwitch x:Name="sw_NotSubtitle" Toggled="sw_NotSubtitle_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
                             </Grid>

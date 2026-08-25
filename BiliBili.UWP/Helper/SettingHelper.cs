@@ -1311,6 +1311,24 @@ namespace BiliBili.UWP
             container.Values["BlockNormalDanmaku"] = value;
         }
 
+        public static bool Get_NormalDanmakuVideoPlaybackMode()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["NormalDanmakuVideoPlaybackMode"] != null)
+            {
+                return (bool)container.Values["NormalDanmakuVideoPlaybackMode"];
+            }
+
+            Set_NormalDanmakuVideoPlaybackMode(false);
+            return false;
+        }
+
+        public static void Set_NormalDanmakuVideoPlaybackMode(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["NormalDanmakuVideoPlaybackMode"] = value;
+        }
+
         public static bool Get_BoldDanmu()
         {
             container = ApplicationData.Current.LocalSettings;

@@ -303,18 +303,27 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void ResolutionAspectModeResizesViewToNaturalVideoSize()
+        public void NormalPermissionDanmakuPlaybackModeUsesFixedViewSize()
         {
+            var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
+            var settingPage = ReadFile("BiliBili.UWP/Views/SettingPage.xaml");
+            var settingCode = ReadFile("BiliBili.UWP/Views/SettingPage.xaml.cs");
             var playerPage = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
             var playerXaml = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml");
 
-            StringAssert.Contains(playerXaml, "x:Name=\"rb_resolution\"");
-            StringAssert.Contains(playerXaml, "严格按照视频分辨率");
-            StringAssert.Contains(playerPage, "private void cb_setting_resolution_Checked");
-            StringAssert.Contains(playerPage, "private void ResizeViewToVideoResolution");
-            StringAssert.Contains(playerPage, "NaturalVideoWidth");
-            StringAssert.Contains(playerPage, "NaturalVideoHeight");
-            StringAssert.Contains(playerPage, "TryResizeView(new Size(naturalWidth, naturalHeight))");
+            Assert.IsFalse(playerXaml.Contains("严格按照视频分辨率"));
+            Assert.IsFalse(playerPage.Contains("ResizeViewToVideoResolution"));
+            StringAssert.Contains(settings, "Set_NormalDanmakuVideoPlaybackMode(false);");
+            StringAssert.Contains(settings, "container.Values[\"NormalDanmakuVideoPlaybackMode\"]");
+            StringAssert.Contains(settingPage, "x:Name=\"sw_NormalDanmakuVideoPlaybackMode\"");
+            StringAssert.Contains(settingPage, "普通权限弹幕视频播放模式");
+            StringAssert.Contains(settingCode, "SettingHelper.Get_NormalDanmakuVideoPlaybackMode()");
+            StringAssert.Contains(settingCode, "SettingHelper.Set_NormalDanmakuVideoPlaybackMode(sw_NormalDanmakuVideoPlaybackMode.IsOn);");
+            StringAssert.Contains(playerXaml, "x:Name=\"sw_NormalDanmakuVideoPlaybackMode\"");
+            StringAssert.Contains(playerXaml, "普通权限弹幕视频播放模式");
+            StringAssert.Contains(playerPage, "SettingHelper.Get_NormalDanmakuVideoPlaybackMode()");
+            StringAssert.Contains(playerPage, "private void ApplyNormalDanmakuVideoPlaybackMode");
+            StringAssert.Contains(playerPage, "TryResizeView(new Size(543, 386))");
         }
 
         [TestMethod]

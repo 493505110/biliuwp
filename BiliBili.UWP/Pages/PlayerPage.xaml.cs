@@ -341,10 +341,6 @@ namespace BiliBili.UWP.Pages
 
                 txt_VideoWidth.Text = sender.NaturalVideoWidth.ToString();
                 txt_VideoHeight.Text = sender.NaturalVideoHeight.ToString();
-                if (rb_resolution.IsChecked == true)
-                {
-                    ResizeViewToVideoResolution();
-                }
             });
         }
 
@@ -1170,6 +1166,7 @@ namespace BiliBili.UWP.Pages
             sw_MergeDanmu.IsOn = SettingHelper.Get_MergeDanmu();
             mergeDanmu = sw_MergeDanmu.IsOn;
             sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();
+            sw_NormalDanmakuVideoPlaybackMode.IsOn = SettingHelper.Get_NormalDanmakuVideoPlaybackMode();
 
             sw_DanmuNotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
             if (danmu != null)
@@ -1219,6 +1216,11 @@ namespace BiliBili.UWP.Pages
             }
             slider_SubtitleTran.Value = SettingHelper.Get_SubtitleBgTran();
             slider_SubtitleSize.Value = SettingHelper.Get_SubtitleSize();
+
+            if (sw_NormalDanmakuVideoPlaybackMode.IsOn)
+            {
+                ApplyNormalDanmakuVideoPlaybackMode();
+            }
 
             //mediaElement.MediaPlayer.Volume = SettingHelper.Get_Volume();
             SetVolume(SettingHelper.Get_Volume());
@@ -3205,21 +3207,9 @@ namespace BiliBili.UWP.Pages
 
         }
 
-        private void cb_setting_resolution_Checked(object sender, RoutedEventArgs e)
+        private void ApplyNormalDanmakuVideoPlaybackMode()
         {
-            ResizeViewToVideoResolution();
-        }
-
-        private void ResizeViewToVideoResolution()
-        {
-            if (mediaElement == null || mediaPlayer == null)
-            {
-                return;
-            }
-
-            var naturalWidth = mediaPlayer.PlaybackSession.NaturalVideoWidth;
-            var naturalHeight = mediaPlayer.PlaybackSession.NaturalVideoHeight;
-            if (naturalWidth == 0 || naturalHeight == 0)
+            if (mediaElement == null)
             {
                 return;
             }
@@ -3227,7 +3217,7 @@ namespace BiliBili.UWP.Pages
             mediaElement.Stretch = Stretch.Uniform;
             mediaElement.Width = double.NaN;
             mediaElement.Height = double.NaN;
-            ApplicationView.GetForCurrentView().TryResizeView(new Size(naturalWidth, naturalHeight));
+            ApplicationView.GetForCurrentView().TryResizeView(new Size(543, 386));
         }
 
         //private void btn_HideInfo_Click(object sender, RoutedEventArgs e)
@@ -3604,6 +3594,21 @@ namespace BiliBili.UWP.Pages
             if (sw_BlockNormalDanmaku.IsOn)
             {
                 danmu?.ClearAll();
+            }
+        }
+
+        private void sw_NormalDanmakuVideoPlaybackMode_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag)
+            {
+                return;
+            }
+
+            var enabled = sw_NormalDanmakuVideoPlaybackMode.IsOn;
+            SettingHelper.Set_NormalDanmakuVideoPlaybackMode(enabled);
+            if (enabled)
+            {
+                ApplyNormalDanmakuVideoPlaybackMode();
             }
         }
 

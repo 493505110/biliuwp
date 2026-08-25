@@ -115,6 +115,7 @@ namespace BiliBili.UWP.Views
                 sw_MouseBack.IsOn = SettingHelper.Get_MouseBack();
                 sw_MergeDanmu.IsOn = SettingHelper.Get_MergeDanmu();
                 sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();
+                sw_NormalDanmakuVideoPlaybackMode.IsOn = SettingHelper.Get_NormalDanmakuVideoPlaybackMode();
 
                 sw_NotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
                 sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
@@ -773,6 +774,16 @@ namespace BiliBili.UWP.Views
             }
 
             SettingHelper.Set_BlockNormalDanmaku(sw_BlockNormalDanmaku.IsOn);
+        }
+
+        private void sw_NormalDanmakuVideoPlaybackMode_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            SettingHelper.Set_NormalDanmakuVideoPlaybackMode(sw_NormalDanmakuVideoPlaybackMode.IsOn);
         }
 
         private void cb_DanmuStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
