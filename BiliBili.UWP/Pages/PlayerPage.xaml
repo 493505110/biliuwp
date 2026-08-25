@@ -131,6 +131,10 @@
                                     <ToggleSwitch x:Name="sw_MergeDanmu" Foreground="White" Toggled="sw_MergeDanmu_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">屏蔽普通弹幕</TextBlock>
+                                    <ToggleSwitch x:Name="sw_BlockNormalDanmaku" Foreground="White" Toggled="sw_BlockNormalDanmaku_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
+                                </Grid>
+                                <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">半屏显示</TextBlock>
                                     <ToggleSwitch x:Name="sw_DanmuNotSubtitle" Foreground="White" Toggled="sw_DanmuNotSubtitle_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>

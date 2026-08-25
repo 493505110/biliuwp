@@ -281,6 +281,28 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void NormalPoolDanmakuCanBeBlockedBeforeDisplay()
+        {
+            var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
+            var settingPage = ReadFile("BiliBili.UWP/Views/SettingPage.xaml");
+            var settingCode = ReadFile("BiliBili.UWP/Views/SettingPage.xaml.cs");
+            var playerPage = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+            var playerXaml = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml");
+
+            StringAssert.Contains(settings, "Set_BlockNormalDanmaku(false);");
+            StringAssert.Contains(settings, "container.Values[\"BlockNormalDanmaku\"]");
+            StringAssert.Contains(settingPage, "x:Name=\"sw_BlockNormalDanmaku\"");
+            StringAssert.Contains(settingPage, "屏蔽普通弹幕");
+            StringAssert.Contains(settingCode, "SettingHelper.Get_BlockNormalDanmaku()");
+            StringAssert.Contains(settingCode, "SettingHelper.Set_BlockNormalDanmaku(sw_BlockNormalDanmaku.IsOn);");
+            StringAssert.Contains(playerXaml, "x:Name=\"sw_BlockNormalDanmaku\"");
+            StringAssert.Contains(playerXaml, "屏蔽普通弹幕");
+            StringAssert.Contains(playerPage, "sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();");
+            StringAssert.Contains(playerPage, "string.Equals(item.pool, \"0\", StringComparison.Ordinal)");
+            StringAssert.Contains(playerPage, "SettingHelper.Get_BlockNormalDanmaku()");
+        }
+
+        [TestMethod]
         public void ResolutionAspectModeResizesViewToNaturalVideoSize()
         {
             var playerPage = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");

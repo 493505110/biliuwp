@@ -1293,6 +1293,24 @@ namespace BiliBili.UWP
             container.Values["MergeDanmu"] = value;
         }
 
+        public static bool Get_BlockNormalDanmaku()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["BlockNormalDanmaku"] != null)
+            {
+                return (bool)container.Values["BlockNormalDanmaku"];
+            }
+
+            Set_BlockNormalDanmaku(false);
+            return false;
+        }
+
+        public static void Set_BlockNormalDanmaku(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["BlockNormalDanmaku"] = value;
+        }
+
         public static bool Get_BoldDanmu()
         {
             container = ApplicationData.Current.LocalSettings;

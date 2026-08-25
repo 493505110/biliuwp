@@ -1169,6 +1169,7 @@ namespace BiliBili.UWP.Pages
             sw_DanmuBorder.IsOn = SettingHelper.Get_DMBorder();
             sw_MergeDanmu.IsOn = SettingHelper.Get_MergeDanmu();
             mergeDanmu = sw_MergeDanmu.IsOn;
+            sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();
 
             sw_DanmuNotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
             if (danmu != null)
@@ -1492,7 +1493,10 @@ namespace BiliBili.UWP.Pages
 
         private void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)
         {
-            if (item == null || DanDis_Dis(item.text))
+            if (item == null
+                || DanDis_Dis(item.text)
+                || (SettingHelper.Get_BlockNormalDanmaku()
+                    && string.Equals(item.pool, "0", StringComparison.Ordinal)))
             {
                 return;
             }
@@ -3587,6 +3591,20 @@ namespace BiliBili.UWP.Pages
         {
             SettingHelper.Set_MergeDanmu(sw_MergeDanmu.IsOn);
             mergeDanmu = sw_MergeDanmu.IsOn;
+        }
+
+        private void sw_BlockNormalDanmaku_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag)
+            {
+                return;
+            }
+
+            SettingHelper.Set_BlockNormalDanmaku(sw_BlockNormalDanmaku.IsOn);
+            if (sw_BlockNormalDanmaku.IsOn)
+            {
+                danmu?.ClearAll();
+            }
         }
 
         private async void sw_InteractiveDanmaku_Toggled(object sender, RoutedEventArgs e)

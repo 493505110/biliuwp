@@ -114,6 +114,7 @@ namespace BiliBili.UWP.Views
 
                 sw_MouseBack.IsOn = SettingHelper.Get_MouseBack();
                 sw_MergeDanmu.IsOn = SettingHelper.Get_MergeDanmu();
+                sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();
 
                 sw_NotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
                 sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
@@ -762,6 +763,16 @@ namespace BiliBili.UWP.Views
         private void sw_MergeDanmu_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_MergeDanmu(sw_MergeDanmu.IsOn);
+        }
+
+        private void sw_BlockNormalDanmaku_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            SettingHelper.Set_BlockNormalDanmaku(sw_BlockNormalDanmaku.IsOn);
         }
 
         private void cb_DanmuStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
