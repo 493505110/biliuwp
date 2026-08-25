@@ -1153,10 +1153,13 @@ namespace BiliBili.UWP.Pages
 
             DanDis_Get();
             DMZZBDS = SettingHelper.Get_DMZZ();
+            var danmuSpeed = SettingHelper.Get_DMSpeed();
+            var danmuFont = SettingHelper.Get_DanmuFont();
+            var danmuBold = SettingHelper.Get_BoldDanmu();
             slider_DanmuSize.Value = SettingHelper.Get_NewDMSize();
             slider_Num.Value = SettingHelper.Get_DMNumber();
             slider_DanmuTran.Value = SettingHelper.Get_NewDMTran();
-            slider_DanmuSpeed.Value = SettingHelper.Get_DMSpeed();
+            slider_DanmuSpeed.Value = danmuSpeed;
             cb_Style.SelectedIndex = SettingHelper.Get_DMStyle();
 
             sw_DanmuBorder.IsOn = SettingHelper.Get_DMBorder();
@@ -1167,12 +1170,15 @@ namespace BiliBili.UWP.Pages
             if (danmu != null)
             {
                 danmu.DanmakuArea = sw_DanmuNotSubtitle.IsOn ? 0.5 : 1.0;
+                danmu.DanmakuDuration = Math.Max(1, Convert.ToInt32(danmuSpeed));
+                danmu.DanmakuFontFamily = danmuFont;
+                danmu.DanmakuBold = danmuBold;
             }
 
             sw_InteractiveDanmaku.IsOn = SettingHelper.Get_InteractiveDanmakuStatus();
             sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
 
-            sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
+            sw_BoldDanmu.IsOn = danmuBold;
 
             sw_UseDASH.IsOn = SettingHelper.Get_UseDASH();
             SetDASHVideoCodecSelection(SettingHelper.Get_DASHVideoCodecPreference());
@@ -1182,14 +1188,12 @@ namespace BiliBili.UWP.Pages
             List<string> fonts = SystemHelper.GetSystemFontFamilies();
             cb_Font.ItemsSource = fonts;
             cb_SubtitleFont.ItemsSource = fonts;
-            if (SettingHelper.Get_DanmuFont() != "")
+            var danmuFontIndex = fonts.IndexOf(danmuFont);
+            if (danmuFontIndex < 0)
             {
-                cb_Font.SelectedIndex = fonts.IndexOf(SettingHelper.Get_DanmuFont());
+                danmuFontIndex = fonts.IndexOf(cb_Font.FontFamily.Source);
             }
-            else
-            {
-                cb_Font.SelectedIndex = fonts.IndexOf(cb_Font.FontFamily.Source);
-            }
+            cb_Font.SelectedIndex = danmuFontIndex;
             if (SettingHelper.Get_SubtitleFontFamily() != "")
             {
                 cb_SubtitleFont.SelectedIndex = fonts.IndexOf(SettingHelper.Get_SubtitleFontFamily());

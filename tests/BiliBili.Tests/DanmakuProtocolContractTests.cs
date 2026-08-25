@@ -96,7 +96,8 @@ namespace BiliBili.Tests
             var refreshRowHeights = MethodBody(control, "private void RefreshRowHeights(Grid container)");
             var setRowHeight = MethodBody(control, "private void SetRowHeight(Grid container, int row)");
             var ensureRowsForItem = MethodBody(control, "private void EnsureRowsForItem(Grid container, Grid item)");
-            var scrollRowSelection = MethodBody(control, "private int GetScrollAvailableRow(Grid item, bool reverse = false)");
+            var addHorizontalScroll = MethodBody(control, "private async Task AddHorizontalScrollDanmu(");
+            var scrollPoolSelection = MethodBody(control, "private bool TryGetScrollPoolPosition(");
             var winUiControl = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Controls/Danmaku.xaml.cs");
             var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
 
@@ -107,9 +108,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(legacyParser, "case \"6\":");
             StringAssert.Contains(winUiParser, "case \"6\":");
             StringAssert.Contains(control, "AddReverseScrollDanmu");
-            StringAssert.Contains(control, "reverse ? -grid.ActualWidth : gv.ActualWidth");
-            StringAssert.Contains(control, "GetScrollAvailableRow(Grid item, bool reverse = false)");
-            StringAssert.Contains(control, "lastModel.location == DanmakuLocation.ReverseScroll");
+            StringAssert.Contains(control, "var fromX = GetScrollInitialX(reverse, viewportWidth, itemWidth);");
+            StringAssert.Contains(control, "private bool IsScrollPoolAvailable(");
+            StringAssert.Contains(control, "var itemX = viewportWidth;");
+            StringAssert.Contains(control, "GetScrollEnd(occupied, viewportWidth) > GetScrollMiddle(item, viewportWidth)");
             StringAssert.Contains(winUiControl, "AddReverseScrollDanmu");
             StringAssert.Contains(winUiControl, "reverse ? -grid.ActualWidth : mainContainer.ActualWidth");
             StringAssert.Contains(winUiControl, "GetScrollAvailableRow(Grid item, bool reverse = false)");
@@ -120,10 +122,47 @@ namespace BiliBili.Tests
             StringAssert.Contains(winUiParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
             StringAssert.Contains(tantanParser, "location != DanmakuLocation.Position && danmakuText != null");
             StringAssert.Contains(tantanParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
-            StringAssert.Contains(refreshRowHeights, "measuredRowHeights[grid] = container == grid_Scroll ? GetDefaultRowHeight() : MeasureDanmakuHeight(grid);");
-            StringAssert.Contains(setRowHeight, "var rowHeight = container == grid_Scroll ? GetDefaultRowHeight() : 0.0;");
-            StringAssert.Contains(ensureRowsForItem, "measuredRowHeights[item] = container == grid_Scroll ? GetDefaultRowHeight() : MeasureDanmakuHeight(item);");
-            StringAssert.Contains(scrollRowSelection, "var newHeight = GetDefaultRowHeight();");
+            StringAssert.Contains(refreshRowHeights, "measuredRowHeights[grid] = MeasureDanmakuHeight(grid);");
+            StringAssert.Contains(setRowHeight, "var rowHeight = 0.0;");
+            StringAssert.Contains(ensureRowsForItem, "measuredRowHeights[item] = MeasureDanmakuHeight(item);");
+            StringAssert.Contains(addHorizontalScroll, "grid_Scroll.Children.Add(grid);");
+            StringAssert.Contains(addHorizontalScroll, "SetRowHeight(grid_Scroll, 0);");
+            StringAssert.Contains(scrollPoolSelection, "logicalY = occupied.LogicalY + occupied.Height + PoolGap;");
+        }
+
+        [TestMethod]
+        public void OfficialDanmakuDefaultsAndPlacementAreRetained()
+        {
+            var control = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs");
+            var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
+            var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+
+            StringAssert.Contains(control, "DanmakuBold = true;");
+            StringAssert.Contains(control, "DanmakuFontFamily = \"黑体\";");
+            StringAssert.Contains(control, "new PropertyMetadata(5, OnDanmakuDurationChanged)");
+            StringAssert.Contains(control, "private const double FixedDanmakuDuration = 3.5;");
+            StringAssert.Contains(control, "private const double OfficialDanmakuWidth = 543.0;");
+            StringAssert.Contains(control, "private double GetScrollSpeed(double itemWidth)");
+            StringAssert.Contains(control, "return (OfficialDanmakuWidth + itemWidth) / GetScrollReferenceDuration();");
+            StringAssert.Contains(control, "private double GetScrollDuration(double viewportWidth, double itemWidth)");
+            StringAssert.Contains(control, "return (viewportWidth + itemWidth) / GetScrollSpeed(itemWidth);");
+            StringAssert.Contains(control, "GetScrollDuration(viewportWidth, itemWidth)");
+            StringAssert.Contains(control, "myDoubleAnimationX.To = -itemWidth;//到达");
+            StringAssert.Contains(control, "private bool TryReserveFixedSpace(");
+            StringAssert.Contains(control, "private bool TryReserveScrollSpace(");
+            StringAssert.Contains(control, "private readonly List<List<DanmakuSpaceItem>> topPools");
+            StringAssert.Contains(control, "private readonly List<List<DanmakuSpaceItem>> bottomPools");
+            StringAssert.Contains(control, "private readonly List<List<DanmakuSpaceItem>> scrollPools");
+            StringAssert.Contains(control, "private readonly List<List<DanmakuSpaceItem>> reverseScrollPools");
+            StringAssert.Contains(control, "space.Pool = pool;");
+            StringAssert.Contains(control, "grid_Top.Children.Add(grid);");
+            StringAssert.Contains(control, "SetRowHeight(grid_Top, 0);");
+            StringAssert.Contains(control, "grid_Bottom.Children.Add(grid);");
+            StringAssert.Contains(control, "SetRowHeight(grid_Bottom, 0);");
+            StringAssert.Contains(settings, "Set_DanmuFont(\"黑体\")");
+            StringAssert.Contains(settings, "container.Values[\"DMSpeed\"] = 5;");
+            StringAssert.Contains(player, "danmu.DanmakuFontFamily = danmuFont;");
+            StringAssert.Contains(player, "danmu.DanmakuDuration = Math.Max(1, Convert.ToInt32(danmuSpeed));");
         }
 
         private static void AssertField(string source, int fieldNumber, string assignment)

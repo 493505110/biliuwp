@@ -1302,8 +1302,8 @@ namespace BiliBili.UWP
             }
             else
             {
-                Set_BoldDanmu(false);
-                return false;
+                Set_BoldDanmu(true);
+                return true;
             }
         }
 
@@ -1317,14 +1317,15 @@ namespace BiliBili.UWP
         public static string Get_DanmuFont()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DanmuFont"] != null)
+            var value = container.Values["DanmuFont"] as string;
+            if (!string.IsNullOrWhiteSpace(value))
             {
-                return (string)container.Values["DanmuFont"];
+                return value;
             }
             else
             {
-                Set_DanmuFont("");
-                return "";
+                Set_DanmuFont("黑体");
+                return "黑体";
             }
         }
 
@@ -1441,8 +1442,8 @@ namespace BiliBili.UWP
             else
             {
 
-                container.Values["DMSpeed"] = 12;
-                return 12;
+                container.Values["DMSpeed"] = 5;
+                return 5;
 
 
 
