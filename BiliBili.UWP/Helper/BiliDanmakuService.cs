@@ -941,11 +941,15 @@ namespace BiliBili.UWP.Helper
                 return null;
             }
 
+            var displayText = location == DanmakuLocation.Position
+                ? text
+                : text.Replace("/n", "\r\n");
+
             var sizeValue = size > 0 ? size : 25;
             var colorValue = unchecked((uint)color);
             return new DanmakuModel
             {
-                text = text,
+                text = displayText,
                 size = sizeValue,
                 color = Color.FromArgb(
                     255,

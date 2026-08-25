@@ -37,6 +37,8 @@ namespace BiliBili.Tests
             StringAssert.Contains(location, "case 7:");
             StringAssert.Contains(danmakuParser, "unsupportedDanmakuCount++");
             StringAssert.Contains(danmakuParser, "location == DanmakuLocation.Position && !IsSupportedPositionDanmaku(text)");
+            StringAssert.Contains(danmakuParser, "text.Replace(\"/n\", \"\\r\\n\")");
+            StringAssert.Contains(danmakuParser, "var displayText = location == DanmakuLocation.Position");
             StringAssert.Contains(positionDanmakuValidator, "var data = JArray.Parse(text);");
             StringAssert.Contains(positionDanmakuValidator, "data.Count > 7 && data.Count < 11");
             StringAssert.Contains(positionDanmakuValidator, "opacity.Length < 2");
@@ -89,6 +91,7 @@ namespace BiliBili.Tests
             var model = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Model/DanmakuModel.cs");
             var legacyParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Helper/DanmakuParse.cs");
             var winUiParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Helper/DanmakuParse.cs");
+            var tantanParser = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Helper/TanTanPlay.cs");
             var control = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs");
             var winUiControl = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku.WinUI/Controls/Danmaku.xaml.cs");
             var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
@@ -109,6 +112,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(winUiControl, "lastModel.location == DanmakuLocation.ReverseScroll");
             StringAssert.Contains(player, "case NSDanmaku.Model.DanmakuLocation.ReverseScroll:");
             StringAssert.Contains(player, "danmu.AddReverseScrollDanmu(item, false);");
+            StringAssert.Contains(legacyParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
+            StringAssert.Contains(winUiParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
+            StringAssert.Contains(tantanParser, "location != DanmakuLocation.Position && danmakuText != null");
+            StringAssert.Contains(tantanParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
         }
 
         private static void AssertField(string source, int fieldNumber, string assignment)
