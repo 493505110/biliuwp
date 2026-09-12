@@ -1175,7 +1175,7 @@ namespace BiliBili.UWP.Pages
                 danmu.DanmakuBold = danmuBold;
             }
 
-            sw_InteractiveDanmaku.IsOn = SettingHelper.Get_InteractiveDanmakuStatus();
+            UpdateInteractiveDanmakuTypeSummary();
             sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
 
             sw_BoldDanmu.IsOn = danmuBold;
@@ -1567,7 +1567,7 @@ namespace BiliBili.UWP.Pages
 
         private void HandleInteractiveDanmakuPosition()
         {
-            if (!SettingHelper.Get_InteractiveDanmakuStatus()
+            if (!SettingHelper.Get_AnyInteractiveDanmakuTypeEnabled()
                 || !LoadDanmu
                 || mediaPlayer == null
                 || interactiveDanmakuPool == null
@@ -1578,9 +1578,11 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
+            var typeMask = SettingHelper.Get_InteractiveDanmakuTypes();
             var position = mediaPlayer.PlaybackSession.Position;
             var current = interactiveDanmakuPool.FirstOrDefault(item =>
-                position.TotalMilliseconds >= item.Progress
+                SettingHelper.Is_InteractiveDanmakuTypeEnabled(typeMask, item.Type)
+                && position.TotalMilliseconds >= item.Progress
                 && position.TotalMilliseconds < item.Progress + item.Duration);
             if (current == null)
             {
@@ -1911,7 +1913,7 @@ namespace BiliBili.UWP.Pages
         {
             ClearInteractiveDanmaku();
             var loadVersion = interactiveDanmakuLoadVersion;
-            if (!SettingHelper.Get_InteractiveDanmakuStatus()
+            if (!SettingHelper.Get_AnyInteractiveDanmakuTypeEnabled()
                 || item == null
                 || item.Mode == PlayMode.Local
                 || item.Mode == PlayMode.FormLocal
@@ -1931,7 +1933,7 @@ namespace BiliBili.UWP.Pages
                     return;
                 }
                 if (loadVersion != interactiveDanmakuLoadVersion
-                    || !SettingHelper.Get_InteractiveDanmakuStatus()
+                    || !SettingHelper.Get_AnyInteractiveDanmakuTypeEnabled()
                     || !ReferenceEquals(playNow, item))
                 {
                     return;
@@ -3560,21 +3562,32 @@ namespace BiliBili.UWP.Pages
             mergeDanmu = sw_MergeDanmu.IsOn;
         }
 
-        private async void sw_InteractiveDanmaku_Toggled(object sender, RoutedEventArgs e)
+        private void UpdateInteractiveDanmakuTypeSummary()
         {
-            if (settingFlag)
+            btn_InteractiveDanmakuTypes.Content = InteractiveDanmakuTypeDialog.GetSummary();
+        }
+
+        private async void InteractiveDanmakuTypes_Click(object sender, RoutedEventArgs e)
+        {
+            if (!await InteractiveDanmakuTypeDialog.ShowAsync())
             {
                 return;
             }
 
-            var enabled = sw_InteractiveDanmaku.IsOn;
-            SettingHelper.Set_InteractiveDanmakuStatus(enabled);
-            ClearInteractiveDanmaku();
-            if (enabled && playNow != null)
+            UpdateInteractiveDanmakuTypeSummary();
+            if (!SettingHelper.Get_AnyInteractiveDanmakuTypeEnabled())
+            {
+                ClearInteractiveDanmaku();
+                return;
+            }
+
+            // 弹幕池一次加载包含全部类型，只在尚未加载时重新拉取，其余情况只需按类型重算当前显示
+            if (playNow != null
+                && (interactiveDanmakuPool == null || interactiveDanmakuPool.Count == 0))
             {
                 await LoadInteractiveDanmakuAsync(playNow);
-                HandleInteractiveDanmakuPosition();
             }
+            HandleInteractiveDanmakuPosition();
         }
 
         private void sw_UseNewDanmakuInterface_Toggled(object sender, RoutedEventArgs e)

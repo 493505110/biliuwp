@@ -118,7 +118,7 @@ namespace BiliBili.UWP.Views
                 sw_NotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
                 sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
                 sw_StatusDanmu.IsOn = SettingHelper.Get_DMStatus();
-                sw_InteractiveDanmaku.IsOn = SettingHelper.Get_InteractiveDanmakuStatus();
+                UpdateInteractiveDanmakuTypeSummary();
                 sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
 
                 sw_DTCT.IsOn = SettingHelper.Get_DTCT();
@@ -813,14 +813,22 @@ namespace BiliBili.UWP.Views
             SettingHelper.Set_DMStatus(sw_StatusDanmu.IsOn);
         }
 
-        private void sw_InteractiveDanmaku_Toggled(object sender, RoutedEventArgs e)
+        private void UpdateInteractiveDanmakuTypeSummary()
+        {
+            btn_InteractiveDanmakuTypes.Content = InteractiveDanmakuTypeDialog.GetSummary();
+        }
+
+        private async void InteractiveDanmakuTypes_Click(object sender, RoutedEventArgs e)
         {
             if (loadsetting)
             {
                 return;
             }
 
-            SettingHelper.Set_InteractiveDanmakuStatus(sw_InteractiveDanmaku.IsOn);
+            if (await InteractiveDanmakuTypeDialog.ShowAsync())
+            {
+                UpdateInteractiveDanmakuTypeSummary();
+            }
         }
 
         private void sw_UseNewDanmakuInterface_Toggled(object sender, RoutedEventArgs e)

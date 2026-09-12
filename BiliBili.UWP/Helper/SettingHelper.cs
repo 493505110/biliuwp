@@ -1119,22 +1119,67 @@ namespace BiliBili.UWP
             }
         }
 
-        public static void Set_InteractiveDanmakuStatus(bool value)
+        // 互动弹幕按类型过滤，用位掩码保存：第 n 位对应 InteractiveDanmakuType 的第 n 个值。
+        private const int AllInteractiveDanmakuTypes = 0x1F;
+
+        public static int Get_InteractiveDanmakuTypes()
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["InteractiveDanmakuStatus"] = value;
+            if (container.Values["InteractiveDanmakuTypes"] != null)
+            {
+                return Convert.ToInt32(container.Values["InteractiveDanmakuTypes"])
+                    & AllInteractiveDanmakuTypes;
+            }
+
+            // 兼容旧版的单一开关：开=全选，关=全不选
+            var mask = container.Values["InteractiveDanmakuStatus"] == null
+                || Convert.ToBoolean(container.Values["InteractiveDanmakuStatus"])
+                ? AllInteractiveDanmakuTypes
+                : 0;
+            Set_InteractiveDanmakuTypes(mask);
+            return mask;
+        }
+
+        public static void Set_InteractiveDanmakuTypes(int value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["InteractiveDanmakuTypes"] = value & AllInteractiveDanmakuTypes;
+        }
+
+        public static bool Is_InteractiveDanmakuTypeEnabled(Models.InteractiveDanmakuType type)
+        {
+            return Is_InteractiveDanmakuTypeEnabled(Get_InteractiveDanmakuTypes(), type);
+        }
+
+        public static bool Is_InteractiveDanmakuTypeEnabled(
+            int mask,
+            Models.InteractiveDanmakuType type)
+        {
+            return (mask & (1 << (int)type)) != 0;
+        }
+
+        public static void Set_InteractiveDanmakuTypeEnabled(
+            Models.InteractiveDanmakuType type,
+            bool value)
+        {
+            var mask = Get_InteractiveDanmakuTypes();
+            var bit = 1 << (int)type;
+            Set_InteractiveDanmakuTypes(value ? mask | bit : mask & ~bit);
+        }
+
+        public static bool Get_AnyInteractiveDanmakuTypeEnabled()
+        {
+            return Get_InteractiveDanmakuTypes() != 0;
+        }
+
+        public static void Set_InteractiveDanmakuStatus(bool value)
+        {
+            Set_InteractiveDanmakuTypes(value ? AllInteractiveDanmakuTypes : 0);
         }
 
         public static bool Get_InteractiveDanmakuStatus()
         {
-            container = ApplicationData.Current.LocalSettings;
-            if (container.Values["InteractiveDanmakuStatus"] != null)
-            {
-                return Convert.ToBoolean(container.Values["InteractiveDanmakuStatus"]);
-            }
-
-            Set_InteractiveDanmakuStatus(true);
-            return true;
+            return Get_AnyInteractiveDanmakuTypeEnabled();
         }
 
         public static void Set_UseNewDanmakuInterface(bool value)
