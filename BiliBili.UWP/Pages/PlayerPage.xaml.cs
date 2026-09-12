@@ -106,6 +106,7 @@ namespace BiliBili.UWP.Pages
         M8PlayerApi m8PlayerApi;
         Queue<M8DanmakuModel> m8PendingScripts = new Queue<M8DanmakuModel>();
         bool m8EngineReady;
+        bool m8EngineInitialized;
         public PlayerPage()
         {
             this.InitializeComponent();
@@ -113,7 +114,9 @@ namespace BiliBili.UWP.Pages
             InitMediaPlayer();
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
-            InitM8Engine();
+            // M8 引擎依赖 Win2D,控件创建与类型加载都较重,放到 Loaded 执行:
+            // 既避免拖慢页面构造,也避免构造阶段的异常导致整个播放页打不开。
+            this.Loaded += PlayerPage_Loaded;
             MTC.DanmuLoaded += MTC_DanmuLoaded;
             basDanmakuControl.ActionRequested += BasDanmakuControl_ActionRequested;
             playerSurface.AddHandler(
@@ -126,8 +129,10 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-                // 画布以代码动态创建并置于 BAS 弹幕层之后:避免 Win2D 控件在 XAML
-                // 解析阶段激活失败导致播放页打不开;Win2D 不可用时仅降级不渲染。
+                // 画布以代码动态创建并置于 BAS 弹幕层之后,Win2D 不可用时仅降级不渲染。
+                // 注意:Win2D 必须使用 UWP 版包(Win2D.uwp),WinUI 3 版
+                // (Microsoft.Graphics.Win2D) 的 CanvasControl 基类是
+                // Microsoft.UI.Xaml.Controls.UserControl,在 UWP 下无法加载。
                 var canvas = new Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl
                 {
                     IsHitTestVisible = false
@@ -179,6 +184,18 @@ namespace BiliBili.UWP.Pages
             }
         }
 
+        private void PlayerPage_Loaded(object sender, RoutedEventArgs e)
+        {
+            // Loaded 可能多次触发,只在首次初始化 M8 引擎。
+            if (m8EngineInitialized)
+            {
+                return;
+            }
+
+            m8EngineInitialized = true;
+            InitM8Engine();
+        }
+
         private void SetM8DanmakuPool(IEnumerable<M8DanmakuModel> items, bool append = false)
         {
             var merged = new List<M8DanmakuModel>();
@@ -225,8 +242,29 @@ namespace BiliBili.UWP.Pages
             }
             catch (Exception ex)
             {
-                LogHelper.WriteLog("执行 M8 代码弹幕失败", LogType.ERROR, ex);
+                // 附带脚本原文,否则只看到 VM/Parser 的异常无法定位是哪条弹幕:
+                // 弹幕脚本可能很长,这里单行化并截断,避免把日志刷爆。
+                LogHelper.WriteLog(
+                    "执行 M8 代码弹幕失败 | 脚本: " + BuildM8ScriptPreview(script),
+                    LogType.ERROR,
+                    ex);
             }
+        }
+
+        /// <summary>
+        /// 把弹幕脚本压成一行并截断,用于日志定位。超过 <paramref name="maxLength"/> 时保留
+        /// 前 <paramref name="headLength"/> 个字符,中间用省略号标注被截断的字符数,再保留尾部,
+        /// 这样开头(通常是出错位置所在)和结尾(往往能看出脚本是否被平台截断)都能看到。
+        /// </summary>
+        private static string BuildM8ScriptPreview(string script, int maxLength = 500, int headLength = 350)
+        {
+            if (string.IsNullOrEmpty(script)) return "";
+            string flat = script.Replace("\r", " ").Replace("\n", " ").Trim();
+            if (flat.Length <= maxLength) return flat;
+            int head = Math.Min(headLength, maxLength);
+            int tail = Math.Max(0, maxLength - head);
+            return flat.Substring(0, head) + "…(省略" + (flat.Length - head - tail) + "字符)…"
+                + (tail > 0 ? flat.Substring(flat.Length - tail) : "");
         }
 
         private void SyncM8PlayerStateForPlayback(MediaPlaybackState playbackState)

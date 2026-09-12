@@ -36,7 +36,7 @@ namespace BiliBili.UWP.Helper
                     Name = "logfile",
                     CreateDirs = true,
                     FileName = storageFolder.Path + @"\log\" + DateTime.Now.ToString("yyyyMMdd") + ".log",
-                    Layout = "${longdate}|${level:uppercase=true}|${logger}|${threadid}|${message}|${exception:format=Message,StackTrace}"
+                    Layout = "${longdate}|${level:uppercase=true}|${logger}|${threadid}|${message}|${exception:format=ToString}"
                 };
                 config.AddRule(LogLevel.Info, LogLevel.Info, logfile);
                 config.AddRule(LogLevel.Debug, LogLevel.Debug, logfile);
@@ -45,6 +45,9 @@ namespace BiliBili.UWP.Helper
                 NLog.LogManager.Configuration = config;
             }
             Debug.WriteLine("[" + LogType.INFO.ToString() + "]" + message);
+            // 未处理异常常被 Activator/Frame.Navigate 包装成 TargetInvocationException，
+            // 只记录外层消息会丢失真正原因，这里显式展开 InnerException 链兜底。
+            string detail = BuildExceptionDetail(ex, message);
             switch (type)
             {
                 case LogType.INFO:
@@ -54,14 +57,48 @@ namespace BiliBili.UWP.Helper
                     logger.Debug(message);
                     break;
                 case LogType.ERROR:
-                    logger.Error(ex, message);
+                    logger.Error(ex, detail);
                     break;
                 case LogType.FATAL:
-                    logger.Fatal(ex, message);
+                    logger.Fatal(ex, detail);
                     break;
                 default:
                     break;
             }
+        }
+
+        /// <summary>
+        /// 将异常及其全部内层异常拼成一行，避免只看到包装异常的消息。
+        /// 无异常时原样返回 message。
+        /// </summary>
+        private static string BuildExceptionDetail(Exception ex, string message)
+        {
+            if (ex == null)
+            {
+                return message;
+            }
+
+            StringBuilder sb = new StringBuilder(message);
+            sb.Append(" | 异常类型: ").Append(ex.GetType().FullName);
+            sb.Append(" | HResult: 0x").Append(ex.HResult.ToString("X8"));
+            sb.Append(" | 消息: ").Append(ex.Message);
+
+            Exception inner = ex.InnerException;
+            int depth = 1;
+            while (inner != null)
+            {
+                sb.Append(" || 内层[").Append(depth).Append("] 类型: ").Append(inner.GetType().FullName);
+                sb.Append(" | HResult: 0x").Append(inner.HResult.ToString("X8"));
+                sb.Append(" | 消息: ").Append(inner.Message);
+                if (!string.IsNullOrEmpty(inner.StackTrace))
+                {
+                    sb.Append(" | 堆栈: ").Append(inner.StackTrace);
+                }
+                inner = inner.InnerException;
+                depth++;
+            }
+
+            return sb.ToString();
         }
         public static bool IsNetworkError(Exception ex)
         {

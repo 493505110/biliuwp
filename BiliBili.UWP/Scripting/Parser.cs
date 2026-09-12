@@ -1778,32 +1778,86 @@ namespace scripting
             ExpressionResult loc3 = null;
             ExpressionResult loc4 = null;
             this.parse_memberExpression(param1);
-            while (this.isToken("("))
+            // 调用之后仍可能继续出现后缀:o.f().g()、o.f()[0]、o.f().g().h()……
+            // parse_memberExpression 只在最外层解析一次后缀(它内部遇到 "(" 就返回),
+            // 因此这里每次调用完都要再消费一轮后缀,否则链式写法的 "." 无人消费,
+            // 会在上层的 parse_arguments 里报 "')' not found in argument list"。
+            while (true)
             {
-                loc2 = this.parse_arguments();
-                switch (param1.type)
+                if (this.isToken("("))
                 {
-                    case "member":
-                        loc3 = param1.getObjectExpression();
-                        loc4 = param1.getMemberExpression();
-                        this.generator.putExpressionResult(loc4);
-                        this.generator.putCallMember(loc3, loc4, loc2);
-                        break;
-                    case "stack":
-                        this.generator.putCallFunctor(loc2);
-                        break;
-                    default:
-                        this.generator.putCall(param1, loc2);
-                        break;
+                    loc2 = this.parse_arguments();
+                    switch (param1.type)
+                    {
+                        case "member":
+                            loc3 = param1.getObjectExpression();
+                            loc4 = param1.getMemberExpression();
+                            this.generator.putExpressionResult(loc4);
+                            this.generator.putCallMember(loc3, loc4, loc2);
+                            break;
+                        case "stack":
+                            this.generator.putCallFunctor(loc2);
+                            break;
+                        default:
+                            this.generator.putCall(param1, loc2);
+                            break;
+                    }
+                    param1.setType("stack");
+                    continue;
                 }
-                param1.setType("stack");
+
+                // 调用结果上的 ".name" / "[expr]" 后缀。
+                if (!this.isToken(".") && !this.isToken("["))
+                {
+                    break;
+                }
+                this.parse_memberSuffix(param1);
+            }
+        }
+
+        /// <summary>
+        /// 解析一个后缀成员访问(不带调用的 ".name" 或 "[expr]"),重复直到没有后缀为止。
+        /// 供 parse_memberExpression 与 parse_callExpression 共用:
+        /// 前者用于初等表达式之后,后者用于函数调用结果之后。
+        /// </summary>
+        private void parse_memberSuffix(ExpressionResult param1)
+        {
+            ExpressionResult loc3 = null;
+            while (true)
+            {
+                if (this.isToken("["))
+                {
+                    this.nextToken();
+                    this.generator.putExpressionResult(param1);
+                    loc3 = new ExpressionResult();
+                    this.parse_expression(loc3);
+                    param1.setTypeMember(param1.clone(), loc3);
+                    if (!this.isToken("]"))
+                    {
+                        this.causeSyntaxError("']' not found in array access");
+                    }
+                    this.nextToken();
+                }
+                else
+                {
+                    if (!this.isToken("."))
+                    {
+                        break;
+                    }
+                    this.generator.putExpressionResult(param1);
+                    if (!this.isNextToken("identifier"))
+                    {
+                        this.causeSyntaxError("'.' not found in property access");
+                    }
+                    param1.setTypeMember(param1.clone(), ExpressionResult.createLiteral(this.getToken().value));
+                    this.nextToken();
+                }
             }
         }
 
         private void parse_memberExpression(ExpressionResult param1)
         {
             double loc2 = 0;
-            ExpressionResult loc3 = null;
             switch (this.getToken().type)
             {
                 case "function":
@@ -1836,36 +1890,7 @@ namespace scripting
                     this.parse_primaryExpression(param1);
                     break;
             }
-            while (true)
-            {
-                if (this.isToken("["))
-                {
-                    this.nextToken();
-                    this.generator.putExpressionResult(param1);
-                    loc3 = new ExpressionResult();
-                    this.parse_expression(loc3);
-                    param1.setTypeMember(param1.clone(), loc3);
-                    if (!this.isToken("]"))
-                    {
-                        this.causeSyntaxError("']' not found in array access");
-                    }
-                    this.nextToken();
-                }
-                else
-                {
-                    if (!this.isToken("."))
-                    {
-                        break;
-                    }
-                    this.generator.putExpressionResult(param1);
-                    if (!this.isNextToken("identifier"))
-                    {
-                        this.causeSyntaxError("'.' not found in property access");
-                    }
-                    param1.setTypeMember(param1.clone(), ExpressionResult.createLiteral(this.getToken().value));
-                    this.nextToken();
-                }
-            }
+            this.parse_memberSuffix(param1);
         }
 
         private bool isMemberExpressionFirst(string param1)
