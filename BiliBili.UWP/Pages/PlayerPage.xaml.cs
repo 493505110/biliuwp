@@ -3579,7 +3579,8 @@ namespace BiliBili.UWP.Pages
 
         private void UpdateInteractiveDanmakuTypeSummary()
         {
-            btn_InteractiveDanmakuTypes.Content = InteractiveDanmakuTypeDialog.GetSummary();
+            // 面板宽度有限，用短摘要避免与左侧标签重叠
+            btn_InteractiveDanmakuTypes.Content = InteractiveDanmakuTypeDialog.GetShortSummary();
         }
 
         private async void InteractiveDanmakuTypes_Click(object sender, RoutedEventArgs e)

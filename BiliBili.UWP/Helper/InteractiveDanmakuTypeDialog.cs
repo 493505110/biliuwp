@@ -21,7 +21,7 @@ namespace BiliBili.UWP.Helper
             InteractiveDanmakuType.Attention
         };
 
-        /// <summary>当前选择的可读摘要，用于设置项的入口按钮文案。</summary>
+        /// <summary>当前选择的可读摘要，用于设置页入口按钮文案。</summary>
         public static string GetSummary()
         {
             var mask = SettingHelper.Get_InteractiveDanmakuTypes();
@@ -30,6 +30,29 @@ namespace BiliBili.UWP.Helper
                 return "不显示";
             }
 
+            var names = GetEnabledTypeNames(mask);
+            return names.Count == AllTypes.Length
+                ? "全部"
+                : string.Join("、", names);
+        }
+
+        /// <summary>播放器设置面板用的短摘要：面板宽度有限，完整名单会压住左侧标签，只显示已选数量。</summary>
+        public static string GetShortSummary()
+        {
+            var mask = SettingHelper.Get_InteractiveDanmakuTypes();
+            if (mask == 0)
+            {
+                return "不显示";
+            }
+
+            var names = GetEnabledTypeNames(mask);
+            return names.Count == AllTypes.Length
+                ? "全部"
+                : $"已选 {names.Count} 项";
+        }
+
+        private static List<string> GetEnabledTypeNames(int mask)
+        {
             var names = new List<string>();
             foreach (var type in AllTypes)
             {
@@ -39,9 +62,7 @@ namespace BiliBili.UWP.Helper
                 }
             }
 
-            return names.Count == AllTypes.Length
-                ? "全部"
-                : string.Join("、", names);
+            return names;
         }
 
         /// <summary>弹出类型选择对话框；点确定时保存选择并返回 true，取消返回 false。</summary>
