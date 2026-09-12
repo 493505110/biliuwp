@@ -285,6 +285,22 @@
                     bounds.top + y * bounds.height));
             }
 
+            function resizeInstance() {
+                if (!instance) {
+                    return;
+                }
+
+                var width = container.offsetWidth;
+                var height = container.offsetHeight;
+                if (width <= 0 || height <= 0) {
+                    return;
+                }
+
+                // BAS 默认按分辨率等比 contain，容器比例不是 16:9 时弹幕会缩到中间一块；
+                // 这里用容器实际尺寸作为分辨率，让渲染区域始终铺满整个视口。
+                instance.resize(width, height);
+            }
+
             function createInstance() {
                 if (!window.BasDanmaku) {
                     throw new Error("未找到 BAS 弹幕渲染器");
@@ -306,7 +322,7 @@
                     timeSyncFunc: currentPositionMs
                 });
                 patchClock(instance);
-                instance.resize(1920, 1080);
+                resizeInstance();
                 return instance;
             }
 
@@ -407,9 +423,7 @@
                         createInstance();
                         setState(positionSeconds, playing, rate);
                         instance.visible(!!visible);
-                        if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-                            instance.resize();
-                        }
+                        resizeInstance();
                         observeRendered();
                     } catch (error) {
                         reportError("initialize", error);
@@ -462,13 +476,15 @@
                     }
                 },
                 resize: function () {
-                    if (instance && container.offsetWidth > 0 && container.offsetHeight > 0) {
-                        try {
-                            instance.resize();
-                            reportRendered();
-                        } catch (error) {
-                            reportError("resize", error);
-                        }
+                    if (!instance) {
+                        return;
+                    }
+
+                    try {
+                        resizeInstance();
+                        reportRendered();
+                    } catch (error) {
+                        reportError("resize", error);
                     }
                 }
             };
