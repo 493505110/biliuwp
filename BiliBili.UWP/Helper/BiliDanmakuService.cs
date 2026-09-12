@@ -1,4 +1,4 @@
-using NSDanmaku.Model;
+﻿using NSDanmaku.Model;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -159,6 +159,7 @@ namespace BiliBili.UWP.Helper
             var plan = initial.WebLoadPlan;
             var items = new List<DanmakuModel>(initial.Items ?? new List<DanmakuModel>());
             var basItems = new List<BasDanmakuModel>(initial.BasItems ?? new List<BasDanmakuModel>());
+            var m8Items = new List<M8DanmakuModel>(initial.M8Items ?? new List<M8DanmakuModel>());
             var failedRegularSegmentCount = 0;
             var failedSpecialPackageCount = 0;
             var unsupportedDanmakuCount = initial.UnsupportedDanmakuCount;
@@ -202,6 +203,10 @@ namespace BiliBili.UWP.Helper
                 {
                     basItems.AddRange(segmentResult.BasItems);
                 }
+                if (segmentResult.M8Items != null && segmentResult.M8Items.Count != 0)
+                {
+                    m8Items.AddRange(segmentResult.M8Items);
+                }
             }
 
             if (failedRegularSegmentCount != 0)
@@ -232,7 +237,8 @@ namespace BiliBili.UWP.Helper
                 initial.SpecialDanmakuPackageCount,
                 unsupportedDanmakuCount,
                 unsupportedDanmakuModes,
-                null);
+                null,
+                m8Items);
         }
 
         /// <summary>
@@ -467,7 +473,8 @@ namespace BiliBili.UWP.Helper
                 specialDanmakuUrls.Count,
                 firstSegment.UnsupportedDanmakuCount,
                 firstSegment.UnsupportedDanmakuModes,
-                plan);
+                plan,
+                firstSegment.M8Items);
         }
 
         private static async Task<List<SegmentLoadResult>> LoadRemainingSegmentsAsync(
@@ -558,11 +565,13 @@ namespace BiliBili.UWP.Helper
                 var unsupportedDanmakuCount = 0;
                 var unsupportedDanmakuModes = new Dictionary<int, int>();
                 var basItems = new List<BasDanmakuModel>();
+                var m8Items = new List<M8DanmakuModel>();
                 var items = ParseSegment(
                     segmentBytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    basItems);
+                    basItems,
+                    m8Items);
                 return new SegmentLoadResult(
                     segmentIndex,
                     false,
@@ -571,7 +580,8 @@ namespace BiliBili.UWP.Helper
                     basItems,
                     unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    null);
+                    null,
+                    m8Items);
             }
             catch (OperationCanceledException)
             {
@@ -635,11 +645,13 @@ namespace BiliBili.UWP.Helper
                 var unsupportedDanmakuCount = 0;
                 var unsupportedDanmakuModes = new Dictionary<int, int>();
                 var basItems = new List<BasDanmakuModel>();
+                var m8Items = new List<M8DanmakuModel>();
                 var items = ParseSegment(
                     response.Bytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    basItems);
+                    basItems,
+                    m8Items);
                 return new SegmentLoadResult(
                     0,
                     true,
@@ -648,7 +660,8 @@ namespace BiliBili.UWP.Helper
                     basItems,
                     unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    null);
+                    null,
+                    m8Items);
             }
             catch (OperationCanceledException)
             {
@@ -829,7 +842,8 @@ namespace BiliBili.UWP.Helper
             byte[] bytes,
             ref int unsupportedDanmakuCount,
             Dictionary<int, int> unsupportedDanmakuModes,
-            List<BasDanmakuModel> basItems)
+            List<BasDanmakuModel> basItems,
+            List<M8DanmakuModel> m8Items)
         {
             var result = new List<DanmakuModel>();
             foreach (var field in ReadFields(bytes))
@@ -843,7 +857,8 @@ namespace BiliBili.UWP.Helper
                     field.Bytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    basItems);
+                    basItems,
+                    m8Items);
                 if (item != null)
                 {
                     result.Add(item);
@@ -857,7 +872,8 @@ namespace BiliBili.UWP.Helper
             byte[] bytes,
             ref int unsupportedDanmakuCount,
             Dictionary<int, int> unsupportedDanmakuModes,
-            List<BasDanmakuModel> basItems)
+            List<BasDanmakuModel> basItems,
+            List<M8DanmakuModel> m8Items)
         {
             long id = 0;
             long progress = 0;
@@ -926,6 +942,20 @@ namespace BiliBili.UWP.Helper
                         dmid = rowId,
                         stime = Math.Max(0, time),
                         text = text
+                    });
+                }
+
+                return null;
+            }
+
+            if (modeValue == 8)
+            {
+                if (m8Items != null && !string.IsNullOrWhiteSpace(text))
+                {
+                    m8Items.Add(new M8DanmakuModel
+                    {
+                        Time = Math.Max(0, time),
+                        Script = text
                     });
                 }
 
@@ -1491,13 +1521,15 @@ namespace BiliBili.UWP.Helper
                 List<BasDanmakuModel> basItems,
                 int unsupportedDanmakuCount,
                 IDictionary<int, int> unsupportedDanmakuModes,
-                Exception error)
+                Exception error,
+                List<M8DanmakuModel> m8Items = null)
             {
                 SegmentIndex = segmentIndex;
                 IsSpecialPackage = isSpecialPackage;
                 Source = source;
                 Items = items ?? new List<DanmakuModel>();
                 BasItems = basItems ?? new List<BasDanmakuModel>();
+                M8Items = m8Items ?? new List<M8DanmakuModel>();
                 UnsupportedDanmakuCount = unsupportedDanmakuCount;
                 UnsupportedDanmakuModes = unsupportedDanmakuModes == null
                     ? new Dictionary<int, int>()
@@ -1510,6 +1542,7 @@ namespace BiliBili.UWP.Helper
             public string Source { get; }
             public List<DanmakuModel> Items { get; }
             public List<BasDanmakuModel> BasItems { get; }
+            public List<M8DanmakuModel> M8Items { get; }
             public int UnsupportedDanmakuCount { get; }
             public Dictionary<int, int> UnsupportedDanmakuModes { get; }
             public Exception Error { get; }
@@ -1612,10 +1645,12 @@ namespace BiliBili.UWP.Helper
             int specialDanmakuPackageCount,
             int unsupportedDanmakuCount,
             IDictionary<int, int> unsupportedDanmakuModes,
-            BiliDanmakuLoadPlan webLoadPlan)
+            BiliDanmakuLoadPlan webLoadPlan,
+            List<M8DanmakuModel> m8Items = null)
         {
             Items = items ?? new List<DanmakuModel>();
             BasItems = basItems ?? new List<BasDanmakuModel>();
+            M8Items = m8Items ?? new List<M8DanmakuModel>();
             NeedsLegacySupplement = needsLegacySupplement;
             UsedNewInterface = usedNewInterface;
             IsDanmakuClosed = isDanmakuClosed;
@@ -1629,6 +1664,7 @@ namespace BiliBili.UWP.Helper
 
         public List<DanmakuModel> Items { get; }
         public List<BasDanmakuModel> BasItems { get; }
+        public List<M8DanmakuModel> M8Items { get; }
         public bool NeedsLegacySupplement { get; }
         public bool UsedNewInterface { get; }
         public bool IsDanmakuClosed { get; }
@@ -1636,5 +1672,12 @@ namespace BiliBili.UWP.Helper
         public int UnsupportedDanmakuCount { get; }
         public Dictionary<int, int> UnsupportedDanmakuModes { get; }
         internal BiliDanmakuLoadPlan WebLoadPlan { get; }
+    }
+
+    public sealed class M8DanmakuModel
+    {
+        public double Time { get; set; }
+
+        public string Script { get; set; }
     }
 }

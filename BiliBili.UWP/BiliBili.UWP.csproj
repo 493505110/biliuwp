@@ -335,6 +335,7 @@
     <Compile Include="Controls\InteractiveDanmakuControl.xaml.cs">
       <DependentUpon>InteractiveDanmakuControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Controls\M8Win2DRenderHost.cs" />
     <Compile Include="Controls\DownloadDialog.xaml.cs">
       <DependentUpon>DownloadDialog.xaml</DependentUpon>
     </Compile>
@@ -681,6 +682,24 @@
       <DependentUpon>WebPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Scripting\CodeGenerator.cs" />
+    <Compile Include="Scripting\ExpressionResult.cs" />
+    <Compile Include="Scripting\IParser.cs" />
+    <Compile Include="Scripting\IScanner.cs" />
+    <Compile Include="Scripting\Label.cs" />
+    <Compile Include="Scripting\M8DisplayApi.cs" />
+    <Compile Include="Scripting\M8Element.cs" />
+    <Compile Include="Scripting\M8Motion.cs" />
+    <Compile Include="Scripting\M8PlayerApi.cs" />
+    <Compile Include="Scripting\M8RenderHost.cs" />
+    <Compile Include="Scripting\M8Sandbox.cs" />
+    <Compile Include="Scripting\M8ScriptManager.cs" />
+    <Compile Include="Scripting\M8Tween.cs" />
+    <Compile Include="Scripting\Parser.cs" />
+    <Compile Include="Scripting\Scanner.cs" />
+    <Compile Include="Scripting\Token.cs" />
+    <Compile Include="Scripting\VirtualMachine.cs" />
+    <Compile Include="Scripting\VMSyntaxError.cs" />
     <Compile Include="SplashPage.xaml.cs">
       <DependentUpon>SplashPage.xaml</DependentUpon>
     </Compile>
@@ -1296,6 +1315,9 @@
     </PackageReference>
     <PackageReference Include="HtmlAgilityPack">
       <Version>1.11.18</Version>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Graphics.Win2D">
+      <Version>1.0.0.30</Version>
     </PackageReference>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform">
       <Version>6.2.9</Version>

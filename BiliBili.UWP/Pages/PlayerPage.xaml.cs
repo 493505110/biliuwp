@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -38,6 +38,7 @@ using Windows.UI.Xaml.Media.Imaging;
 using Windows.Graphics.Imaging;
 using SYEngine;
 using System.Diagnostics;
+using scripting;
 using BiliBili.UWP.Modules;
 using BiliBili.UWP.Modules.Detail;
 using BiliBili.UWP.Modules.Playback;
@@ -98,6 +99,13 @@ namespace BiliBili.UWP.Pages
         private const double BasDanmakuLookaheadSeconds = 70;
         private const double BasDanmakuWindowRefreshThresholdSeconds = 25;
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
+        M8Win2DRenderHost m8RenderHost;
+        VirtualMachine m8Vm;
+        Dictionary<string, object> m8Global;
+        M8ScriptManager m8ScriptManager;
+        M8PlayerApi m8PlayerApi;
+        Queue<M8DanmakuModel> m8PendingScripts = new Queue<M8DanmakuModel>();
+        bool m8EngineReady;
         public PlayerPage()
         {
             this.InitializeComponent();
@@ -105,12 +113,153 @@ namespace BiliBili.UWP.Pages
             InitMediaPlayer();
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
+            InitM8Engine();
             MTC.DanmuLoaded += MTC_DanmuLoaded;
             basDanmakuControl.ActionRequested += BasDanmakuControl_ActionRequested;
             playerSurface.AddHandler(
                 UIElement.TappedEvent,
                 new TappedEventHandler(PlayerSurface_Tapped),
                 true);
+        }
+
+        private void InitM8Engine()
+        {
+            try
+            {
+                // 画布以代码动态创建并置于 BAS 弹幕层之后:避免 Win2D 控件在 XAML
+                // 解析阶段激活失败导致播放页打不开;Win2D 不可用时仅降级不渲染。
+                var canvas = new Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl
+                {
+                    IsHitTestVisible = false
+                };
+                int insertIndex = Math.Min(2, playerSurface.Children.Count);
+                playerSurface.Children.Insert(insertIndex, canvas);
+
+                m8RenderHost = new M8Win2DRenderHost(canvas);
+                m8RenderHost.PlayRequested += () => mediaPlayer?.Play();
+                m8RenderHost.PauseRequested += () => mediaPlayer?.Pause();
+                m8RenderHost.SeekRequested += seconds =>
+                {
+                    var player = mediaPlayer;
+                    if (player == null) return;
+                    try
+                    {
+                        player.PlaybackSession.Position = TimeSpan.FromSeconds(Math.Max(0, seconds));
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHelper.WriteLog("M8 脚本 seek 失败", LogType.ERROR, ex);
+                    }
+                };
+                m8RenderHost.JumpRequested += M8HandleJump;
+
+                m8Vm = new VirtualMachine();
+                m8Global = (Dictionary<string, object>)m8Vm.getGlobalObject();
+                M8Sandbox.Install(
+                    m8Vm,
+                    m8Global,
+                    new M8Host { EnableTimers = true, Log = M8Log },
+                    m8RenderHost);
+                m8ScriptManager = m8Global["ScriptManager"] as M8ScriptManager;
+                m8PlayerApi = m8Global["Player"] as M8PlayerApi;
+                m8EngineReady = true;
+            }
+            catch (Exception ex)
+            {
+                string detail = ex.Message;
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    detail += " | 内层: " + inner.Message;
+                    inner = inner.InnerException;
+                }
+
+                LogHelper.WriteLog("初始化 M8 代码弹幕引擎失败: " + detail, LogType.ERROR, ex);
+                m8EngineReady = false;
+            }
+        }
+
+        private void SetM8DanmakuPool(IEnumerable<M8DanmakuModel> items, bool append = false)
+        {
+            var merged = new List<M8DanmakuModel>();
+            if (append && m8PendingScripts.Count != 0)
+            {
+                merged.AddRange(m8PendingScripts);
+            }
+
+            if (items != null)
+            {
+                merged.AddRange(items);
+            }
+
+            m8PendingScripts.Clear();
+            foreach (var item in merged
+                .Where(i => i != null && !string.IsNullOrWhiteSpace(i.Script))
+                .OrderBy(i => i.Time))
+            {
+                m8PendingScripts.Enqueue(item);
+            }
+        }
+
+        private void HandleM8DanmakuPosition(double position)
+        {
+            var host = m8RenderHost;
+            if (!m8EngineReady || host == null) return;
+            host.Stime = position;
+            while (m8PendingScripts.Count > 0 && m8PendingScripts.Peek().Time <= position)
+            {
+                var item = m8PendingScripts.Dequeue();
+                if (item != null) RunM8Script(item.Script);
+            }
+        }
+
+        private void RunM8Script(string script)
+        {
+            var vm = m8Vm;
+            if (!m8EngineReady || vm == null || string.IsNullOrWhiteSpace(script)) return;
+            try
+            {
+                var byteCode = new Parser(new Scanner(script)).parse(vm);
+                vm.setByteCode(byteCode);
+                vm.execute();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("执行 M8 代码弹幕失败", LogType.ERROR, ex);
+            }
+        }
+
+        private void SyncM8PlayerStateForPlayback(MediaPlaybackState playbackState)
+        {
+            var player = m8PlayerApi;
+            if (!m8EngineReady || player == null) return;
+            switch (playbackState)
+            {
+                case MediaPlaybackState.Playing:
+                    player.SetState(scripting.PlayerState.PLAYING);
+                    break;
+                case MediaPlaybackState.Paused:
+                    player.SetState(scripting.PlayerState.PAUSED);
+                    break;
+                case MediaPlaybackState.Buffering:
+                case MediaPlaybackState.Opening:
+                    player.SetState(scripting.PlayerState.BUFFERING);
+                    break;
+                default:
+                    player.SetState(scripting.PlayerState.STOPPED);
+                    break;
+            }
+        }
+
+        private void M8HandleJump(string av, int page, bool newWindow)
+        {
+            AddLog("M8 脚本请求跳转 av" + av + " 第" + page + "P");
+            // TODO: 后续可按需接入视频详情页跳转
+        }
+
+        private static void M8Log(string message)
+        {
+            LogHelper.WriteLog("M8代码弹幕: " + message, LogType.INFO);
         }
 
         private void InitMediaPlayer()
@@ -272,6 +421,7 @@ namespace BiliBili.UWP.Pages
                     HandleBiliJumpPosition();
                     HandleInteractiveDanmakuPosition();
                     SyncBasDanmakuPosition();
+                    HandleM8DanmakuPosition(sender.Position.TotalSeconds);
                 }
                 else
                 {
@@ -284,6 +434,7 @@ namespace BiliBili.UWP.Pages
                                 HandleBiliJumpPosition();
                                 HandleInteractiveDanmakuPosition();
                                 SyncBasDanmakuPosition();
+                                HandleM8DanmakuPosition(sender.Position.TotalSeconds);
                             }
                         }
                         catch (Exception ex)
@@ -433,6 +584,7 @@ namespace BiliBili.UWP.Pages
                 }
 
                 buffering = false;
+                SyncM8PlayerStateForPlayback(sender.PlaybackState);
                 switch (sender.PlaybackState)
                 {
                     //case  MediaPlaybackState.Closed:
@@ -563,6 +715,8 @@ namespace BiliBili.UWP.Pages
                         return;
                     }
 
+                    m8ScriptManager?.ClearEl();
+                    m8PendingScripts.Clear();
                     if (cb_setting_1.IsChecked.Value)
                     {
                         var audioPlayer = mediaPlayer_audio;
@@ -855,6 +1009,9 @@ namespace BiliBili.UWP.Pages
             base.OnNavigatingFrom(e);
             try
             {
+                //M8 代码弹幕引擎与画布解绑
+                m8RenderHost?.Release();
+                m8PendingScripts.Clear();
                 if (!_isExiting)
                 {
                     BeginExit();
@@ -1829,6 +1986,7 @@ namespace BiliBili.UWP.Pages
             var initial = load?.Items ?? new List<NSDanmaku.Model.DanmakuModel>();
             SetDanmakuPool(initial);
             SetBasDanmakuPool(load?.BasItems);
+            SetM8DanmakuPool(load?.M8Items);
             if (load?.IsDanmakuClosed == true)
             {
                 AddLog("当前视频已关闭弹幕");
@@ -1869,6 +2027,7 @@ namespace BiliBili.UWP.Pages
                 {
                     SetDanmakuPool(completed.Items, false);
                     SetBasDanmakuPool(completed.BasItems);
+                    SetM8DanmakuPool(completed.M8Items, true);
                     //AddLog("后台补齐弹幕完成，共 " + completed.Items.Count + " 条");
                     if (completed.UnsupportedDanmakuCount > 0)
                     {

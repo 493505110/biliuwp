@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
@@ -150,12 +150,12 @@ namespace scripting
                 ["hue"] = (Func<object, object>)(h =>
                 {
                     int p = (int)Number(h) % 360;
-                    double r = 0, g = 0, b = 0;
-                    if (p > 0 && p < 240) r = 100 - 50 * Math.Abs(p - 120) / 120.0;
-                    if (p > 240 && p < 360) g = 100 - 50 * Math.Abs(p - 240) / 120.0;
-                    if (p > 240 && p <= 360) b = 100 - 50 * Math.Abs(p - 360) / 120.0;
-                    else if (p + 360 >= 240 && p + 360 < 360) b = 100 - 50 * Math.Abs(p + 360 - 240) / 120.0;
-                    return (double)((int)(r * 255 / 100) << 16 | (int)(g * 255 / 100) << 8 | (int)(b * 255 / 100));
+                    double hr = 0, hg = 0, hb = 0;
+                    if (p > 0 && p < 240) hr = 100 - 50 * Math.Abs(p - 120) / 120.0;
+                    if (p > 240 && p < 360) hg = 100 - 50 * Math.Abs(p - 240) / 120.0;
+                    if (p > 240 && p <= 360) hb = 100 - 50 * Math.Abs(p - 360) / 120.0;
+                    else if (p + 360 >= 240 && p + 360 < 360) hb = 100 - 50 * Math.Abs(p + 360 - 240) / 120.0;
+                    return (double)((int)(hr * 255 / 100) << 16 | (int)(hg * 255 / 100) << 8 | (int)(hb * 255 / 100));
                 }),
                 ["formatTimes"] = (Func<object, object>)(s =>
                 {
@@ -226,7 +226,7 @@ namespace scripting
             });
 
             // ---- Global / $G ----
-            var g = new Dictionary<string, object>
+            var globals = new Dictionary<string, object>
             {
                 ["_get"] = (Func<object, object>)(k => store.Get(Str(k))),
                 ["_set"] = (Func<object, object, object>)((k, v) => store.Set(Str(k), v)),
@@ -243,8 +243,8 @@ namespace scripting
             global["Math"] = math;
             global["String"] = strObj;
             global["Utils"] = utils;
-            global["Global"] = g;
-            global["$G"] = g;
+            global["Global"] = globals;
+            global["$G"] = globals;
 
             if (renderHost == null) renderHost = new M8NullRenderHost();
             var scriptManager = new M8ScriptManager(renderHost);
