@@ -501,6 +501,19 @@ namespace BiliBili.UWP.Pages
             });
 
         }
+
+        private void PlayerPage_VisibilityChanged(object sender, VisibilityChangedEventArgs e)
+        {
+            // 窗口从最小化还原时,XAML 会一并恢复此前被 Pause 的 Storyboard,
+            // 暂停/缓冲状态下的弹幕会自己滚动起来,这里按当前播放状态重新对齐。
+            if (mediaPlayer?.PlaybackSession?.PlaybackState == MediaPlaybackState.Playing)
+            {
+                return;
+            }
+
+            danmu?.PauseDanmaku();
+        }
+
         private async void PlaybackSession_BufferingProgressChanged(MediaPlaybackSession sender, object args)
         {
             if (mediaPlayer == null || !ReferenceEquals(sender, mediaPlayer.PlaybackSession))
@@ -800,6 +813,7 @@ namespace BiliBili.UWP.Pages
         {
             base.OnNavigatedTo(e);
             CoreWindow.GetForCurrentThread().KeyDown += PlayerPage_KeyDown;
+            Window.Current.VisibilityChanged += PlayerPage_VisibilityChanged;
             this.Frame.Visibility = Visibility.Visible;
             int flag = 1;
             while (true)
@@ -862,6 +876,7 @@ namespace BiliBili.UWP.Pages
                 }
                 //Debug.WriteLine("开始返回");
                 CoreWindow.GetForCurrentThread().KeyDown -= PlayerPage_KeyDown;
+                Window.Current.VisibilityChanged -= PlayerPage_VisibilityChanged;
                 this.Frame.Visibility = Visibility.Collapsed;
                 MusicHelper.ActivatePausedMusic();
 
