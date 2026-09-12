@@ -108,6 +108,9 @@
   <ItemGroup>
     <!-- A reference to the entire .Net Framework and Windows SDK are automatically included -->
     <Content Include="Assets\avatar\qrmodel.png" />
+    <Content Include="Assets\bas-jquery-shim.js" />
+    <Content Include="Assets\bas-host.html" />
+    <Content Include="Assets\bas.js" />
     <Content Include="Assets\geetest.html" />
     <Content Include="Assets\Bili\主要\coin\cn7.png" />
     <Content Include="Assets\Bili\主要\coin\dby.png" />
@@ -326,6 +329,9 @@
       <DependentUpon>CommentV2Control.xaml</DependentUpon>
     </Compile>
     <Compile Include="Controls\DanmakuMTC.cs" />
+    <Compile Include="Controls\BasDanmakuControl.xaml.cs">
+      <DependentUpon>BasDanmakuControl.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\InteractiveDanmakuControl.xaml.cs">
       <DependentUpon>InteractiveDanmakuControl.xaml</DependentUpon>
     </Compile>
@@ -408,6 +414,7 @@
     <Compile Include="Models\ArticleModels.cs" />
     <Compile Include="Models\SpaceDynamicModel.cs" />
     <Compile Include="Models\BangumiModel.cs" />
+    <Compile Include="Models\BasDanmakuModel.cs" />
     <Compile Include="Models\BanInfoModel.cs" />
     <Compile Include="Models\FaceModels.cs" />
     <Compile Include="Models\HomeModels.cs" />
@@ -845,6 +852,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="Controls\BasDanmakuControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Controls\Carousel\Carousel.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -1271,6 +1282,10 @@
       <Project>{e3691422-cbfd-4df9-827b-77d195731eec}</Project>
       <Name>BackTask</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Libraries\NSDanmaku-Fork\NSDanmaku\NSDanmaku.csproj">
+      <Project>{964d5bcc-c063-45cc-aeea-89169e4a2e5e}</Project>
+      <Name>NSDanmaku</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FFmpegInteropX.UWP" Condition="'$(Platform)' != 'ARM'">
@@ -1308,9 +1323,6 @@
     </PackageReference>
     <PackageReference Include="NLog.Config">
       <Version>4.7.0</Version>
-    </PackageReference>
-    <PackageReference Include="NSDanmaku">
-      <Version>1.5.1</Version>
     </PackageReference>
     <PackageReference Include="PullToRefresh.UWP">
       <Version>0.3.4</Version>

@@ -67,7 +67,6 @@ namespace BiliBili.UWP.Pages
             CoreWindow.GetForCurrentThread().KeyDown += LiveRoomPage_KeyDown; ;
             DataTransferManager dataTransferManager = DataTransferManager.GetForCurrentView();
             dataTransferManager.DataRequested += DataTransferManager_DataRequested;
-            danmu.danmakuMode = NSDanmaku.Model.DanmakuMode.Live;
         }
 
         private void LiveRoomPage_KeyDown(CoreWindow sender, KeyEventArgs args)
@@ -134,7 +133,7 @@ namespace BiliBili.UWP.Pages
                             LoadDanmu(m);
                             if (DanmuOpen)
                             {
-                                danmu.AddRollDanmu(new NSDanmaku.Model.DanmakuModel()
+                                danmu.AddScrollDanmu(new NSDanmaku.Model.DanmakuModel()
                                 {
                                     text = m.text,
                                     size = 25,
@@ -155,15 +154,15 @@ namespace BiliBili.UWP.Pages
                             {
                                 if (info.giftName == "FFF")
                                 {
-                                    danmu.AddRollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/fff.png")));
+                                    danmu.AddScrollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/fff.png")));
                                 }
                                 if (info.giftName == "233")
                                 {
-                                    danmu.AddRollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/233.png")));
+                                    danmu.AddScrollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/233.png")));
                                 }
                                 if (info.giftName == "666")
                                 {
-                                    danmu.AddRollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/666.png")));
+                                    danmu.AddScrollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/666.png")));
                                 }
                             }
                         });
@@ -1221,13 +1220,13 @@ namespace BiliBili.UWP.Pages
             // double _fontSize = 25;
             if (grid_NotFull.ActualWidth < 600)
             {
-                danmu.speed = Convert.ToInt32(slider_DanmuSpeed.Value * 0.4);
-                danmu.sizeZoom = 0.65;
+                danmu.DanmakuDuration = Convert.ToInt32(slider_DanmuSpeed.Value * 0.4);
+                danmu.DanmakuSizeZoom = 0.65;
             }
             else
             {
-                danmu.speed = Convert.ToInt32(slider_DanmuSpeed.Value);
-                danmu.sizeZoom = slider_DanmuSize.Value;
+                danmu.DanmakuDuration = Convert.ToInt32(slider_DanmuSpeed.Value);
+                danmu.DanmakuSizeZoom = slider_DanmuSize.Value;
             }
         }
 
@@ -1556,7 +1555,7 @@ namespace BiliBili.UWP.Pages
             sw_ForceAudio.IsOn = SettingHelper.Get_ForceAudio();
             sw_ForceVideo.IsOn = SettingHelper.Get_ForceVideo();
 
-            danmu.borderStyle = (DanmakuBorderStyle)SettingHelper.Get_DMStyle();
+            danmu.DanmakuStyle = (DanmakuBorderStyle)SettingHelper.Get_DMStyle();
             settingloading = false;
         }
 
@@ -1864,8 +1863,8 @@ namespace BiliBili.UWP.Pages
             {
                 await ApplicationView.GetForCurrentView().TryEnterViewModeAsync(ApplicationViewMode.CompactOverlay);
                 danmu.ClearAll();
-                danmu.SetSpeed(5);
-                danmu.sizeZoom = 0.5;
+                danmu.DanmakuDuration = 5;
+                danmu.DanmakuSizeZoom = 0.5;
                 btn_Mini.Visibility = Visibility.Collapsed;
                 btn_ExitMini.Visibility = Visibility.Visible;
             }
@@ -1875,8 +1874,8 @@ namespace BiliBili.UWP.Pages
         {
             await ApplicationView.GetForCurrentView().TryEnterViewModeAsync(ApplicationViewMode.Default);
             danmu.ClearAll();
-            danmu.speed = SettingHelper.Get_DMSpeed().ToInt32();
-            danmu.sizeZoom = SettingHelper.Get_NewDMSize();
+            danmu.DanmakuDuration = SettingHelper.Get_DMSpeed().ToInt32();
+            danmu.DanmakuSizeZoom = SettingHelper.Get_NewDMSize();
             btn_Mini.Visibility = Visibility.Visible;
             btn_ExitMini.Visibility = Visibility.Collapsed;
 

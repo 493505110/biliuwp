@@ -1441,8 +1441,8 @@ namespace BiliBili.UWP
             else
             {
 
-                container.Values["DMSpeed"] = 12;
-                return 12;
+                container.Values["DMSpeed"] = 5;
+                return 5;
 
 
 

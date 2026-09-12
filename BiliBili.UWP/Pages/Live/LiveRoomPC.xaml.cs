@@ -45,7 +45,6 @@ namespace BiliBili.UWP.Pages.Live
             this.InitializeComponent();
             this.Loaded += delegate { this.Focus(FocusState.Programmatic); };
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
-            danmu.danmakuMode = NSDanmaku.Model.DanmakuMode.Live;
             MessageCenter.Logined += MessageCenter_Logined;
             account = new Account();
             liveCenter = new LiveCenter();
@@ -532,21 +531,21 @@ namespace BiliBili.UWP.Pages.Live
             btn_CloseDanmu.Visibility = openDanmu ? Visibility.Visible : Visibility.Collapsed;
 
             //弹幕大小
-            danmu.sizeZoom = SettingHelper.Get_NewLDMSize();
+            danmu.DanmakuSizeZoom = SettingHelper.Get_NewLDMSize();
             slider_DanmuSize.Value = SettingHelper.Get_NewLDMSize();
             //弹幕透明度
             danmu.Opacity = SettingHelper.Get_LDMTran();
             slider_DanmuTran.Value = SettingHelper.Get_LDMTran();
             //弹幕速度
-            danmu.speed = Convert.ToInt32(SettingHelper.Get_NewLDMSpeed());
+            danmu.DanmakuDuration = Convert.ToInt32(SettingHelper.Get_NewLDMSpeed());
 
-            danmu.bold = SettingHelper.Get_BoldDanmu();
+            danmu.DanmakuBold = SettingHelper.Get_BoldDanmu();
             sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
 
             slider_DanmuSpeed.Value = SettingHelper.Get_NewLDMSpeed();
 
             //弹幕边框
-            danmu.borderStyle = (DanmakuBorderStyle)SettingHelper.Get_DMStyle();
+            danmu.DanmakuStyle = (DanmakuBorderStyle)SettingHelper.Get_DMStyle();
             //音量
             media.Volume = SettingHelper.Get_LVolume();
             slider_volume.Value = SettingHelper.Get_LVolume();
@@ -614,8 +613,8 @@ namespace BiliBili.UWP.Pages.Live
                 Grid.SetColumnSpan(medias, 2);
                 Grid.SetColumnSpan(info, 2);
 
-                danmu.SetSpeed(5);
-                danmu.sizeZoom = 0.5;
+                danmu.DanmakuDuration = 5;
+                danmu.DanmakuSizeZoom = 0.5;
             }
             else
             {
@@ -625,8 +624,8 @@ namespace BiliBili.UWP.Pages.Live
                 Grid.SetColumnSpan(medias, 1);
                 Grid.SetColumnSpan(info, 1);
 
-                danmu.speed = SettingHelper.Get_DMSpeed().ToInt32();
-                danmu.sizeZoom = SettingHelper.Get_NewDMSize();
+                danmu.DanmakuDuration = SettingHelper.Get_DMSpeed().ToInt32();
+                danmu.DanmakuSizeZoom = SettingHelper.Get_NewDMSize();
             }
 
             return base.MeasureOverride(availableSize);
@@ -787,15 +786,15 @@ namespace BiliBili.UWP.Pages.Live
                             {
                                 if (info.giftName == "FFF")
                                 {
-                                    danmu.AddRollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/fff.png")));
+                                    danmu.AddScrollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/fff.png")));
                                 }
                                 if (info.giftName == "233")
                                 {
-                                    danmu.AddRollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/233.png")));
+                                    danmu.AddScrollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/233.png")));
                                 }
                                 if (info.giftName == "666")
                                 {
-                                    danmu.AddRollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/666.png")));
+                                    danmu.AddScrollImageDanmu(new Windows.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Img/666.png")));
                                 }
                             }
 
@@ -910,8 +909,8 @@ namespace BiliBili.UWP.Pages.Live
                 await Windows.UI.ViewManagement.ApplicationView.GetForCurrentView().TryEnterViewModeAsync(ApplicationViewMode.CompactOverlay);
                 btn_winfull_Click(sender, e);
                 danmu.ClearAll();
-                danmu.SetSpeed(5);
-                danmu.sizeZoom = 0.5;
+                danmu.DanmakuDuration = 5;
+                danmu.DanmakuSizeZoom = 0.5;
                 btn_Mini.Visibility = Visibility.Collapsed;
                 btn_ExitMini.Visibility = Visibility.Visible;
             }
@@ -927,8 +926,8 @@ namespace BiliBili.UWP.Pages.Live
             await Windows.UI.ViewManagement.ApplicationView.GetForCurrentView().TryEnterViewModeAsync(ApplicationViewMode.Default);
             btn_exitwinfull_Click(sender, e);
             danmu.ClearAll();
-            danmu.speed = SettingHelper.Get_DMSpeed().ToInt32();
-            danmu.sizeZoom = SettingHelper.Get_NewDMSize();
+            danmu.DanmakuDuration = SettingHelper.Get_DMSpeed().ToInt32();
+            danmu.DanmakuSizeZoom = SettingHelper.Get_NewDMSize();
             btn_Mini.Visibility = Visibility.Visible;
             btn_ExitMini.Visibility = Visibility.Collapsed;
         }
@@ -1377,7 +1376,7 @@ namespace BiliBili.UWP.Pages.Live
             }
 
             SettingHelper.Set_LDMSize(slider_DanmuSize.Value);
-            danmu.sizeZoom = slider_DanmuSize.Value;
+            danmu.DanmakuSizeZoom = slider_DanmuSize.Value;
         }
         /// <summary>
         /// 设置弹幕速度
@@ -1391,7 +1390,7 @@ namespace BiliBili.UWP.Pages.Live
                 return;
             }
             SettingHelper.Set_LDMSpeed(slider_DanmuSpeed.Value);
-            danmu.speed = slider_DanmuSpeed.Value.ToInt32();
+            danmu.DanmakuDuration = slider_DanmuSpeed.Value.ToInt32();
 
         }
         /// <summary>
@@ -1767,7 +1766,7 @@ namespace BiliBili.UWP.Pages.Live
 
         private void sw_BoldDanmu_Toggled(object sender, RoutedEventArgs e)
         {
-            danmu.bold = sw_BoldDanmu.IsOn;
+            danmu.DanmakuBold = sw_BoldDanmu.IsOn;
             SettingHelper.Set_BoldDanmu(sw_BoldDanmu.IsOn);
         }
     }

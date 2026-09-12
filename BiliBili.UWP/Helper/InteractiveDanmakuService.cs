@@ -400,7 +400,7 @@ namespace BiliBili.UWP.Helper
                 Title = GetString(extra["title"])
                     ?? GetString(extra["question"])
                     ?? GetString(extra["msg"])
-                    ?? command.Content
+                    ?? (command.Content == "关注弹幕" ? "给个三连吧~" : command.Content)
                     ?? string.Empty
             };
 

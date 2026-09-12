@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using BiliBili.UWP;
+using BiliBili.UWP.Models;
 using Windows.UI;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
@@ -34,14 +35,26 @@ namespace BiliBili.UWP.Helper
             double durationSeconds = 0,
             CancellationToken cancellationToken = default(CancellationToken))
         {
+            var completed = await LoadCompleteAsync(aid, cid, durationSeconds, cancellationToken);
+            return completed?.Items ?? new List<DanmakuModel>();
+        }
+
+        public static async Task<BiliDanmakuLoadResult> LoadCompleteAsync(
+            long aid,
+            long cid,
+            double durationSeconds = 0,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
             var initial = await LoadInitialAsync(aid, cid, durationSeconds, cancellationToken);
-            if (initial == null || initial.Items == null)
+            if (initial == null)
             {
-                return new List<DanmakuModel>();
+                return new BiliDanmakuLoadResult(
+                    new List<DanmakuModel>(),
+                    false,
+                    false);
             }
 
-            var completed = await LoadSupplementAsync(initial, cancellationToken);
-            return completed?.Items ?? initial.Items;
+            return await LoadSupplementAsync(initial, cancellationToken);
         }
 
         /// <summary>
@@ -145,15 +158,22 @@ namespace BiliBili.UWP.Helper
             cancellationToken.ThrowIfCancellationRequested();
             var plan = initial.WebLoadPlan;
             var items = new List<DanmakuModel>(initial.Items ?? new List<DanmakuModel>());
+            var basItems = new List<BasDanmakuModel>(initial.BasItems ?? new List<BasDanmakuModel>());
             var failedRegularSegmentCount = 0;
             var failedSpecialPackageCount = 0;
             var unsupportedDanmakuCount = initial.UnsupportedDanmakuCount;
+            var unsupportedDanmakuModes = MergeUnsupportedDanmakuModes(
+                initial.UnsupportedDanmakuModes,
+                null);
 
             var segmentResults = await LoadRemainingSegmentsAsync(plan, cancellationToken);
             foreach (var segmentResult in segmentResults)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 unsupportedDanmakuCount += segmentResult.UnsupportedDanmakuCount;
+                unsupportedDanmakuModes = MergeUnsupportedDanmakuModes(
+                    unsupportedDanmakuModes,
+                    segmentResult.UnsupportedDanmakuModes);
                 if (segmentResult.Error != null)
                 {
                     if (segmentResult.IsSpecialPackage)
@@ -178,6 +198,10 @@ namespace BiliBili.UWP.Helper
                 {
                     items.AddRange(segmentResult.Items);
                 }
+                if (segmentResult.BasItems != null && segmentResult.BasItems.Count != 0)
+                {
+                    basItems.AddRange(segmentResult.BasItems);
+                }
             }
 
             if (failedRegularSegmentCount != 0)
@@ -201,11 +225,13 @@ namespace BiliBili.UWP.Helper
 
             return new BiliDanmakuLoadResult(
                 items,
+                MergeBasDanmaku(null, basItems),
                 failedRegularSegmentCount != 0 || failedSpecialPackageCount != 0,
                 true,
                 false,
                 initial.SpecialDanmakuPackageCount,
                 unsupportedDanmakuCount,
+                unsupportedDanmakuModes,
                 null);
         }
 
@@ -241,6 +267,50 @@ namespace BiliBili.UWP.Helper
             AddUniqueDanmaku(result, identities, initial);
             AddUniqueDanmaku(result, identities, supplement);
             return result;
+        }
+
+        public static List<BasDanmakuModel> MergeBasDanmaku(
+            IEnumerable<BasDanmakuModel> initial,
+            IEnumerable<BasDanmakuModel> supplement)
+        {
+            var result = new List<BasDanmakuModel>();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            AddUniqueBasDanmaku(result, identities, initial);
+            AddUniqueBasDanmaku(result, identities, supplement);
+            return result;
+        }
+
+        private static void AddUniqueBasDanmaku(
+            List<BasDanmakuModel> result,
+            HashSet<string> identities,
+            IEnumerable<BasDanmakuModel> source)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            foreach (var item in source)
+            {
+                if (item == null || string.IsNullOrEmpty(item.text))
+                {
+                    continue;
+                }
+
+                var identity = !string.IsNullOrWhiteSpace(item.dmid)
+                    && !string.Equals(item.dmid, "0", StringComparison.Ordinal)
+                    ? "id|" + item.dmid
+                    : string.Join("|", new[]
+                    {
+                        "value",
+                        item.stime.ToString("R", CultureInfo.InvariantCulture),
+                        item.text
+                    });
+                if (identities.Add(identity))
+                {
+                    result.Add(item);
+                }
+            }
         }
 
         private static void AddUniqueDanmaku(
@@ -390,11 +460,13 @@ namespace BiliBili.UWP.Helper
 
             return new BiliDanmakuLoadResult(
                 firstSegment.Items,
+                firstSegment.BasItems,
                 plan.RetryFirstSegment,
                 true,
                 false,
                 specialDanmakuUrls.Count,
                 firstSegment.UnsupportedDanmakuCount,
+                firstSegment.UnsupportedDanmakuModes,
                 plan);
         }
 
@@ -478,18 +550,27 @@ namespace BiliBili.UWP.Helper
                         false,
                         segmentIndex.ToString(CultureInfo.InvariantCulture),
                         new List<DanmakuModel>(),
+                        new List<BasDanmakuModel>(),
                         0,
                         null);
                 }
 
                 var unsupportedDanmakuCount = 0;
-                var items = ParseSegment(segmentBytes, ref unsupportedDanmakuCount);
+                var unsupportedDanmakuModes = new Dictionary<int, int>();
+                var basItems = new List<BasDanmakuModel>();
+                var items = ParseSegment(
+                    segmentBytes,
+                    ref unsupportedDanmakuCount,
+                    unsupportedDanmakuModes,
+                    basItems);
                 return new SegmentLoadResult(
                     segmentIndex,
                     false,
                     segmentIndex.ToString(CultureInfo.InvariantCulture),
                     items,
+                    basItems,
                     unsupportedDanmakuCount,
+                    unsupportedDanmakuModes,
                     null);
             }
             catch (OperationCanceledException)
@@ -503,6 +584,7 @@ namespace BiliBili.UWP.Helper
                     false,
                     segmentIndex.ToString(CultureInfo.InvariantCulture),
                     new List<DanmakuModel>(),
+                    new List<BasDanmakuModel>(),
                     0,
                     ex);
             }
@@ -540,12 +622,33 @@ namespace BiliBili.UWP.Helper
                 cancellationToken.ThrowIfCancellationRequested();
                 if (response.IsNotModified || response.Bytes == null || response.Bytes.Length == 0)
                 {
-                    return new SegmentLoadResult(0, true, url, new List<DanmakuModel>(), 0, null);
+                    return new SegmentLoadResult(
+                        0,
+                        true,
+                        url,
+                        new List<DanmakuModel>(),
+                        new List<BasDanmakuModel>(),
+                        0,
+                        null);
                 }
 
                 var unsupportedDanmakuCount = 0;
-                var items = ParseSegment(response.Bytes, ref unsupportedDanmakuCount);
-                return new SegmentLoadResult(0, true, url, items, unsupportedDanmakuCount, null);
+                var unsupportedDanmakuModes = new Dictionary<int, int>();
+                var basItems = new List<BasDanmakuModel>();
+                var items = ParseSegment(
+                    response.Bytes,
+                    ref unsupportedDanmakuCount,
+                    unsupportedDanmakuModes,
+                    basItems);
+                return new SegmentLoadResult(
+                    0,
+                    true,
+                    url,
+                    items,
+                    basItems,
+                    unsupportedDanmakuCount,
+                    unsupportedDanmakuModes,
+                    null);
             }
             catch (OperationCanceledException)
             {
@@ -553,7 +656,14 @@ namespace BiliBili.UWP.Helper
             }
             catch (Exception ex)
             {
-                return new SegmentLoadResult(0, true, url, new List<DanmakuModel>(), 0, ex);
+                return new SegmentLoadResult(
+                    0,
+                    true,
+                    url,
+                    new List<DanmakuModel>(),
+                    new List<BasDanmakuModel>(),
+                    0,
+                    ex);
             }
         }
 
@@ -580,12 +690,34 @@ namespace BiliBili.UWP.Helper
                     var url = GetString(field);
                     if (!string.IsNullOrWhiteSpace(url))
                     {
-                        urls.Add(url);
+                        urls.Add(NormalizeSpecialDanmakuUrl(url));
                     }
                 }
             }
 
             return urls;
+        }
+
+        private static string NormalizeSpecialDanmakuUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return url;
+            }
+
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri)
+                || !string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            {
+                return url;
+            }
+
+            var builder = new UriBuilder(uri)
+            {
+                Scheme = Uri.UriSchemeHttps,
+                Port = -1
+            };
+            return builder.Uri.ToString();
         }
 
         private static async Task<double> TryGetDurationSecondsAsync(long aid, long cid)
@@ -695,7 +827,9 @@ namespace BiliBili.UWP.Helper
 
         private static List<DanmakuModel> ParseSegment(
             byte[] bytes,
-            ref int unsupportedDanmakuCount)
+            ref int unsupportedDanmakuCount,
+            Dictionary<int, int> unsupportedDanmakuModes,
+            List<BasDanmakuModel> basItems)
         {
             var result = new List<DanmakuModel>();
             foreach (var field in ReadFields(bytes))
@@ -705,7 +839,11 @@ namespace BiliBili.UWP.Helper
                     continue;
                 }
 
-                var item = ParseDanmaku(field.Bytes, ref unsupportedDanmakuCount);
+                var item = ParseDanmaku(
+                    field.Bytes,
+                    ref unsupportedDanmakuCount,
+                    unsupportedDanmakuModes,
+                    basItems);
                 if (item != null)
                 {
                     result.Add(item);
@@ -717,7 +855,9 @@ namespace BiliBili.UWP.Helper
 
         private static DanmakuModel ParseDanmaku(
             byte[] bytes,
-            ref int unsupportedDanmakuCount)
+            ref int unsupportedDanmakuCount,
+            Dictionary<int, int> unsupportedDanmakuModes,
+            List<BasDanmakuModel> basItems)
         {
             long id = 0;
             long progress = 0;
@@ -777,18 +917,39 @@ namespace BiliBili.UWP.Helper
                 ? id.ToString(CultureInfo.InvariantCulture)
                 : idString;
             var modeValue = mode > int.MaxValue ? 1 : (int)mode;
-            DanmakuLocation location;
-            if (!TryToLocation(modeValue, out location))
+            if (modeValue == 9)
             {
-                unsupportedDanmakuCount++;
+                if (basItems != null)
+                {
+                    basItems.Add(new BasDanmakuModel
+                    {
+                        dmid = rowId,
+                        stime = Math.Max(0, time),
+                        text = text
+                    });
+                }
+
                 return null;
             }
+
+            DanmakuLocation location;
+            if (!TryToLocation(modeValue, out location)
+                || (location == DanmakuLocation.Position && !IsSupportedPositionDanmaku(text)))
+            {
+                unsupportedDanmakuCount++;
+                AddUnsupportedDanmakuMode(unsupportedDanmakuModes, modeValue);
+                return null;
+            }
+
+            var displayText = location == DanmakuLocation.Position
+                ? text
+                : text.Replace("/n", "\r\n");
 
             var sizeValue = size > 0 ? size : 25;
             var colorValue = unchecked((uint)color);
             return new DanmakuModel
             {
-                text = text,
+                text = displayText,
                 size = sizeValue,
                 color = Color.FromArgb(
                     255,
@@ -814,7 +975,7 @@ namespace BiliBili.UWP.Helper
                 case 1:
                 case 2:
                 case 3:
-                    location = DanmakuLocation.Roll;
+                    location = DanmakuLocation.Scroll;
                     return true;
                 case 4:
                     location = DanmakuLocation.Bottom;
@@ -822,12 +983,169 @@ namespace BiliBili.UWP.Helper
                 case 5:
                     location = DanmakuLocation.Top;
                     return true;
+                case 6:
+                    location = DanmakuLocation.ReverseScroll;
+                    return true;
                 case 7:
                     location = DanmakuLocation.Position;
                     return true;
                 default:
-                    location = DanmakuLocation.Roll;
+                    location = DanmakuLocation.Scroll;
                     return false;
+            }
+        }
+
+        private static bool IsSupportedPositionDanmaku(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            try
+            {
+                var data = JArray.Parse(text);
+                // NSDanmaku reads data[10] whenever an item has more than seven fields.
+                if (data.Count < 5 || (data.Count > 7 && data.Count < 11))
+                {
+                    return false;
+                }
+
+                if (data[2].Type != JTokenType.String
+                    || data[4].Type != JTokenType.String
+                    || data[data.Count - 2].Type == JTokenType.Null
+                    || data[data.Count - 2].Type == JTokenType.Undefined
+                    || !IsFinitePositionDanmakuNumber(data[0])
+                    || !IsFinitePositionDanmakuNumber(data[1])
+                    || !IsFinitePositionDanmakuNumber(data[3]))
+                {
+                    return false;
+                }
+
+                var opacity = data[2].ToString().Split('-');
+                if (opacity.Length < 2
+                    || !IsFinitePositionDanmakuNumber(opacity[0])
+                    || !IsFinitePositionDanmakuNumber(opacity[1]))
+                {
+                    return false;
+                }
+
+                if (data.Count >= 7
+                    && (!IsFinitePositionDanmakuNumber(data[5])
+                        || !IsFinitePositionDanmakuNumber(data[6])))
+                {
+                    return false;
+                }
+
+                if (data.Count > 7
+                    && (!IsFinitePositionDanmakuNumber(data[7])
+                        || !IsFinitePositionDanmakuNumber(data[8])
+                        || !IsFinitePositionDanmakuNumber(data[10])))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool IsFinitePositionDanmakuNumber(JToken token)
+        {
+            if (token == null
+                || (token.Type != JTokenType.Integer
+                    && token.Type != JTokenType.Float
+                    && token.Type != JTokenType.String))
+            {
+                return false;
+            }
+
+            return IsFinitePositionDanmakuNumber(((JValue)token).Value);
+        }
+
+        private static bool IsFinitePositionDanmakuNumber(string value)
+        {
+            return IsFinitePositionDanmakuNumber((object)value);
+        }
+
+        private static bool IsFinitePositionDanmakuNumber(object value)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+
+            var valueText = value as string
+                ?? Convert.ToString(value, CultureInfo.InvariantCulture);
+            double number;
+            if (!double.TryParse(
+                    valueText,
+                    NumberStyles.Float | NumberStyles.AllowThousands,
+                    CultureInfo.InvariantCulture,
+                    out number)
+                && !double.TryParse(
+                    valueText,
+                    NumberStyles.Float | NumberStyles.AllowThousands,
+                    CultureInfo.CurrentCulture,
+                    out number))
+            {
+                return false;
+            }
+
+            return !double.IsNaN(number) && !double.IsInfinity(number);
+        }
+
+        private static void AddUnsupportedDanmakuMode(
+            Dictionary<int, int> modes,
+            int mode)
+        {
+            if (modes == null)
+            {
+                return;
+            }
+
+            if (modes.ContainsKey(mode))
+            {
+                modes[mode]++;
+            }
+            else
+            {
+                modes[mode] = 1;
+            }
+        }
+
+        private static Dictionary<int, int> MergeUnsupportedDanmakuModes(
+            IDictionary<int, int> first,
+            IDictionary<int, int> second)
+        {
+            var result = new Dictionary<int, int>();
+            AddUnsupportedDanmakuModes(result, first);
+            AddUnsupportedDanmakuModes(result, second);
+            return result;
+        }
+
+        private static void AddUnsupportedDanmakuModes(
+            Dictionary<int, int> target,
+            IDictionary<int, int> source)
+        {
+            if (target == null || source == null)
+            {
+                return;
+            }
+
+            foreach (var item in source)
+            {
+                if (target.ContainsKey(item.Key))
+                {
+                    target[item.Key] += item.Value;
+                }
+                else
+                {
+                    target[item.Key] = item.Value;
+                }
             }
         }
 
@@ -860,7 +1178,9 @@ namespace BiliBili.UWP.Helper
                 ? 4
                 : item.location == DanmakuLocation.Top
                     ? 5
-                    : item.location == DanmakuLocation.Position ? 7 : 1;
+                    : item.location == DanmakuLocation.ReverseScroll
+                        ? 6
+                        : item.location == DanmakuLocation.Position ? 7 : 1;
             var color = (item.color.R << 16) | (item.color.G << 8) | item.color.B;
             return string.Join(",", new[]
             {
@@ -1148,14 +1468,40 @@ namespace BiliBili.UWP.Helper
                 bool isSpecialPackage,
                 string source,
                 List<DanmakuModel> items,
+                List<BasDanmakuModel> basItems,
                 int unsupportedDanmakuCount,
+                Exception error)
+                : this(
+                    segmentIndex,
+                    isSpecialPackage,
+                    source,
+                    items,
+                    basItems,
+                    unsupportedDanmakuCount,
+                    new Dictionary<int, int>(),
+                    error)
+            {
+            }
+
+            public SegmentLoadResult(
+                int segmentIndex,
+                bool isSpecialPackage,
+                string source,
+                List<DanmakuModel> items,
+                List<BasDanmakuModel> basItems,
+                int unsupportedDanmakuCount,
+                IDictionary<int, int> unsupportedDanmakuModes,
                 Exception error)
             {
                 SegmentIndex = segmentIndex;
                 IsSpecialPackage = isSpecialPackage;
                 Source = source;
                 Items = items ?? new List<DanmakuModel>();
+                BasItems = basItems ?? new List<BasDanmakuModel>();
                 UnsupportedDanmakuCount = unsupportedDanmakuCount;
+                UnsupportedDanmakuModes = unsupportedDanmakuModes == null
+                    ? new Dictionary<int, int>()
+                    : new Dictionary<int, int>(unsupportedDanmakuModes);
                 Error = error;
             }
 
@@ -1163,7 +1509,9 @@ namespace BiliBili.UWP.Helper
             public bool IsSpecialPackage { get; }
             public string Source { get; }
             public List<DanmakuModel> Items { get; }
+            public List<BasDanmakuModel> BasItems { get; }
             public int UnsupportedDanmakuCount { get; }
+            public Dictionary<int, int> UnsupportedDanmakuModes { get; }
             public Exception Error { get; }
         }
 
@@ -1242,22 +1590,51 @@ namespace BiliBili.UWP.Helper
             int specialDanmakuPackageCount,
             int unsupportedDanmakuCount,
             BiliDanmakuLoadPlan webLoadPlan)
+            : this(
+                items,
+                new List<BasDanmakuModel>(),
+                needsLegacySupplement,
+                usedNewInterface,
+                isDanmakuClosed,
+                specialDanmakuPackageCount,
+                unsupportedDanmakuCount,
+                new Dictionary<int, int>(),
+                webLoadPlan)
+        {
+        }
+
+        internal BiliDanmakuLoadResult(
+            List<DanmakuModel> items,
+            List<BasDanmakuModel> basItems,
+            bool needsLegacySupplement,
+            bool usedNewInterface,
+            bool isDanmakuClosed,
+            int specialDanmakuPackageCount,
+            int unsupportedDanmakuCount,
+            IDictionary<int, int> unsupportedDanmakuModes,
+            BiliDanmakuLoadPlan webLoadPlan)
         {
             Items = items ?? new List<DanmakuModel>();
+            BasItems = basItems ?? new List<BasDanmakuModel>();
             NeedsLegacySupplement = needsLegacySupplement;
             UsedNewInterface = usedNewInterface;
             IsDanmakuClosed = isDanmakuClosed;
             SpecialDanmakuPackageCount = Math.Max(0, specialDanmakuPackageCount);
             UnsupportedDanmakuCount = Math.Max(0, unsupportedDanmakuCount);
+            UnsupportedDanmakuModes = unsupportedDanmakuModes == null
+                ? new Dictionary<int, int>()
+                : new Dictionary<int, int>(unsupportedDanmakuModes);
             WebLoadPlan = webLoadPlan;
         }
 
         public List<DanmakuModel> Items { get; }
+        public List<BasDanmakuModel> BasItems { get; }
         public bool NeedsLegacySupplement { get; }
         public bool UsedNewInterface { get; }
         public bool IsDanmakuClosed { get; }
         public int SpecialDanmakuPackageCount { get; }
         public int UnsupportedDanmakuCount { get; }
+        public Dictionary<int, int> UnsupportedDanmakuModes { get; }
         internal BiliDanmakuLoadPlan WebLoadPlan { get; }
     }
 }
