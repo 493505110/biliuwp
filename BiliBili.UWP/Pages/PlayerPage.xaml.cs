@@ -1165,8 +1165,6 @@ namespace BiliBili.UWP.Pages
             sw_DanmuBorder.IsOn = SettingHelper.Get_DMBorder();
             sw_MergeDanmu.IsOn = SettingHelper.Get_MergeDanmu();
             mergeDanmu = sw_MergeDanmu.IsOn;
-            sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();
-            sw_NormalDanmakuVideoPlaybackMode.IsOn = SettingHelper.Get_NormalDanmakuVideoPlaybackMode();
 
             sw_DanmuNotSubtitle.IsOn = SettingHelper.Get_DanmuNotSubtitle();
             if (danmu != null)
@@ -1216,11 +1214,6 @@ namespace BiliBili.UWP.Pages
             }
             slider_SubtitleTran.Value = SettingHelper.Get_SubtitleBgTran();
             slider_SubtitleSize.Value = SettingHelper.Get_SubtitleSize();
-
-            if (sw_NormalDanmakuVideoPlaybackMode.IsOn)
-            {
-                ApplyNormalDanmakuVideoPlaybackMode();
-            }
 
             //mediaElement.MediaPlayer.Volume = SettingHelper.Get_Volume();
             SetVolume(SettingHelper.Get_Volume());
@@ -1495,10 +1488,7 @@ namespace BiliBili.UWP.Pages
 
         private void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)
         {
-            if (item == null
-                || DanDis_Dis(item.text)
-                || (SettingHelper.Get_BlockNormalDanmaku()
-                    && string.Equals(item.pool, "0", StringComparison.Ordinal)))
+            if (item == null || DanDis_Dis(item.text))
             {
                 return;
             }
@@ -3207,19 +3197,6 @@ namespace BiliBili.UWP.Pages
 
         }
 
-        private void ApplyNormalDanmakuVideoPlaybackMode()
-        {
-            if (mediaElement == null)
-            {
-                return;
-            }
-
-            mediaElement.Stretch = Stretch.Uniform;
-            mediaElement.Width = double.NaN;
-            mediaElement.Height = double.NaN;
-            ApplicationView.GetForCurrentView().TryResizeView(new Size(543, 386));
-        }
-
         //private void btn_HideInfo_Click(object sender, RoutedEventArgs e)
         //{
         //    //ApplicationView.GetForCurrentView().TryEnterFullScreenMode();
@@ -3581,35 +3558,6 @@ namespace BiliBili.UWP.Pages
         {
             SettingHelper.Set_MergeDanmu(sw_MergeDanmu.IsOn);
             mergeDanmu = sw_MergeDanmu.IsOn;
-        }
-
-        private void sw_BlockNormalDanmaku_Toggled(object sender, RoutedEventArgs e)
-        {
-            if (settingFlag)
-            {
-                return;
-            }
-
-            SettingHelper.Set_BlockNormalDanmaku(sw_BlockNormalDanmaku.IsOn);
-            if (sw_BlockNormalDanmaku.IsOn)
-            {
-                danmu?.ClearAll();
-            }
-        }
-
-        private void sw_NormalDanmakuVideoPlaybackMode_Toggled(object sender, RoutedEventArgs e)
-        {
-            if (settingFlag)
-            {
-                return;
-            }
-
-            var enabled = sw_NormalDanmakuVideoPlaybackMode.IsOn;
-            SettingHelper.Set_NormalDanmakuVideoPlaybackMode(enabled);
-            if (enabled)
-            {
-                ApplyNormalDanmakuVideoPlaybackMode();
-            }
         }
 
         private async void sw_InteractiveDanmaku_Toggled(object sender, RoutedEventArgs e)

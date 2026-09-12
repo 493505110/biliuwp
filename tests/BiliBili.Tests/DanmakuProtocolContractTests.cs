@@ -131,7 +131,7 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void OfficialDanmakuDefaultsAndPlacementAreRetained()
+        public void DanmakuDefaultsAndPlacementAreRetained()
         {
             var control = ReadFile("Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs");
             var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
@@ -159,7 +159,8 @@ namespace BiliBili.Tests
             StringAssert.Contains(control, "SetRowHeight(grid_Top, 0);");
             StringAssert.Contains(control, "grid_Bottom.Children.Add(grid);");
             StringAssert.Contains(control, "SetRowHeight(grid_Bottom, 0);");
-            StringAssert.Contains(settings, "Set_DanmuFont(\"黑体\")");
+            StringAssert.Contains(settings, "Set_BoldDanmu(false)");
+            StringAssert.Contains(settings, "Set_DanmuFont(\"\")");
             StringAssert.Contains(settings, "container.Values[\"DMSpeed\"] = 5;");
             StringAssert.Contains(player, "danmu.DanmakuFontFamily = danmuFont;");
             StringAssert.Contains(player, "danmu.DanmakuDuration = Math.Max(1, Convert.ToInt32(danmuSpeed));");

@@ -1293,42 +1293,6 @@ namespace BiliBili.UWP
             container.Values["MergeDanmu"] = value;
         }
 
-        public static bool Get_BlockNormalDanmaku()
-        {
-            container = ApplicationData.Current.LocalSettings;
-            if (container.Values["BlockNormalDanmaku"] != null)
-            {
-                return (bool)container.Values["BlockNormalDanmaku"];
-            }
-
-            Set_BlockNormalDanmaku(false);
-            return false;
-        }
-
-        public static void Set_BlockNormalDanmaku(bool value)
-        {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values["BlockNormalDanmaku"] = value;
-        }
-
-        public static bool Get_NormalDanmakuVideoPlaybackMode()
-        {
-            container = ApplicationData.Current.LocalSettings;
-            if (container.Values["NormalDanmakuVideoPlaybackMode"] != null)
-            {
-                return (bool)container.Values["NormalDanmakuVideoPlaybackMode"];
-            }
-
-            Set_NormalDanmakuVideoPlaybackMode(false);
-            return false;
-        }
-
-        public static void Set_NormalDanmakuVideoPlaybackMode(bool value)
-        {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values["NormalDanmakuVideoPlaybackMode"] = value;
-        }
-
         public static bool Get_BoldDanmu()
         {
             container = ApplicationData.Current.LocalSettings;
@@ -1338,8 +1302,8 @@ namespace BiliBili.UWP
             }
             else
             {
-                Set_BoldDanmu(true);
-                return true;
+                Set_BoldDanmu(false);
+                return false;
             }
         }
 
@@ -1353,15 +1317,14 @@ namespace BiliBili.UWP
         public static string Get_DanmuFont()
         {
             container = ApplicationData.Current.LocalSettings;
-            var value = container.Values["DanmuFont"] as string;
-            if (!string.IsNullOrWhiteSpace(value))
+            if (container.Values["DanmuFont"] != null)
             {
-                return value;
+                return (string)container.Values["DanmuFont"];
             }
             else
             {
-                Set_DanmuFont("黑体");
-                return "黑体";
+                Set_DanmuFont("");
+                return "";
             }
         }
 

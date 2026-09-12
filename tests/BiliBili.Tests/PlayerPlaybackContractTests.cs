@@ -281,52 +281,6 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void NormalPoolDanmakuCanBeBlockedBeforeDisplay()
-        {
-            var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
-            var settingPage = ReadFile("BiliBili.UWP/Views/SettingPage.xaml");
-            var settingCode = ReadFile("BiliBili.UWP/Views/SettingPage.xaml.cs");
-            var playerPage = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
-            var playerXaml = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml");
-
-            StringAssert.Contains(settings, "Set_BlockNormalDanmaku(false);");
-            StringAssert.Contains(settings, "container.Values[\"BlockNormalDanmaku\"]");
-            StringAssert.Contains(settingPage, "x:Name=\"sw_BlockNormalDanmaku\"");
-            StringAssert.Contains(settingPage, "屏蔽普通弹幕");
-            StringAssert.Contains(settingCode, "SettingHelper.Get_BlockNormalDanmaku()");
-            StringAssert.Contains(settingCode, "SettingHelper.Set_BlockNormalDanmaku(sw_BlockNormalDanmaku.IsOn);");
-            StringAssert.Contains(playerXaml, "x:Name=\"sw_BlockNormalDanmaku\"");
-            StringAssert.Contains(playerXaml, "屏蔽普通弹幕");
-            StringAssert.Contains(playerPage, "sw_BlockNormalDanmaku.IsOn = SettingHelper.Get_BlockNormalDanmaku();");
-            StringAssert.Contains(playerPage, "string.Equals(item.pool, \"0\", StringComparison.Ordinal)");
-            StringAssert.Contains(playerPage, "SettingHelper.Get_BlockNormalDanmaku()");
-        }
-
-        [TestMethod]
-        public void NormalPermissionDanmakuPlaybackModeUsesFixedViewSize()
-        {
-            var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
-            var settingPage = ReadFile("BiliBili.UWP/Views/SettingPage.xaml");
-            var settingCode = ReadFile("BiliBili.UWP/Views/SettingPage.xaml.cs");
-            var playerPage = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
-            var playerXaml = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml");
-
-            Assert.IsFalse(playerXaml.Contains("严格按照视频分辨率"));
-            Assert.IsFalse(playerPage.Contains("ResizeViewToVideoResolution"));
-            StringAssert.Contains(settings, "Set_NormalDanmakuVideoPlaybackMode(false);");
-            StringAssert.Contains(settings, "container.Values[\"NormalDanmakuVideoPlaybackMode\"]");
-            StringAssert.Contains(settingPage, "x:Name=\"sw_NormalDanmakuVideoPlaybackMode\"");
-            StringAssert.Contains(settingPage, "普通权限弹幕视频播放模式");
-            StringAssert.Contains(settingCode, "SettingHelper.Get_NormalDanmakuVideoPlaybackMode()");
-            StringAssert.Contains(settingCode, "SettingHelper.Set_NormalDanmakuVideoPlaybackMode(sw_NormalDanmakuVideoPlaybackMode.IsOn);");
-            StringAssert.Contains(playerXaml, "x:Name=\"sw_NormalDanmakuVideoPlaybackMode\"");
-            StringAssert.Contains(playerXaml, "普通权限弹幕视频播放模式");
-            StringAssert.Contains(playerPage, "SettingHelper.Get_NormalDanmakuVideoPlaybackMode()");
-            StringAssert.Contains(playerPage, "private void ApplyNormalDanmakuVideoPlaybackMode");
-            StringAssert.Contains(playerPage, "TryResizeView(new Size(543, 386))");
-        }
-
-        [TestMethod]
         public void NewDanmakuInterfaceSettingDefaultsOnAndControlsAllLoads()
         {
             var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
