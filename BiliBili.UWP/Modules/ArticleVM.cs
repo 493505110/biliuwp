@@ -126,7 +126,7 @@ namespace BiliBili.UWP.Modules
             {
                 if (version == loadVersion)
                 {
-                    ErrorMessage = HandelError(ex).message;
+                    ErrorMessage = HandleError(ex).message;
                 }
             }
             finally

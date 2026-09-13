@@ -540,7 +540,7 @@ namespace BiliBili.UWP.Pages
             {
                 return;
             }
-            if (!await MessageCenter.HandelUrl(link))
+            if (!await MessageCenter.HandleUrl(link))
             {
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), link);
             }

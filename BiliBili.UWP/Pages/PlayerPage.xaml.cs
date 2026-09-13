@@ -3683,7 +3683,7 @@ namespace BiliBili.UWP.Pages
             try
             {
                 mediaPlayer?.Pause();
-                if (!await MessageCenter.HandelUrl(url))
+                if (!await MessageCenter.HandleUrl(url))
                 {
                     MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), url);
                 }

@@ -206,7 +206,7 @@ namespace BiliBili.UWP.Views
         {
             //妈蛋，B站就一定要返回个链接么,就不能返回个类型加参数吗
             var link = (e.ClickedItem as BangumiHomeModel).link;
-            if(!await MessageCenter.HandelUrl(link))
+            if(!await MessageCenter.HandleUrl(link))
             {
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), link);
             }

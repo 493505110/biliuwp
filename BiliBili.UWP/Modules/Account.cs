@@ -65,7 +65,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<bool>(ex);
+                return HandleError<bool>(ex);
             }
         }
 
@@ -107,7 +107,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
         public async Task<ReturnModel> UnFollow(string uid)
@@ -148,7 +148,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
 
@@ -629,7 +629,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<MyInfoModel>(ex);
+                return HandleError<MyInfoModel>(ex);
             }
         }
 
@@ -658,7 +658,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<CaptchaInfoModel>(ex);
+                return HandleError<CaptchaInfoModel>(ex);
             }
         }
 
@@ -885,7 +885,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<QRAuthInfo>(ex);
+                return HandleError<QRAuthInfo>(ex);
             }
         }
 
@@ -916,7 +916,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<QRAuthInfo>(ex);
+                return HandleError<QRAuthInfo>(ex);
             }
         }
 

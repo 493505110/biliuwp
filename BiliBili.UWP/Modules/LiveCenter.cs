@@ -58,7 +58,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<LiveUserInfoModel>(ex);
+                return HandleError<LiveUserInfoModel>(ex);
             }
         }
 
@@ -120,7 +120,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<ObservableCollection<LivingModel>>(ex);
+                return HandleError<ObservableCollection<LivingModel>>(ex);
             }
         }
 
@@ -197,7 +197,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<NotLivingPageModel>(ex);
+                return HandleError<NotLivingPageModel>(ex);
             }
         }
 

@@ -95,8 +95,8 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                var handel = HandelError(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError(ex);
+                Utils.ShowMessageToast(handle.message);
             }
             finally
             {
@@ -120,7 +120,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                HandelError(ex);
+                HandleError(ex);
             }
         }
 

@@ -75,7 +75,7 @@ namespace BiliBili.UWP.Modules.Home
             }
             catch (Exception ex)
             {
-               var result= HandelError(ex);
+               var result= HandleError(ex);
                 Utils.ShowMessageToast(result.message);
             }
         }

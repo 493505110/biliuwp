@@ -73,7 +73,7 @@
                                 <GridView.Header>
                                     <Grid Padding="8">
                                         <TextBlock VerticalAlignment="Center" Text="{Binding Path=module_info.title}"></TextBlock>
-                                        <HyperlinkButton Command="{Binding HandelLiveUrlNavigationCommand}" CommandParameter="{Binding Path=module_info.link}" Foreground="Gray" Padding="0" HorizontalAlignment="Right">
+                                        <HyperlinkButton Command="{Binding HandleLiveUrlNavigationCommand}" CommandParameter="{Binding Path=module_info.link}" Foreground="Gray" Padding="0" HorizontalAlignment="Right">
                                             <TextBlock>查看更多 <Run FontSize="12" FontFamily="Segoe MDL2 Assets" Text="&#xE00F;" /></TextBlock>
                                         </HyperlinkButton>
                                     </Grid>

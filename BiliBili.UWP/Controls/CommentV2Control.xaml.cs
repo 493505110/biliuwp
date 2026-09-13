@@ -1160,7 +1160,7 @@ namespace BiliBili.UWP.Controls
                     Utils.ShowMessageToast("链接已失效");
                     return;
                 }
-                if (!await MessageCenter.HandelUrl(realUrl))
+                if (!await MessageCenter.HandleUrl(realUrl))
                 {
                     Utils.ShowMessageToast("无法打开该链接");
                 }

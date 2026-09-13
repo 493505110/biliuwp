@@ -92,7 +92,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<List<PlayerModel>>(ex);
+                return HandleError<List<PlayerModel>>(ex);
             }
         }
 

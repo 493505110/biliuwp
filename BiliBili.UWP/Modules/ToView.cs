@@ -65,7 +65,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<ToViewsModel>>(ex);
+                return HandleError<ObservableCollection<ToViewsModel>>(ex);
 
             }
 
@@ -103,7 +103,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
         /// <summary>
@@ -134,7 +134,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
         /// <summary>
@@ -164,7 +164,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
         /// <summary>
@@ -194,7 +194,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
         public class ToViewsModel

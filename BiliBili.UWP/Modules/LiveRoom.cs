@@ -109,7 +109,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<AllGiftsModel>>(ex);
+                return HandleError<ObservableCollection<AllGiftsModel>>(ex);
 
             }
         }
@@ -164,7 +164,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<LiveMyGiftsModel>>(ex);
+                return HandleError<ObservableCollection<LiveMyGiftsModel>>(ex);
             }
 
 
@@ -209,7 +209,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<LiveRoomInfoModel>(ex);
+                return HandleError<LiveRoomInfoModel>(ex);
 
             }
         }
@@ -431,7 +431,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<LivePlayUrlsModel>(ex);
+                return HandleError<LivePlayUrlsModel>(ex);
 
             }
         }
@@ -558,7 +558,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<LiveMsgModel>>(ex);
+                return HandleError<ObservableCollection<LiveMsgModel>>(ex);
             }
 
 
@@ -636,7 +636,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
 
 
@@ -720,7 +720,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<GiftTopListModel>>(ex);
+                return HandleError<ObservableCollection<GiftTopListModel>>(ex);
             }
         }
         /// <summary>
@@ -774,7 +774,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<MedalRankListModel>>(ex);
+                return HandleError<ObservableCollection<MedalRankListModel>>(ex);
             }
         }
 
@@ -852,7 +852,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<GuardRankListModel>>(ex);
+                return HandleError<ObservableCollection<GuardRankListModel>>(ex);
             }
         }
 
@@ -925,7 +925,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError(ex);
+                return HandleError(ex);
             }
 
 
@@ -976,7 +976,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError(ex);
+                return HandleError(ex);
             }
 
         }

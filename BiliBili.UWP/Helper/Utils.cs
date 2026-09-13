@@ -4,7 +4,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -47,27 +46,6 @@ namespace BiliBili.UWP
             }
         }
 
-        //public static ObservableCollection<T> ToList<T>(this List<object> ls)
-        //{
-        //    ObservableCollection<T> list = new ObservableCollection<T>();
-        //    foreach (DynamicJObject item in ls)
-        //    {
-        //        list.Add(JsonConvert.DeserializeObject<T>(item.ToJsonString()));
-        //    }
-        //    return list;
-        //}
-
-
-        //public static Newtonsoft.Json.Linq.JArray ToJArray(this List<object> list)
-        //{
-        //    JArray jArray = new JArray();
-        //    foreach (var item in list)
-        //    {
-        //        var str = (item as DynamicJObject).ToJsonString();
-        //        jArray.Add(JToken.Parse(str));
-        //    }
-        //    return jArray;
-        //}
 
         public static void ReadB(this Stream stream, byte[] buffer, int offset, int count)
         {
@@ -313,7 +291,7 @@ namespace BiliBili.UWP
                 return b;
             }
         }
-        public static string HandelTimestamp(string ts)
+        public static string HandleTimestamp(string ts)
         {
             if (ts.Length == 10)
             {

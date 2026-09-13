@@ -57,7 +57,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<EmotePackage>>(ex);
+                return HandleError<ObservableCollection<EmotePackage>>(ex);
             }
         }
 

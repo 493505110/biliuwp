@@ -61,7 +61,7 @@ namespace BiliBili.UWP
         Music,
         Album,
         User,
-        HandelUri
+        HandleUri
     }
     public class StartModel
     {
@@ -376,8 +376,8 @@ namespace BiliBili.UWP
                         play_frame.Navigate(typeof(PlayerPage), new object[] { ls, 0 });
                         // MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(PlayerPage), new object[] { ls, 0 });
                         break;
-                    case StartTypes.HandelUri:
-                        if (!await MessageCenter.HandelUrl(m.Par1))
+                    case StartTypes.HandleUri:
+                        if (!await MessageCenter.HandleUrl(m.Par1))
                         {
                             ContentDialog contentDialog = new ContentDialog()
                             {

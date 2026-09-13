@@ -33,17 +33,17 @@ namespace BiliBili.UWP
         Play,
         Bg
     }
-    public delegate void MessageHandel(object par, params object[] par1);
-    public delegate void NavigateHandel(Type page, params object[] par);
-    public delegate void LoginedHandel();
-    public delegate void ChangeBgHandel();
-    public delegate void ShowOrHideBarHandel(bool show);
+    public delegate void MessageHandle(object par, params object[] par1);
+    public delegate void NavigateHandle(Type page, params object[] par);
+    public delegate void LoginedHandle();
+    public delegate void ChangeBgHandle();
+    public delegate void ShowOrHideBarHandle(bool show);
     public static class MessageCenter
     {
         public static event EventHandler<object> HasMessaged;
-        public static event MessageHandel ChanageThemeEvent;
-        public static event LoginedHandel Logined;
-        public static event ChangeBgHandel ChangeBg;
+        public static event MessageHandle ChanageThemeEvent;
+        public static event LoginedHandle Logined;
+        public static event ChangeBgHandle ChangeBg;
 
         public static event EventHandler HideAdEvent;
         public static void SendHideAd()
@@ -74,11 +74,11 @@ namespace BiliBili.UWP
         }
 
 
-        public static event NavigateHandel InfoNavigateToEvent;
-        public static event NavigateHandel PlayNavigateToEvent;
-        public static event NavigateHandel MianNavigateToEvent;
-        public static event NavigateHandel HomeNavigateToEvent;
-        public static event NavigateHandel BgNavigateToEvent;
+        public static event NavigateHandle InfoNavigateToEvent;
+        public static event NavigateHandle PlayNavigateToEvent;
+        public static event NavigateHandle MianNavigateToEvent;
+        public static event NavigateHandle HomeNavigateToEvent;
+        public static event NavigateHandle BgNavigateToEvent;
         public async static void SendNavigateTo(NavigateMode mode, Type page, params object[] par)
         {
             
@@ -88,7 +88,7 @@ namespace BiliBili.UWP
                     MianNavigateToEvent(page, par);
                     break;
                 case NavigateMode.Info:
-                    if (page.FullName.Contains("WebPage") &&await HandelUrl(par[0].ToString()))
+                    if (page.FullName.Contains("WebPage") &&await HandleUrl(par[0].ToString()))
                     {
                         return;
                     }
@@ -127,7 +127,7 @@ namespace BiliBili.UWP
         ///统一处理Url
         /// </summary>
         /// <param name="par"></param>
-        public async static Task<bool> HandelUrl(string url)
+        public async static Task<bool> HandleUrl(string url)
         {
             if (PlaylistParameterParser.TryParse(url, out long playlistId))
             {
@@ -412,7 +412,7 @@ namespace BiliBili.UWP
         }
 
 
-        public static event ShowOrHideBarHandel ShowOrHideBarEvent;
+        public static event ShowOrHideBarHandle ShowOrHideBarEvent;
         public static void ShowOrHideBar(bool show)
         {
             ShowOrHideBarEvent(show);

@@ -105,7 +105,7 @@ namespace BiliBili.UWP.Pages
 
         private async void autoSug_Box_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
         {
-            if (await MessageCenter.HandelUrl(txt_auto_Find.Text))
+            if (await MessageCenter.HandleUrl(txt_auto_Find.Text))
             {
                 return;
             }

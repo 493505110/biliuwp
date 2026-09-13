@@ -146,7 +146,7 @@ namespace BiliBili.UWP.Pages
                     {
                         this.Frame.GoBack();
                         Utils.ShowMessageToast("正在跳转至专题");
-                        await MessageCenter.HandelUrl(m.data.redirect_url);
+                        await MessageCenter.HandleUrl(m.data.redirect_url);
                         return;
                     }
                     this.DataContext = m.data;

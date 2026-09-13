@@ -112,8 +112,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError(ex);
+                Utils.ShowMessageToast(handle.message);
             }
         }
 
@@ -147,8 +147,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError(ex);
+                Utils.ShowMessageToast(handle.message);
             }
             finally
             {
@@ -206,8 +206,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError<object>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<object>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
 
 
@@ -263,8 +263,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError<object>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<object>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
 
 
@@ -310,8 +310,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError<object>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<object>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
 
 
@@ -365,8 +365,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError<object>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<object>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
 
 
@@ -419,8 +419,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError<object>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<object>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
 
 
@@ -489,8 +489,8 @@ namespace BiliBili.UWP.Modules.Detail
             }
             catch (Exception ex)
             {
-                var handel = HandelError<object>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<object>(ex);
+                Utils.ShowMessageToast(handle.message);
                 return false;
             }
 

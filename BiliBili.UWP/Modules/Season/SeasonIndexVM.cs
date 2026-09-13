@@ -148,8 +148,8 @@ namespace BiliBili.UWP.Modules.Season
             }
             catch (Exception ex)
             {
-                var handel = HandelError<SeasonIndexConditionFilterModel>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<SeasonIndexConditionFilterModel>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
             finally
             {
@@ -200,8 +200,8 @@ namespace BiliBili.UWP.Modules.Season
             }
             catch (Exception ex)
             {
-                var handel = HandelError<SeasonIndexConditionFilterModel>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<SeasonIndexConditionFilterModel>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
             finally
             {

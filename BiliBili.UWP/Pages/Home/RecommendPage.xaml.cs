@@ -62,7 +62,7 @@ namespace BiliBili.UWP.Pages.Home
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(FollowSeasonPage), Modules.SeasonType.bangumi);
                 return;
             }
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }
@@ -91,7 +91,7 @@ namespace BiliBili.UWP.Pages.Home
         private async void btn_banner_Click(object sender, RoutedEventArgs e)
         {
             var data = (sender as HyperlinkButton).DataContext as Modules.Home.RecommendModels.RecommendBannerItemModel;
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }

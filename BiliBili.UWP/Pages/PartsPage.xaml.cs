@@ -120,1549 +120,278 @@ namespace BiliBili.UWP.Pages
 
         }
         string defu_Order = "senddate";
+
+        /// <summary>
+        /// 一个子分区页签定义，对应 Pivot 中的一个页。
+        /// </summary>
+        private sealed class PartTabDefinition
+        {
+            public string Text { get; set; }
+            public int Tid { get; set; }
+        }
+
+        /// <summary>
+        /// 一个内容分区的页签数据：区名、首页推荐所用分区 ID，以及全部子分区页签。
+        /// </summary>
+        private sealed class PartDefinition
+        {
+            public string HeaderText { get; set; }
+            public int PartId { get; set; }
+            public PartTabDefinition[] Tabs { get; set; }
+        }
+
+        /// <summary>
+        /// 各分区的页签配置。
+        /// 原实现是 14 个逐字复制粘贴的 switch 分支（约 1500 行），现统一收敛于此表。
+        /// </summary>
+        private static readonly Dictionary<Parts, PartDefinition> PartDefinitions = new Dictionary<Parts, PartDefinition>
+        {
+            [Parts.douga] = new PartDefinition
+            {
+                HeaderText = "动画区",
+                PartId = 1,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "综合", Tid = 27 },
+                    new PartTabDefinition { Text = "MAD·AMV", Tid = 24 },
+                    new PartTabDefinition { Text = "MMD·3D", Tid = 25 },
+                    new PartTabDefinition { Text = "短片·手书·配音", Tid = 47 }
+                }
+            },
+            [Parts.bangumi] = new PartDefinition
+            {
+                HeaderText = "番剧区",
+                PartId = 13,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "连载动画", Tid = 33 },
+                    new PartTabDefinition { Text = "完结动画", Tid = 32 },
+                    new PartTabDefinition { Text = "资讯", Tid = 51 },
+                    new PartTabDefinition { Text = "官方延伸", Tid = 152 }
+                }
+            },
+            [Parts.music] = new PartDefinition
+            {
+                HeaderText = "音乐区",
+                PartId = 3,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "原创音乐", Tid = 28 },
+                    new PartTabDefinition { Text = "翻唱", Tid = 31 },
+                    new PartTabDefinition { Text = "VOCALOID·UTAU", Tid = 30 },
+                    new PartTabDefinition { Text = "演奏", Tid = 59 },
+                    new PartTabDefinition { Text = "三次元音乐", Tid = 29 },
+                    new PartTabDefinition { Text = "OP/ED/OST", Tid = 54 },
+                    new PartTabDefinition { Text = "音乐选集", Tid = 130 }
+                }
+            },
+            [Parts.dance] = new PartDefinition
+            {
+                HeaderText = "舞蹈区",
+                PartId = 129,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "宅舞", Tid = 20 },
+                    new PartTabDefinition { Text = "三次元舞蹈", Tid = 154 },
+                    new PartTabDefinition { Text = "舞蹈教程", Tid = 156 }
+                }
+            },
+            [Parts.game] = new PartDefinition
+            {
+                HeaderText = "游戏区",
+                PartId = 4,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "单机联机", Tid = 17 },
+                    new PartTabDefinition { Text = "网游·电竞", Tid = 65 },
+                    new PartTabDefinition { Text = "音游", Tid = 136 },
+                    new PartTabDefinition { Text = "Mugen", Tid = 19 },
+                    new PartTabDefinition { Text = "GMV", Tid = 121 }
+                }
+            },
+            [Parts.technology] = new PartDefinition
+            {
+                HeaderText = "科技区",
+                PartId = 36,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "纪录片", Tid = 37 },
+                    new PartTabDefinition { Text = "趣味科普人文", Tid = 124 },
+                    new PartTabDefinition { Text = "野生技术协会", Tid = 122 },
+                    new PartTabDefinition { Text = "演讲•公开课", Tid = 39 },
+                    new PartTabDefinition { Text = "星海", Tid = 96 },
+                    new PartTabDefinition { Text = "数码", Tid = 95 },
+                    new PartTabDefinition { Text = "机械", Tid = 98 }
+                }
+            },
+            [Parts.life] = new PartDefinition
+            {
+                HeaderText = "生活区",
+                PartId = 160,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "搞笑", Tid = 138 },
+                    new PartTabDefinition { Text = "日常", Tid = 21 },
+                    new PartTabDefinition { Text = "美食圈", Tid = 76 },
+                    new PartTabDefinition { Text = "动物圈", Tid = 75 },
+                    new PartTabDefinition { Text = "手工", Tid = 161 },
+                    new PartTabDefinition { Text = "绘画", Tid = 162 },
+                    new PartTabDefinition { Text = "运动", Tid = 163 }
+                }
+            },
+            [Parts.kichiku] = new PartDefinition
+            {
+                HeaderText = "鬼畜区",
+                PartId = 119,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "鬼畜调教", Tid = 22 },
+                    new PartTabDefinition { Text = "音MAD", Tid = 26 },
+                    new PartTabDefinition { Text = "人力VOCALOID", Tid = 126 },
+                    new PartTabDefinition { Text = "教程演示", Tid = 127 }
+                }
+            },
+            [Parts.fashion] = new PartDefinition
+            {
+                HeaderText = "时尚区",
+                PartId = 155,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "美妆", Tid = 157 },
+                    new PartTabDefinition { Text = "服饰", Tid = 158 },
+                    new PartTabDefinition { Text = "健身", Tid = 164 },
+                    new PartTabDefinition { Text = "资讯", Tid = 159 }
+                }
+            },
+            [Parts.ent] = new PartDefinition
+            {
+                HeaderText = "娱乐区",
+                PartId = 5,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "综艺", Tid = 71 },
+                    new PartTabDefinition { Text = "明星", Tid = 137 },
+                    new PartTabDefinition { Text = "Korea相关", Tid = 131 }
+                }
+            },
+            [Parts.movie] = new PartDefinition
+            {
+                HeaderText = "电影区",
+                PartId = 23,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "电影相关", Tid = 82 },
+                    new PartTabDefinition { Text = "短片", Tid = 85 },
+                    new PartTabDefinition { Text = "欧美电影", Tid = 145 },
+                    new PartTabDefinition { Text = "日本电影", Tid = 146 },
+                    new PartTabDefinition { Text = "国产电影", Tid = 147 },
+                    new PartTabDefinition { Text = "其他国家", Tid = 83 }
+                }
+            },
+            [Parts.tv] = new PartDefinition
+            {
+                HeaderText = "电视剧区",
+                PartId = 11,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "连载剧集", Tid = 15 },
+                    new PartTabDefinition { Text = "完结剧集", Tid = 34 },
+                    new PartTabDefinition { Text = "特摄·布袋", Tid = 86 },
+                    new PartTabDefinition { Text = "电视剧相关", Tid = 128 }
+                }
+            },
+            [Parts.ad] = new PartDefinition
+            {
+                HeaderText = "广告区",
+                PartId = 165,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "广告", Tid = 165 }
+                }
+            },
+            [Parts.cn] = new PartDefinition
+            {
+                HeaderText = "国创区",
+                PartId = 167,
+                Tabs = new[]
+                {
+                    new PartTabDefinition { Text = "国产动画", Tid = 153 },
+                    new PartTabDefinition { Text = "国产原创相关", Tid = 168 },
+                    new PartTabDefinition { Text = "布袋戏", Tid = 169 },
+                    new PartTabDefinition { Text = "资讯", Tid = 170 }
+                }
+            }
+        };
+
         private async Task LoadPart(Parts parts)
         {
             isInitialPartLoad = true;
             deferChildLoads = false;
             com_bar.Visibility = Visibility.Collapsed;
             List<PartModel> l = new List<PartModel>();
-            // defu_Order = "default";
-            switch (parts)
+
+            if (PartDefinitions.TryGetValue(parts, out var definition))
             {
-                case Parts.douga:
-                    top_txt_Header.Text = "动画区";
-                    Part_Id = 1;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
+                top_txt_Header.Text = definition.HeaderText;
+                Part_Id = definition.PartId;
 
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-
-                        //this.fvRight.SelectedIndex = this.home_flipView.SelectedIndex + 1;
-
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "综合",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 27,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(27),
-                            VideoList = await GetVideos(27, defu_Order, 1, "")
-                        };
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "MAD·AMV",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 24,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(24),
-                            VideoList = await GetVideos(24, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "MMD·3D",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 25,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(25),
-                            VideoList = await GetVideos(25, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "短片·手书·配音",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 47,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(47),
-                            VideoList = await GetVideos(47, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                    }
-                    #endregion
-                    break;
-                case Parts.bangumi:
-                    top_txt_Header.Text = "番剧区";
-                    Part_Id = 13;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "连载动画",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 33,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(33),
-                            VideoList = await GetVideos(33, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "完结动画",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 32,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(32),
-                            VideoList = await GetVideos(32, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "资讯",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 51,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(51),
-                            VideoList = await GetVideos(51, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "官方延伸",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 152,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(152),
-                            VideoList = await GetVideos(152, defu_Order, 1, "")
-                        };
-                        if (p5.TagsList.Count != 0)
-                        {
-                            p5.SelectTag = p5.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                      
-                        l.Add(p4);
-                        l.Add(p5);
-                    }
-                    #endregion
-                    break;
-                case Parts.music:
-                    top_txt_Header.Text = "音乐区";
-                    Part_Id = 3;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "原创音乐",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 28,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(28),
-                            VideoList = await GetVideos(28, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "翻唱",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 31,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(31),
-                            VideoList = await GetVideos(31, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "VOCALOID·UTAU",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 30,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(30),
-                            VideoList = await GetVideos(30, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "演奏",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 59,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(59),
-                            VideoList = await GetVideos(59, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "三次元音乐",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 29,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(29),
-                            VideoList = await GetVideos(29, defu_Order, 1, "")
-                        };
-                        if (p5.TagsList.Count != 0)
-                        {
-                            p5.SelectTag = p5.TagsList[0];
-                        }
-                        PartModel p6 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "OP/ED/OST",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 54,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(54),
-                            VideoList = await GetVideos(54, defu_Order, 1, "")
-                        };
-                        if (p6.TagsList.Count != 0)
-                        {
-                            p6.SelectTag = p6.TagsList[0];
-                        }
-                        PartModel p7 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "音乐选集",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 130,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(130),
-                            VideoList = await GetVideos(130, defu_Order, 1, "")
-                        };
-                        if (p7.TagsList.Count != 0)
-                        {
-                            p7.SelectTag = p7.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                        l.Add(p5);
-                        l.Add(p6);
-                        l.Add(p7);
-                    }
-                    #endregion
-                    break;
-                case Parts.dance:
-                    top_txt_Header.Text = "舞蹈区";
-                    Part_Id = 129;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "宅舞",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 20,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(20),
-                            VideoList = await GetVideos(20, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "三次元舞蹈",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 154,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(154),
-                            VideoList = await GetVideos(154, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "舞蹈教程",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 156,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(156),
-                            VideoList = await GetVideos(156, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                    }
-                    #endregion
-                    break;
-                case Parts.game:
-                    top_txt_Header.Text = "游戏区";
-                    Part_Id = 4;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "单机联机",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 17,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(17),
-                            VideoList = await GetVideos(17, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "网游·电竞",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 65,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(65),
-                            VideoList = await GetVideos(65, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "音游",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 136,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(136),
-                            VideoList = await GetVideos(136, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "Mugen",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 19,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(19),
-                            VideoList = await GetVideos(19, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "GMV",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 121,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(121),
-                            VideoList = await GetVideos(121, defu_Order, 1, "")
-                        };
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                        l.Add(p5);
-                    }
-                    #endregion
-                    break;
-                case Parts.technology:
-                    top_txt_Header.Text = "科技区";
-                    Part_Id = 36;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "纪录片",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 37,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(37),
-                            VideoList = await GetVideos(37, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "趣味科普人文",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 124,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(124),
-                            VideoList = await GetVideos(124, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "野生技术协会",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 122,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(122),
-                            VideoList = await GetVideos(122, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "演讲•公开课",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 39,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(39),
-                            VideoList = await GetVideos(39, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "星海",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 96,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(96),
-                            VideoList = await GetVideos(96, defu_Order, 1, "")
-                        };
-                        if (p5.TagsList.Count != 0)
-                        {
-                            p5.SelectTag = p5.TagsList[0];
-                        }
-                        PartModel p6 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "数码",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 95,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(95),
-                            VideoList = await GetVideos(95, defu_Order, 1, "")
-                        };
-                        if (p6.TagsList.Count != 0)
-                        {
-                            p6.SelectTag = p6.TagsList[0];
-                        }
-                        PartModel p7 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "机械",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 98,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(98),
-                            VideoList = await GetVideos(98, defu_Order, 1, "")
-                        };
-                        if (p7.TagsList.Count != 0)
-                        {
-                            p7.SelectTag = p7.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                        l.Add(p5);
-                        l.Add(p6);
-                        l.Add(p7);
-                    }
-                    #endregion
-                    break;
-                case Parts.life:
-                    top_txt_Header.Text = "生活区";
-                    Part_Id = 160;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "搞笑",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 138,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(138),
-                            VideoList = await GetVideos(138, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "日常",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 21,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(21),
-                            VideoList = await GetVideos(21, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "美食圈",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 76,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(76),
-                            VideoList = await GetVideos(76, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "动物圈",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 75,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(75),
-                            VideoList = await GetVideos(75, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "手工",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 161,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(161),
-                            VideoList = await GetVideos(161, defu_Order, 1, "")
-                        };
-                        if (p5.TagsList.Count != 0)
-                        {
-                            p5.SelectTag = p5.TagsList[0];
-                        }
-                        PartModel p6 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "绘画",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 162,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(162),
-                            VideoList = await GetVideos(162, defu_Order, 1, "")
-                        };
-                        if (p6.TagsList.Count != 0)
-                        {
-                            p6.SelectTag = p6.TagsList[0];
-                        }
-                        PartModel p7 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "运动",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 163,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(163),
-                            VideoList = await GetVideos(163, defu_Order, 1, "")
-                        };
-                        if (p7.TagsList.Count != 0)
-                        {
-                            p7.SelectTag = p7.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                        l.Add(p5);
-                        l.Add(p6);
-                        l.Add(p7);
-                    }
-                    #endregion
-                    break;
-                case Parts.kichiku:
-                    top_txt_Header.Text = "鬼畜区";
-                    Part_Id = 119;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "鬼畜调教",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 22,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(22),
-                            VideoList = await GetVideos(22, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "音MAD",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 26,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(26),
-                            VideoList = await GetVideos(26, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "人力VOCALOID",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 126,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(126),
-                            VideoList = await GetVideos(126, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "教程演示",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 127,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(127),
-                            VideoList = await GetVideos(127, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                    }
-                    #endregion
-                    break;
-                case Parts.fashion:
-                    top_txt_Header.Text = "时尚区";
-                    Part_Id = 155;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "美妆",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 157,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(157),
-                            VideoList = await GetVideos(157, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "服饰",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 158,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(158),
-                            VideoList = await GetVideos(158, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "健身",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 164,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(164),
-                            VideoList = await GetVideos(164, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "资讯",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 159,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(159),
-                            VideoList = await GetVideos(159, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                    }
-                    #endregion
-                    break;
-                case Parts.ent:
-                    top_txt_Header.Text = "娱乐区";
-                    Part_Id = 5;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "综艺",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 71,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(71),
-                            VideoList = await GetVideos(71, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "明星",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 137,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(137),
-                            VideoList = await GetVideos(137, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "Korea相关",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 131,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(131),
-                            VideoList = await GetVideos(131, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                    }
-                    #endregion
-                    break;
-                case Parts.movie:
-                    top_txt_Header.Text = "电影区";
-                    Part_Id = 23;
-                    #region
-                    {
-
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            try
-                            {
-                                p0.homeBanner = p0.Banner[0];
-                                p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                                p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                            }
-                            catch (Exception)
-                            {
-                            }
-                          
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "电影相关",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 82,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(82),
-                            VideoList = await GetVideos(82, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "短片",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 85,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(85),
-                            VideoList = await GetVideos(85, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "欧美电影",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 145,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(145),
-                            VideoList = await GetVideos(145, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "日本电影",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 146,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(146),
-                            VideoList = await GetVideos(146, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "国产电影",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 147,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(147),
-                            VideoList = await GetVideos(147, defu_Order, 1, "")
-                        };
-                        if (p5.TagsList.Count != 0)
-                        {
-                            p5.SelectTag = p5.TagsList[0];
-                        }
-                        PartModel p6 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "其他国家",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 83,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(83),
-                            VideoList = await GetVideos(83, defu_Order, 1, "")
-                        };
-                        if (p6.TagsList.Count != 0)
-                        {
-                            p6.SelectTag = p6.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                        l.Add(p5);
-                        l.Add(p6);
-                    }
-                    #endregion
-                    break;
-                case Parts.tv:
-                    top_txt_Header.Text = "电视剧区";
-                    Part_Id = 11;
-                    #region
-                    {
-
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "连载剧集",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 15,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(15),
-                            VideoList = await GetVideos(15, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "完结剧集",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 34,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(34),
-                            VideoList = await GetVideos(34, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "特摄·布袋",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 86,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(86),
-                            VideoList = await GetVideos(86, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "电视剧相关",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 128,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(128),
-                            VideoList = await GetVideos(128, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                    }
-                    #endregion
-                    break;
-                case Parts.ad:
-                    top_txt_Header.Text = "广告区";
-                    Part_Id = 165;
-                    #region
-                    {
-
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "广告",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 165,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(165),
-                            VideoList = await GetVideos(165, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                      
-                        l.Add(p0);
-                        l.Add(p1);
-                    }
-                    #endregion
-                    break;
-                case Parts.cn:
-                    top_txt_Header.Text = "国创区";
-                    Part_Id = 167;
-                    #region
-                    {
-                        PartModel p0 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "首页",
-                            isHome = true,
-                            Banner = await GetBanner(Part_Id),
-                            DTs = await GetTuiJianDT(Part_Id),
-                            leftVisibility = Visibility.Visible,
-                            rightVisibility = Visibility.Visible,
-                            grid_c_left = new GridLength(1, GridUnitType.Star),
-                            grid_c_right = new GridLength(1, GridUnitType.Star),
-                            grid_c_center = new GridLength(0, GridUnitType.Auto)
-                        };
-
-                        if (p0.Banner.Count != 0)
-                        {
-                            p0.homeBanner = p0.Banner[0];
-                            p0.leftBanner = p0.Banner[p0.Banner.Count - 1];
-                            p0.rightBanner = p0.Banner[p0.Banner.IndexOf(p0.homeBanner) + 1];
-
-                        }
-                        PartModel p1 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "国产动画",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 153,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(153),
-                            VideoList = await GetVideos(153, defu_Order, 1, "")
-                        };
-
-                        if (p1.TagsList.Count != 0)
-                        {
-                            p1.SelectTag = p1.TagsList[0];
-                        }
-                        PartModel p2 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "国产原创相关",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 168,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(168),
-                            VideoList = await GetVideos(168, defu_Order, 1, "")
-                        };
-                        if (p2.TagsList.Count != 0)
-                        {
-                            p2.SelectTag = p2.TagsList[0];
-                        }
-                        PartModel p3 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "国产动画",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 153,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(153),
-                            VideoList = await GetVideos(153, defu_Order, 1, "")
-                        };
-                        if (p3.TagsList.Count != 0)
-                        {
-                            p3.SelectTag = p3.TagsList[0];
-                        }
-                        PartModel p4 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "布袋戏",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 169,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(169),
-                            VideoList = await GetVideos(169, defu_Order, 1, "")
-                        };
-                        if (p4.TagsList.Count != 0)
-                        {
-                            p4.SelectTag = p4.TagsList[0];
-                        }
-                        PartModel p5 = new PartModel()
-                        {
-                            fontWeight = FontWeights.Normal,
-                            HanderText = "资讯",
-                            isHome = false,
-                            orderBy = PartOrderBy.senddate,
-                            PartId = 170,
-                            PageNum = 1,
-                            ShowTags = Visibility.Collapsed,
-                            TagsList = await GetTags(170),
-                            VideoList = await GetVideos(170, defu_Order, 1, "")
-                        };
-                        if (p5.TagsList.Count != 0)
-                        {
-                            p5.SelectTag = p5.TagsList[0];
-                        }
-                        l.Add(p0);
-                        l.Add(p1);
-                        l.Add(p2);
-                        l.Add(p3);
-                        l.Add(p4);
-                        l.Add(p5);
-                    }
-                    #endregion
-                    break;
-                default:
-                    break;
+                l.Add(await CreateHomeTab(definition.PartId));
+                foreach (var tab in definition.Tabs)
+                {
+                    l.Add(await CreatePartTab(tab.Text, tab.Tid));
+                }
             }
 
             isInitialPartLoad = false;
             deferChildLoads = false;
             pivot.ItemsSource = l;
             UpdateBannerState();
-          
+        }
+
+        /// <summary>
+        /// 构建分区首页（推荐）页签，含轮播图与推荐列表。
+        /// </summary>
+        private async Task<PartModel> CreateHomeTab(int partId)
+        {
+            PartModel home = new PartModel()
+            {
+                fontWeight = FontWeights.Normal,
+                HanderText = "首页",
+                isHome = true,
+                Banner = await GetBanner(partId),
+                DTs = await GetTuiJianDT(partId),
+                leftVisibility = Visibility.Visible,
+                rightVisibility = Visibility.Visible,
+                grid_c_left = new GridLength(1, GridUnitType.Star),
+                grid_c_right = new GridLength(1, GridUnitType.Star),
+                grid_c_center = new GridLength(0, GridUnitType.Auto)
+            };
+            InitializeBannerState(home);
+            return home;
+        }
+
+        /// <summary>
+        /// 构建一个子分区页签，按分区 ID 拉取标签与首屏视频。
+        /// </summary>
+        private async Task<PartModel> CreatePartTab(string text, int tid)
+        {
+            PartModel tab = new PartModel()
+            {
+                fontWeight = FontWeights.Normal,
+                HanderText = text,
+                isHome = false,
+                orderBy = PartOrderBy.senddate,
+                PartId = tid,
+                PageNum = 1,
+                ShowTags = Visibility.Collapsed,
+                TagsList = await GetTags(tid),
+                VideoList = await GetVideos(tid, defu_Order, 1, "")
+            };
+            if (tab.TagsList != null && tab.TagsList.Count != 0)
+            {
+                tab.SelectTag = tab.TagsList[0];
+            }
+            return tab;
         }
 
         private async Task LoadPart(RegionModel parts)

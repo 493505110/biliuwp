@@ -264,3 +264,6 @@ __pycache__/
 # Codex
 .codex/
 docs/superpowers/
+
+# WorkBuddy (AI assistant workspace data: reports, memory)
+.workbuddy/

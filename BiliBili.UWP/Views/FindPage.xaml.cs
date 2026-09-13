@@ -130,7 +130,7 @@ namespace BiliBili.UWP.Views
                 Utils.ShowMessageToast("关键字不能为空");
                 return;
             }
-            if (await MessageCenter.HandelUrl(txt_auto_Find.Text))
+            if (await MessageCenter.HandleUrl(txt_auto_Find.Text))
             {
                 return;
             }

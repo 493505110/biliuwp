@@ -52,7 +52,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<ChannelModel>(ex);
+                return HandleError<ChannelModel>(ex);
             }
         }
 
@@ -92,7 +92,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
         /// <summary>
@@ -130,7 +130,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError(ex);
+                return HandleError(ex);
             }
         }
 
@@ -168,7 +168,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<Atten_channel>>(ex);
+                return HandleError<ObservableCollection<Atten_channel>>(ex);
             }
         }
 
@@ -212,7 +212,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<ObservableCollection<ChannelFeedModel>>(ex);
+                return HandleError<ObservableCollection<ChannelFeedModel>>(ex);
             }
         }
 
@@ -254,7 +254,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError<FeedTabModel>(ex);
+                return HandleError<FeedTabModel>(ex);
             }
         }
 
