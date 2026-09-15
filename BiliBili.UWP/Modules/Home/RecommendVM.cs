@@ -335,7 +335,7 @@ namespace BiliBili.UWP.Modules.Home
                     }
 
                     var rotate = GetUriNumber("player_rotate");
-                    if (rotate == 1 || rotate == 90 || rotate == 270)
+                    if (rotate == 1)
                     {
                         var value = width;
                         width = height;
