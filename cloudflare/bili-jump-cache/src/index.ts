@@ -57,6 +57,9 @@ const MAX_TEXT_LENGTH = 1024;
 const DEFAULT_TTL_SECONDS = 180 * 24 * 60 * 60;
 const DEFAULT_LEASE_SECONDS = 120;
 const PUBLIC_PATH_PREFIX = "/biliuwp/video_ad_jump";
+const CLEANUP_BATCH_SIZE = 500;
+const CLEANUP_MAX_BATCHES = 10;
+const STALE_PENDING_GRACE_SECONDS = 60 * 60;
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -111,6 +114,10 @@ export default {
       console.error(error);
       return json({ error: "internal_error" }, 500);
     }
+  },
+
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    await cleanupCache(env);
   }
 };
 
@@ -499,6 +506,37 @@ async function deleteCache(cacheKey: string, env: Env): Promise<Response> {
   }
   await env.DB.prepare("DELETE FROM ad_cache WHERE cache_key = ?").bind(cacheKey).run();
   return json({ status: "deleted", cache_key: cacheKey });
+}
+
+async function cleanupCache(env: Env): Promise<void> {
+  const now = unixTime();
+  const removedReady = await deleteExpiredBatch(
+    env,
+    "SELECT cache_key FROM ad_cache WHERE status = 'ready' AND expires_at IS NOT NULL AND expires_at <= ? LIMIT ?",
+    [now]
+  );
+  const removedPending = await deleteExpiredBatch(
+    env,
+    "SELECT cache_key FROM ad_cache WHERE status = 'pending' AND COALESCE(lease_until, 0) <= ? LIMIT ?",
+    [now - STALE_PENDING_GRACE_SECONDS]
+  );
+
+  console.log(`cleanup: removed ${removedReady} expired and ${removedPending} stale pending entries`);
+}
+
+async function deleteExpiredBatch(env: Env, selectSql: string, params: (string | number)[]): Promise<number> {
+  let removed = 0;
+  for (let batch = 0; batch < CLEANUP_MAX_BATCHES; batch++) {
+    const result = await env.DB.prepare(`DELETE FROM ad_cache WHERE cache_key IN (${selectSql})`)
+      .bind(...params, CLEANUP_BATCH_SIZE)
+      .run();
+    const changes = result.meta?.changes ?? 0;
+    removed += changes;
+    if (changes < CLEANUP_BATCH_SIZE) {
+      break;
+    }
+  }
+  return removed;
 }
 
 function unixTime(): number {

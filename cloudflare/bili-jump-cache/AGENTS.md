@@ -72,6 +72,19 @@
 
 D1 只保存规范化后的广告识别结果和视频元数据，**不保存字幕内容、AI API 密钥、Cookie 或用户登录信息**；`subtitle_hash` 只存哈希。新增字段或日志时保持这条边界。
 
+## 后台清理
+
+`wrangler.jsonc` 的 `triggers.crons` 配置了 `0 3 * * *`（**UTC**，每天一次），对应 `src/index.ts` 的 `scheduled` handler，它只做一件事：清理两类行。
+
+| 清理对象 | 条件 |
+|---|---|
+| 过期结果 | `status = 'ready'` 且 `expires_at <= now` |
+| 陈旧租约 | `status = 'pending'` 且 `lease_until <= now - 1 小时`（宽限期给慢客户端留补救窗口） |
+
+两类分别走 `idx_ad_cache_expire` 和 `idx_ad_cache_status` 索引，通过 `DELETE ... WHERE cache_key IN (SELECT ... LIMIT ?)` 分批删除，每批 500 行、每次最多 10 批，避免单次查询过长撞上 D1 的耗时与子请求限制；一轮没清空就留到下一次 cron。执行行数写入 `console.log`，可在 `wrangler tail` 或 observability 日志中查看。
+
+清理是幂等的，只在 `scheduled` 里跑，不挂在请求路径上。
+
 ## 关键陷阱
 
 - 不要随意改动 `getCacheKey()` 的参与字段或拼接顺序：任一变化都会让全量缓存 key 改变，等价于清空线上缓存。
@@ -79,6 +92,7 @@ D1 只保存规范化后的广告识别结果和视频元数据，**不保存字
 - 前缀剥离只识别 `/biliuwp/video_ad_jump`（含其后的 `/`），其它路径按原样匹配；改动前缀会影响线上客户端，需与客户端同时上线。
 - 迁移文件一旦应用过就不要修改，新变更追加编号更大的文件；本地与远程迁移要分别执行 `db:migrate:local` / `db:migrate:remote`。
 - 部署即对生产生效，没有预发环境；改动先在 `npm run dev` 配合本地 D1 验证。
+- `triggers.crons` 的改动要重新 `npm run deploy` 才同步到生产。本地验证用 `npx wrangler dev --test-scheduled`，再 `curl "http://127.0.0.1:8787/__scheduled?cron=0+3+*+*+*"` 手动触发一次。
 - 路由、请求/响应字段变化时，同步更新本文件与 `README.md`。
 
 ## 常用命令
