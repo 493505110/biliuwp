@@ -2,7 +2,9 @@
 
 > **状态：设计存档，尚未实施。** 本次改动只创建文档分支并提交本文件，不含任何代码改动。
 > **规模提示**：本需求已从「加个 mode8 类似的东西」长成一个**平台级改动**（自建 WebView2 脚本运行时 + TS 转译 + 三类交互 + 四类拦截 + 几十条同屏渲染）。建议按下面阶段分批落地，每阶段可独立验证。
-> **行号基准**：全文行号以 `b1ef478`（本分支基线）为准。已核对 master 上同样对齐——`PlayerPage.xaml.cs` 相对基线只差 1 行（`ff07b64` 的清理提交），关键锚点未漂移。**引用子模块文件时行号以 `Libraries/NSDanmaku-Fork` 当前 pin `784d694` 为准。**
+> **行号基准**：全文行号已随 master 合并（`352a556`）**全量复校通过**，在合并后的工作树上逐条命中，可直接使用。子模块文件行号以 `Libraries/NSDanmaku-Fork` 当前 pin `784d694` 为准。
+> **唯一残留漂移**：master 引入的清理提交 `ff07b64`（Handel→Handle 改名）改动了 `PlayerPage.xaml.cs:3686` 一行（`MessageCenter.HandelUrl` → `HandleUrl`）。该行**不在本文档引用的任何锚点范围内**，其余锚点零漂移。
+> **合并带来的既成事实**：`BiliBili.Background` 侧新增 `DynamicFeedApi` / `DynamicFeedParser` / `NotificationBuilder` / `SettingHelper` 等文件（动态磁贴与更新通知功能）。这些是**另一条功能线，与本计划无交集**，但同处 `BiliBili.Background` 目录，实施时注意区分。
 
 ## Context
 
