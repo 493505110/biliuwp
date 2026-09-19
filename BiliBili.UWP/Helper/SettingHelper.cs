@@ -2271,9 +2271,9 @@ namespace BiliBili.UWP
         public static long Get_UserID()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["UserID"] != null)
+            if (container.Values[SettingKeys.UserID] != null)
             {
-                return Convert.ToInt64(container.Values["UserID"]);
+                return Convert.ToInt64(container.Values[SettingKeys.UserID]);
             }
             else
             {
@@ -2283,7 +2283,7 @@ namespace BiliBili.UWP
         public static void Set_UserID(long value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["UserID"] = value;
+            container.Values[SettingKeys.UserID] = value;
         }
 
         public static bool Get_UserIsVip()

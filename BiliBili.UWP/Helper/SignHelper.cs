@@ -9,8 +9,9 @@ namespace BiliBili.UWP.Helper
     /// <summary>
     /// B 站客户端请求签名算法：参数排序 + Secret 拼接 + MD5。
     /// 纯逻辑、无 UWP 依赖，可被单元测试覆盖。
+    /// 声明为 internal：BiliBili.Background 是 winmdobj 工程，链接本文件后不能导出 public 静态类。
     /// </summary>
-    public static class SignHelper
+    internal static class SignHelper
     {
         /// <summary>对已拼好的 query（形如 "a=1&amp;b=2"）做 MD5 签名，返回小写 hex，不含 sign 前缀。</summary>
         public static string SignQuery(string query, string secret)

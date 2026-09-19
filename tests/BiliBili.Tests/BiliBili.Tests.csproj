@@ -55,6 +55,10 @@
              Link="Production\PlaybackRestoreState.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackHistory.cs"
              Link="Production\PlaybackHistory.cs" />
+    <Compile Include="..\..\BiliBili.Background\DynamicFeedParser.cs"
+             Link="Production\DynamicFeedParser.cs" />
+    <Compile Include="..\..\BiliBili.Background\NotificationBuilder.cs"
+             Link="Production\NotificationBuilder.cs" />
     <None Update="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

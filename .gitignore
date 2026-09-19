@@ -267,3 +267,6 @@ docs/superpowers/
 
 # WorkBuddy (AI assistant workspace data: reports, memory)
 .workbuddy/
+
+# Wrangler (Cloudflare 本地缓存，含账户 ID 等本机信息)
+.wrangler/

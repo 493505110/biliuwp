@@ -8,8 +8,8 @@ namespace BiliBili.UWP.Helper
     /// </summary>
     public static class CredentialVault
     {
-        private const string ResourceName = "BiliBili.UWP.AccessKey";
-        private const string UserName = "bili_access_key";
+        private const string ResourceName = SettingKeys.AccessKeyResource;
+        private const string UserName = SettingKeys.AccessKeyUserName;
         private const string BiliJumpResourceName = "BiliBili.UWP.BiliJumpAi";
         private const string BiliJumpUserName = "bili_jump_ai_api_key";
 
