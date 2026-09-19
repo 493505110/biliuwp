@@ -55,6 +55,10 @@
              Link="Production\PlaybackRestoreState.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackHistory.cs"
              Link="Production\PlaybackHistory.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\ScriptDanmakuParser.cs"
+             Link="Production\ScriptDanmakuParser.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Models\ScriptDanmakuModel.cs"
+             Link="Production\ScriptDanmakuModel.cs" />
     <Compile Include="..\..\BiliBili.Background\DynamicFeedParser.cs"
              Link="Production\DynamicFeedParser.cs" />
     <Compile Include="..\..\BiliBili.Background\NotificationBuilder.cs"
