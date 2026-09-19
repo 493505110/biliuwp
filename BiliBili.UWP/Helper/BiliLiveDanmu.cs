@@ -31,8 +31,8 @@ namespace BiliBili.UWP.Helper
             SystemMsg
         }
 
-        public delegate void HasDanmuHandel(LiveDanmuModel value);
-        public event HasDanmuHandel HasDanmu;
+        public delegate void HasDanmuHandle(LiveDanmuModel value);
+        public event HasDanmuHandle HasDanmu;
 
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
         private StreamSocket _clientSocket;

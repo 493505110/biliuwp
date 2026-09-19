@@ -429,7 +429,7 @@ namespace BiliBili.UWP.Views
             await DownloadHelper2.UpdateDowningStatus();
         }
 
-        private void sw_DTCT_Toggled(object sender, RoutedEventArgs e)
+        private async void sw_DTCT_Toggled(object sender, RoutedEventArgs e)
         {
             if (!sw_DTCT.IsOn)
             {
@@ -438,6 +438,17 @@ namespace BiliBili.UWP.Views
             }
             SettingHelper.Set_DTCT(sw_DTCT.IsOn);
 
+            if (loadsetting)
+            {
+                return;
+            }
+            //跟着开关同步后台任务的注册状态；打开时顺手在前台刷一次，
+            //否则要等满一个 15 分钟的触发周期才看得到磁贴变化
+            await BackgroundTaskRegistrar.SyncAsync();
+            if (sw_DTCT.IsOn)
+            {
+                await BackgroundTaskRegistrar.RefreshTileAsync();
+            }
         }
 
         private void sw_DT_Toggled(object sender, RoutedEventArgs e)

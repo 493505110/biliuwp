@@ -87,7 +87,7 @@ namespace BiliBili.UWP.Pages
                 Utils.ShowMessageToast("关键字不能为空啊，喂(#`O′)");
                 return;
             }
-            if (await MessageCenter.HandelUrl(txtKeyword.Text))
+            if (await MessageCenter.HandleUrl(txtKeyword.Text))
             {
                 return;
             }

@@ -132,8 +132,8 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                var handel = HandelError<ApiDataModel<List<RankRegionModel>>>(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError<ApiDataModel<List<RankRegionModel>>>(ex);
+                Utils.ShowMessageToast(handle.message);
             }
             finally
             {

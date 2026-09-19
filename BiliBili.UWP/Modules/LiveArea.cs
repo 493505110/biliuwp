@@ -36,7 +36,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<List<AreaList>>(ex);
+                return HandleError<List<AreaList>>(ex);
             }
         }
 
@@ -53,7 +53,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<AreaRoomList>(ex);
+                return HandleError<AreaRoomList>(ex);
             }
         }
 
@@ -66,7 +66,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                return HandelError<AreaRoomList>(ex);
+                return HandleError<AreaRoomList>(ex);
             }
         }
 

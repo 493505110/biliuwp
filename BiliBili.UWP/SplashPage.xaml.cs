@@ -28,7 +28,6 @@ using Windows.UI.Xaml.Media.Imaging;
 using Windows.Storage.Streams;
 using System.Text.RegularExpressions;
 using BiliBili.UWP.Modules;
-using Microsoft.Toolkit.Uwp.Helpers;
 
 // “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
 
@@ -66,11 +65,12 @@ namespace BiliBili.UWP
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
+            //注册后台任务和刷新磁贴都不能阻塞启动，也不能被下面那个 catch 吞掉异常
+            _ = RegisterBackgroundTaskAsync();
+            _ = RefreshAttentionTileAsync();
             #region
             try
             {
-                //注册后台任务
-                RegisterBackgroundTask();
                 //读取已下载的文件
                 DownloadHelper2.LoadDowned();
                 //加载分区
@@ -93,11 +93,20 @@ namespace BiliBili.UWP
 
         #region 后台任务注册
 
-        private void RegisterBackgroundTask()
+        private async Task RegisterBackgroundTaskAsync()
         {
-            var task = BackgroundTaskHelper.Register(typeof(BiliBili.Background.BackgroundTask), new TimeTrigger(15, true),true,true,null);
-            task.Progress += TaskOnProgress;
-            task.Completed += TaskOnCompleted;
+            var task = await BackgroundTaskRegistrar.SyncAsync();
+            if (task != null)
+            {
+                task.Progress += TaskOnProgress;
+                task.Completed += TaskOnCompleted;
+            }
+        }
+
+        /// <summary>后台任务最快也要 15 分钟才触发一次，启动时先在前台刷一遍磁贴。</summary>
+        private async Task RefreshAttentionTileAsync()
+        {
+            await BackgroundTaskRegistrar.RefreshTileAsync();
         }
 
         private void TaskOnProgress(BackgroundTaskRegistration sender, BackgroundTaskProgressEventArgs args)

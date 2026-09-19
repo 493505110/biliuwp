@@ -1,0 +1,53 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "cards": [
+      {
+        "desc": {
+          "type": 8,
+          "dynamic_id": 111111,
+          "rid": 222222,
+          "user_profile": { "info": { "uname": "回退用的UP名" } }
+        },
+        "card": "{\"aid\":222222,\"title\":\"标题里有 & 号和 <尖括号>\",\"pic\":\"http://i0.hdslb.com/bfs/archive/abc.jpg\",\"owner\":{\"name\":\"某某UP主\"}}"
+      },
+      {
+        "desc": {
+          "type": 512,
+          "dynamic_id": 333333
+        },
+        "card": "{\"index\":\"3\",\"cover\":\"https://i0.hdslb.com/bfs/bangumi/xyz.jpg\",\"apiSeasonInfo\":{\"title\":\"测试番剧\",\"season_id\":12345}}"
+      },
+      {
+        "desc": {
+          "type": 4099,
+          "dynamic_id": 444444
+        },
+        "card": "{\"index\":\"特别篇\",\"cover\":\"//i0.hdslb.com/bfs/movie/def.jpg\",\"apiSeasonInfo\":{\"title\":\"测试影视\",\"season_id\":67890}}"
+      },
+      {
+        "desc": {
+          "type": 64,
+          "dynamic_id": 555555
+        },
+        "card": "{\"id\":999}"
+      },
+      {
+        "desc": {
+          "type": 8,
+          "dynamic_id": 666666
+        },
+        "card": "这不是合法的 JSON"
+      },
+      {
+        "desc": {
+          "type": 8,
+          "dynamic_id": 777777,
+          "user_profile": { "info": { "uname": "回退UP" } }
+        },
+        "card": "{\"aid\":888888,\"title\":\"没有 owner 字段的视频\",\"pic\":\"https://i0.hdslb.com/bfs/archive/ghi.jpg@100w.jpg\"}"
+      }
+    ]
+  }
+}

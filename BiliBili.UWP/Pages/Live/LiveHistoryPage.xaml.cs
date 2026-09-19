@@ -61,7 +61,7 @@ namespace BiliBili.UWP.Pages
 
         private async void AdaptiveGridView_ItemClick(object sender, ItemClickEventArgs e)
         {
-           await MessageCenter.HandelUrl((e.ClickedItem as LiveWatchHistoryItemModel).uri);
+           await MessageCenter.HandleUrl((e.ClickedItem as LiveWatchHistoryItemModel).uri);
         }
     }
 }

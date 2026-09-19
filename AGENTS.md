@@ -82,8 +82,8 @@
 
 ## 代码约定
 
-- 项目没有引入第三方 MVVM 框架；`Modules/IModules.cs` 定义 `IModules` 接口并实现 `INotifyPropertyChanged`，各业务类通过它的 `DoPropertyChanged(name)` 通知变更。
-- 业务异步方法通常返回 `ReturnModel` / `ReturnModel<T>`（含 `success`、`message`）；常见异常路径交给 `IModules.HandelError()` 记录日志并显示消息。
+- 项目没有引入第三方 MVVM 框架；`Modules/IModules.cs` 里的 `IModules` 是**具体基类**而非接口（名字沿用了接口的 `I` 前缀），它继承 `INotifyPropertyChanged`，各业务类继承它并通过 `DoPropertyChanged(name)` 通知变更。
+- 业务异步方法通常返回 `ReturnModel` / `ReturnModel<T>`（含 `success`、`message`）；常见异常路径交给 `IModules.HandleError()` 记录日志并显示消息。
 - Bilibili API 响应常用 `ApiDataModel<T>`（`.data`）或 `ApiResultModel<T>`（`.result`），必须以具体接口的真实响应结构为准。
 - 用户可见文案以中文为主；注释遵循所在文件的既有语言和风格，不要为了统一语言做无关改写。
 - 保持改动范围聚焦。仓库存在新旧实现并存和大量历史兼容分支，不要仅凭类名或目录位置删除看似重复的代码。
@@ -103,6 +103,6 @@
 - 提交标题参考近期提交风格，使用明确、偏技术性的中文短句；涉及多个技术面的改动应在正文中使用 `- ` 分点说明。
 - 提交正文的 `- ` 分点列表**连续排列、项与项之间不要插入空行**；保持紧凑，仅在标题与正文、以及正文与署名尾注（若有）之间各保留一个空行。
 - 创建或修订提交时使用当前 Git 配置的 GPG 密钥签名（`git commit -S` / `git commit --amend -S`），不要默认使用 `--no-gpg-sign` 绕过签名。签名需要 PIN 时，等待用户完成交互。
-- 参与改动或整理提交的 AI agent，只有在 GitHub 上拥有官方账号时才在提交正文末尾追加 `Co-Authored-By: <官方账号名> <官方邮箱>` 尾注；没有官方账号的不要署名，也不要臆造或借用他人的名称与邮箱。
+- 参与改动或整理提交的 AI agent，只有在 GitHub 上拥有官方账号时才在提交正文末尾追加 `Co-Authored-By: <官方账号名> <官方邮箱>` 尾注；没有官方账号的则在尾注中说明「本提交由 XXX 完成」（XXX 为该 agent 的名称），不要臆造或借用他人的名称与邮箱。
 - 凡是会修改仓库文件、配置、代码或提交历史的操作，执行前必须先向用户说明拟修改内容并取得明确确认；仅检查、读取、搜索、构建或测试等不修改操作不受此限制。
 - 提交完成后使用 `git log -1 --show-signature` 校验签名，确认签名有效后再报告成功。

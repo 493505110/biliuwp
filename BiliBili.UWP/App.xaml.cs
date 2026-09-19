@@ -238,7 +238,7 @@ namespace BiliBili.UWP
 
                 Frame rootFrame = Window.Current.Content as Frame;
 
-                StartModel par = new StartModel() { StartType = StartTypes.HandelUri };
+                StartModel par = new StartModel() { StartType = StartTypes.HandleUri };
 
                 ProtocolActivatedEventArgs eventArgs = args as ProtocolActivatedEventArgs;
                 par.Par1 = eventArgs.Uri.AbsoluteUri;
@@ -254,7 +254,7 @@ namespace BiliBili.UWP
 
                 if (rootFrame != null)
                 {
-                    if (!await MessageCenter.HandelUrl(eventArgs.Uri.AbsoluteUri))
+                    if (!await MessageCenter.HandleUrl(eventArgs.Uri.AbsoluteUri))
                     {
                         ContentDialog contentDialog = new ContentDialog()
                         {

@@ -45,7 +45,7 @@ namespace BiliBili.UWP.Pages.Home
         private async void btn_special_Click(object sender, RoutedEventArgs e)
         {
             var data = (sender as HyperlinkButton).DataContext as TabItemModel;
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }
@@ -55,7 +55,7 @@ namespace BiliBili.UWP.Pages.Home
         private async void btn_topic_banner_Click(object sender, RoutedEventArgs e)
         {
             var data = (sender as HyperlinkButton).DataContext as TabBannerItem;
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }
@@ -77,7 +77,7 @@ namespace BiliBili.UWP.Pages.Home
         private async void ls_players_ItemClick(object sender, ItemClickEventArgs e)
         {
             var data = e.ClickedItem as TabVideoItemModel;
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }
@@ -88,7 +88,7 @@ namespace BiliBili.UWP.Pages.Home
         private async void ls_entrance_ItemClick(object sender, ItemClickEventArgs e)
         {
             var data = e.ClickedItem as TabVideoItemModel;
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }
@@ -98,7 +98,7 @@ namespace BiliBili.UWP.Pages.Home
         private async void HyperlinkButton_Click(object sender, RoutedEventArgs e)
         {
             var data = (sender as HyperlinkButton).DataContext as TabItemModel;
-            if (await MessageCenter.HandelUrl(data.uri))
+            if (await MessageCenter.HandleUrl(data.uri))
             {
                 return;
             }

@@ -15,18 +15,18 @@ namespace BiliBili.UWP.Modules
         public LiveCommand()
         {
             NavigationInfoPageCommand = new RelayCommand<string>(NavigationInfoPage);
-            HandelLiveUrlNavigationCommand = new RelayCommand<string>(HandelLiveUrl);
+            HandleLiveUrlNavigationCommand = new RelayCommand<string>(HandleLiveUrl);
             OpenLiveRoomCommand = new RelayCommand<int>(OpenLiveRoom);
         }
         public ICommand NavigationInfoPageCommand { get; private set; }
-        public ICommand HandelLiveUrlNavigationCommand { get; private set; }
+        public ICommand HandleLiveUrlNavigationCommand { get; private set; }
         public ICommand OpenLiveRoomCommand { get; private set; }
         public virtual void NavigationInfoPage(string pageName)
         {
             MessageCenter.SendNavigateTo(NavigateMode.Info, Type.GetType(pageName));
         }
 
-        public virtual async void HandelLiveUrl(string url)
+        public virtual async void HandleLiveUrl(string url)
         {
             if (url.Contains("app/all-live"))
             {
@@ -56,7 +56,7 @@ namespace BiliBili.UWP.Modules
                 return;
             }
 
-            if (await MessageCenter.HandelUrl(url))
+            if (await MessageCenter.HandleUrl(url))
             {
                 return;
             }

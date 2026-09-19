@@ -256,7 +256,7 @@ namespace BiliBili.UWP.Pages.Live
                     LoadRoundUrl();
                 }
                 //宝箱
-                HandelFreeSilver();
+                HandleFreeSilver();
 
                 //设置排行榜
                 cb_rank_cate.ItemsSource = (await liveRoom.GetRankActivity(roomInfo.data.area_id, roomInfo.data.parent_area_id, roomId, roomInfo.data.uid)).data;
@@ -633,7 +633,7 @@ namespace BiliBili.UWP.Pages.Live
         /// <summary>
         /// 处理宝箱
         /// </summary>
-        private async void HandelFreeSilver()
+        private async void HandleFreeSilver()
         {
             //加载宝箱
             var content = await liveRoom.GetFreeSilverCurrentTask();
@@ -1299,7 +1299,7 @@ namespace BiliBili.UWP.Pages.Live
             {
                 txt_silver.Text = content.data.ToW();
                 Utils.ShowMessageToast(content.message);
-                HandelFreeSilver();
+                HandleFreeSilver();
             }
             else
             {

@@ -139,7 +139,7 @@ namespace BiliBili.UWP.Pages.FindMore
                 Utils.ShowMessageToast("无法打开无效链接");
                 return;
             }
-            if (await MessageCenter.HandelUrl(link))
+            if (await MessageCenter.HandleUrl(link))
             {
                 return;
             }

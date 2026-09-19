@@ -237,7 +237,7 @@ namespace BiliBili.UWP.Pages
                     Debug.WriteLine(@"[INFO]扫描到二维码:{result}   ->" + _result.Text);
                     await Dispatcher.RunAsync(CoreDispatcherPriority.Normal,async () =>
                     {
-                        if(await MessageCenter.HandelUrl(_result.Text))
+                        if(await MessageCenter.HandleUrl(_result.Text))
                         {
                             return;
                         }

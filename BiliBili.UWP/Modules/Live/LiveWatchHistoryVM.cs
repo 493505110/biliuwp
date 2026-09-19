@@ -115,8 +115,8 @@ namespace BiliBili.UWP.Modules.Live
             catch (Exception ex)
             {
 
-                var handel = HandelError(ex);
-                Utils.ShowMessageToast(handel.message);
+                var handle = HandleError(ex);
+                Utils.ShowMessageToast(handle.message);
             }
             finally
             {

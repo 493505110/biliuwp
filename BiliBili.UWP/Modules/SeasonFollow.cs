@@ -119,7 +119,7 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception ex)
             {
-                Utils.ShowMessageToast(HandelError(ex).message);
+                Utils.ShowMessageToast(HandleError(ex).message);
             }
             finally
             {
@@ -159,7 +159,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError(ex);
+                return HandleError(ex);
             }
             
         }
@@ -198,7 +198,7 @@ namespace BiliBili.UWP.Modules
             catch (Exception ex)
             {
 
-                return HandelError(ex);
+                return HandleError(ex);
             }
 
         }

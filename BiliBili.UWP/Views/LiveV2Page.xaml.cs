@@ -85,7 +85,7 @@ namespace BiliBili.UWP.Views
         private void Gv_areas_ItemClick(object sender, ItemClickEventArgs e)
         {
             var item = (e.ClickedItem as live_area_entrance_v2_item);
-            liveHome.HandelLiveUrl(item.link);
+            liveHome.HandleLiveUrl(item.link);
         }
 
         private async void b_btn_Refresh_Click(object sender, RoutedEventArgs e)

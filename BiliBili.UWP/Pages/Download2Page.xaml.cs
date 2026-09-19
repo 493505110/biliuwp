@@ -54,16 +54,16 @@ namespace BiliBili.UWP.Pages
         }
         private IDictionary<string, CancellationTokenSource> cts;
         List<DownloadOperation> downloadOperations;
-        List<Task> handelList;
+        List<Task> handleList;
         ObservableCollection<DownloadDisplayInfo> downloadDisplayInfos;
         private async Task LoadDowning()
         {
             pr_loading.Visibility = Visibility.Visible;
 
             cts = new Dictionary<string, CancellationTokenSource>();
-            if (handelList == null)
+            if (handleList == null)
             {
-                handelList = new List<Task>();
+                handleList = new List<Task>();
             }
             if (downloadOperations == null)
             {
@@ -88,12 +88,12 @@ namespace BiliBili.UWP.Pages
                     cts.Add(data.cid, cancellationTokenSource);
                 }
 
-                //cancellationTokenSource.Token.Register(Handel(item, cancellationTokenSource));
+                //cancellationTokenSource.Token.Register(Handle(item, cancellationTokenSource));
 
                 if (!downloadOperations.Contains(item))
                 {
                     downloadOperations.Add(item);
-                    handelList.Add(Handel(item, cancellationTokenSource));
+                    handleList.Add(Handle(item, cancellationTokenSource));
                 }
                 
                 list.Add(new DisplayModel()
@@ -130,7 +130,7 @@ namespace BiliBili.UWP.Pages
             //list_Downing.ItemsSource = list;
             pr_loading.Visibility = Visibility.Collapsed;
            
-            await Task.WhenAll(handelList);
+            await Task.WhenAll(handleList);
 
         }
 
@@ -298,7 +298,7 @@ namespace BiliBili.UWP.Pages
                 return $"{(Convert.ToDouble(s) / 1024 / 1024).ToString("0.0")}M/未知";
             }
         }
-        private async Task Handel(DownloadOperation downloadOperation, CancellationTokenSource cancellationTokenSource)
+        private async Task Handle(DownloadOperation downloadOperation, CancellationTokenSource cancellationTokenSource)
         {
             try
             {

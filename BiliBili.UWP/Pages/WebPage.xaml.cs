@@ -136,7 +136,7 @@ namespace BiliBili.UWP.Pages
             }
 
             args.Cancel = true;
-            if (await MessageCenter.HandelUrl(args.Uri))
+            if (await MessageCenter.HandleUrl(args.Uri))
             {
                 webview_progressBar.Visibility = Visibility.Collapsed;
                 return;
@@ -159,7 +159,7 @@ namespace BiliBili.UWP.Pages
             var deferral = args.GetDeferral();
             try
             {
-                if (!await MessageCenter.HandelUrl(args.Uri) &&
+                if (!await MessageCenter.HandleUrl(args.Uri) &&
                     Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri))
                 {
                     await PromptOpenExternalAsync(uri);

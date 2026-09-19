@@ -14,7 +14,7 @@ namespace BiliBili.UWP.Modules
     public class IModules : INotifyPropertyChanged
     {
 
-        public virtual ReturnModel HandelError(Exception ex)
+        public virtual ReturnModel HandleError(Exception ex)
         {
             if (LogHelper.IsNetworkError(ex))
             {
@@ -35,7 +35,7 @@ namespace BiliBili.UWP.Modules
                 };
             }
         }
-        public virtual ReturnModel<T> HandelError<T>(Exception ex)
+        public virtual ReturnModel<T> HandleError<T>(Exception ex)
         {
             if (LogHelper.IsNetworkError(ex))
             {
