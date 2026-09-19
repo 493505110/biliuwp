@@ -2,6 +2,7 @@
 
 > **状态：设计存档，尚未实施。** 本次改动只创建文档分支并提交本文件，不含任何代码改动。
 > **规模提示**：本需求已从「加个 mode8 类似的东西」长成一个**平台级改动**（自建 WebView2 脚本运行时 + TS 转译 + 三类交互 + 四类拦截 + 几十条同屏渲染）。建议按下面阶段分批落地，每阶段可独立验证。
+> **行号基准**：全文行号以 `b1ef478`（本分支基线）为准。已核对 master 上同样对齐——`PlayerPage.xaml.cs` 相对基线只差 1 行（`ff07b64` 的清理提交），关键锚点未漂移。**引用子模块文件时行号以 `Libraries/NSDanmaku-Fork` 当前 pin `784d694` 为准。**
 
 ## Context
 
@@ -10,9 +11,10 @@
 现状核查：
 
 - 项目已有 BAS 弹幕（B 站 mode9）链路：`Controls/BasDanmakuControl.xaml(.cs)` 用 WebView2 承载 `Assets/bas-host.html` + `bas.js`，在 `PlayerPage.xaml:344` 叠加。但它消费的是 B 站下发的 mode9 数据，**不是用户可编程的框架**。
-- mode==8 在 `BiliDanmakuService.ParseDanmaku` 里没有 case，落 `TryToLocation` 的 default 被当「不支持」丢弃。
+- mode==8 在 `BiliDanmakuService` 里被当「不支持」丢弃。精确路径：`ParseDanmaku`（`Helper/BiliDanmakuService.cs:856`）用 `TryToLocation(modeValue, out location)`（同文件 `:975` 起）判定位置，该 switch 只处理 1–5 与 9，mode 8 落 default → `unsupportedDanmakuCount++` 后 `return null`。
+  > 注意别找错地方：`ParseDanmaku` 自己的 switch 是 **protobuf 字段号**，其中确实有 `case 8:`（`:898`，含义是 `ctime`），与弹幕 mode 无关。
 
-**历史背景（决定本计划定位）**：仓库存在分支 `feature/m8-script-engine`，其中已有一版完整实现——自研脚本解释器（`BiliBili.UWP/Scripting/`，Scanner/Parser/VM 约 5000 行）+ M8 语义 API 层（`M8DisplayApi`/`M8Motion`/`M8Tween`/`M8PlayerApi`）+ XAML/Win2D 渲染宿主，相对 master 约 +10480 行。该分支最终以提交 `25151ba「放弃支持: 大部分mode8代码弹幕api返回不完整」` 收尾，**失败根因是消费 B 站下发的 mode8 数据不可靠**。
+**历史背景（决定本计划定位）**：仓库存在分支 `feature/m8-script-engine`，其中已有一版完整实现——自研脚本解释器（`BiliBili.UWP/Scripting/`，18 个文件，Scanner/Parser/VM）+ M8 语义 API 层（`M8DisplayApi`/`M8Motion`/`M8Tween`/`M8PlayerApi`）+ XAML/Win2D 渲染宿主，相对 master 实测 `27 files changed, +10442/-17`。该分支最终以提交 `25151ba「放弃支持: 大部分mode8代码弹幕api返回不完整」` 收尾，**失败根因是消费 B 站下发的 mode8 数据不可靠**。
 
 本计划因此定位于**全新自建**（不基于该分支的实现），并**自建数据源**以绕开该根因。
 
@@ -132,11 +134,13 @@ public event EventHandler<ScriptDanmakuActionEventArgs> ActionRequested;  // 宿
 
 ### 6. 三类交互
 
-**① 读取弹幕数据**：数据源 `PlayerPage.DanMuPool`（`:908`，全量）+ `danmu.GetDanmakus()`（`Danmaku.xaml.cs:1729`，在屏，public）。字段全 public：`text/color/time/sendID/rowID/location/source`。宿主 `queryDanmaku(range)` → PlayerPage 取时间窗快照 → `PushDanmakuBatchAsync`（分块）。`SetDanmakuPool`（`:1435`）/`AppendDanmakuPool`（`:1446`）调用点顺带推增量。
+**① 读取弹幕数据**：数据源 `PlayerPage.DanMuPool`（`:908`，全量）+ `danmu.GetDanmakus()`（子模块 `Libraries/NSDanmaku-Fork/NSDanmaku/Controls/Danmaku.xaml.cs:1729`，在屏，public）。字段全 public：`text/color/time/sendID/rowID/location/source`。宿主 `queryDanmaku(range)` → PlayerPage 取时间窗快照 → `PushDanmakuBatchAsync`（分块）。`SetDanmakuPool`（`:1435`）/`AppendDanmakuPool`（`:1446`）调用点顺带推增量。
 
-**② 控制普通弹幕显示**：单条屏蔽 `danmu.Remove(model)`（`Danmaku.xaml.cs:1646`，public；**需同一实例、不支持 Position**）——按 `rowID` 查实例；持久屏蔽复用 `DanDis_Add(text, isYonghu)`（`:1677`）；分层隐藏 `danmu.HideDanmaku/ShowDanmaku(location)`（`:1768`/`:1791`）。
+**② 控制普通弹幕显示**：单条屏蔽 `danmu.Remove(model)`（`Danmaku.xaml.cs:1646`，public；**需同一实例、不支持 Position**）——按 `rowID` 查实例；持久屏蔽复用 `DanDis_Add(text, isYonghu)`（**`PlayerPage.xaml.cs:1677`，不是 NSDanmaku 侧**；调用点 `:1640`、`:3466`）；分层隐藏 `danmu.HideDanmaku/ShowDanmaku(location)`（`Danmaku.xaml.cs:1768`/`:1791`）。
+> **子模块边界**：`danmu.Remove` / `HideDanmaku` / `ShowDanmaku` 都在子模块 `Libraries/NSDanmaku-Fork` 内。若交互 ② 必须改子模块代码，会牵动子模块指针，需单独决策。**实施时优先评估能否只靠 `GetDanmakus()` 快照 + PlayerPage 侧过滤（即走拦截③的放行集合）实现，避免动子模块。**
 
-**③ 发送弹幕**：复用现成封装 `PlayerAPI.SendDanmu(aid, cid, color, msg, position, mode, plat)`（`Api/PlayerAPI.cs:117`，**public 且全仓库无调用点**）。前置：`ApiHelper.IsLogin()`/`access_key`（`Helper/ApiHelper.cs:170`/`:54`）、`playNow.Aid`/`playNow.Mid`。发送后本地注入渲染层，参照 `MTC_SendDanmakued`（`:4185`）。
+**③ 发送弹幕**：**不要复用 `PlayerAPI.SendDanmu`**（`Api/PlayerAPI.cs:117`）——它虽 public 且全仓库无调用点，但走的是 `ApiUtils.AndroidVideoKey` + `ApiUtils.GetSign` 这条与现网发送不同的链路，风控行为未经验证。**现网真实发送路径是 `Controls/SendDanmakuDialog.xaml.cs:57`**：自拼 `https://api.bilibili.com/x/v2/dm/post?access_key=...&appkey={ApiHelper.AndroidKey.Appkey}&...`，用 `ApiHelper.GetSign(url)` 签名，body 含 `msg/mode/progress/color/fontsize/pool/rnd/plat/type`。
+实施建议：**以 `SendDanmakuDialog` 为事实来源抽取一个可复用发送方法**（或在 `PlayerAPI` 中新增一个与之一致的 `ApiModel`），并在阶段 4 前先实测该接口可用性。前置：`ApiHelper.IsLogin()`/`access_key`（`Helper/ApiHelper.cs:170`/`:54`）、`playNow.Aid`/`playNow.Mid`。发送后本地注入渲染层，参照 `MTC_SendDanmakued`（`:4185`）。
 
 ### 7. 四类拦截
 
@@ -148,12 +152,13 @@ public event EventHandler<ScriptDanmakuActionEventArgs> ActionRequested;  // 宿
 **② 播放器操作**
 - 入口：`MTC_*` 处理器（`MTC_DoubleTapped:4132`、`MTC_Next:4175`、`MTC_Previous:4180`、`MTC_FastForward:4373`）、键盘 `PlayerPage_KeyDown`（`:658`，`:661` 处无条件 `Handled=true`；按键映射见 666–786）、程序化 `btn_Play_Click:2942`/`btn_Pause_Click:2948`。
 - 设计：在各入口前置一次 `InterceptPlaybackActionAsync(kind, payload)`，按裁决放行/阻止/改写。
-- **缺口**：MTC 的播放/暂停按钮**没有事件**（基类模板直接控制 MediaPlayer）。要拦截需在 `DanmakuMTC.OnApplyTemplate`（`:110`）后 `GetTemplateChild("PlayPauseButton")` 追加 handler 并抛事件——这会改动 `DanmakuMTC`（共享控件），实施时评估是否必要。
+- **缺口**：MTC 的播放/暂停按钮**没有事件**（基类模板直接控制 MediaPlayer）。要拦截需在 `Controls/DanmakuMTC.cs` 的 `OnApplyTemplate`（`:110`）后 `GetTemplateChild("PlayPauseButton")` 追加 handler 并抛事件——这会改动 `DanmakuMTC`（共享控件），实施时评估是否必要。
+  > 好消息：模板子控件确实叫 `PlayPauseButton`（`Themes/Generic.xaml:823`，另有 `PlayPauseButtonOnLeft` `:686`，需两者都挂），且 `DanmakuMTC` 已有成熟的挂载/解绑范式可直接套用——`AttachClick(name, handler)`（`:203`）+ `templateDetachActions` 列表，在 `OnApplyTemplate` 开头 `DetachTemplateHandlers()`（`:112`）。照抄即可，不必新造机制。
 
 **③ 弹幕数据流**
 - 采纳「每 tick 一次批量判定 + 同步查表」，避免逐条 await：
   - `Timer_Date_Tick`（`:1472`）改为带重入保护的 `async void`（100ms tick 重入是真实风险）。
-  - 取 `batch.Items` 后一次性把整批发给宿主（一次 `ExecuteScriptAsync` 传 JSON 数组，`PlaybackEventTimeline.Advance` `:27` 已整批返回，含 `WasDiscontinuity`）。
+  - 取 `batch.Items` 后一次性把整批发给宿主（一次 `ExecuteScriptAsync` 传 JSON 数组，`Modules/Playback/PlaybackEventTimeline.cs:27` 的 `Advance(double position)` 已整批返回，含 `WasDiscontinuity`）。
   - 拿到放行集合后，`ShowDanmaku`（`:1504`）保持同步，仅在过滤链最前（`:1506` 附近）加 `if (!allowSet.Contains(key)) return;`。
 - **零开销原则**：脚本未注册弹幕拦截器时，整条路径直接跳过，不做任何 RPC。
 - 需与 `MTC_SendDanmakued` 的自发弹幕路径（不走 `ShowDanmaku`）协调。
@@ -190,6 +195,7 @@ public event EventHandler<ScriptDanmakuActionEventArgs> ActionRequested;  // 宿
   5. 三类交互各验一次：读到弹幕数据、屏蔽一条、发送一条。
   6. 弹幕总开关关闭 → 脚本弹幕隐藏；未加载时不初始化 WebView2。
   7. **未注册任何拦截器时，播放/弹幕/输入路径无可感知开销**（性能回归点）。
+- **接口可用性前置**：阶段 4 开工前，先按 `Controls/SendDanmakuDialog.xaml.cs:57` 的参数与签名形态实测 `x/v2/dm/post`，确认可用后再决定抽取方式（见 §6③）。不要先按 `PlayerAPI.SendDanmu` 实现。
 - **回归**：BAS 弹幕（mode9）行为不变。
 - **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）可为 `ScriptDanmakuService` 的解析/校验加契约测试。
 - **日志**：`LogHelper` 无脚本弹幕渲染失败。
@@ -199,8 +205,9 @@ public event EventHandler<ScriptDanmakuActionEventArgs> ActionRequested;  // 宿
 - **性能（最大）**：几十条粒子/3D + 高频拦截 RPC。对策：Canvas/WebGL 批渲染、剔除不活跃、批量+节流+无注册零开销、限制同时活跃的 WebGL 层数。
 - **Tick 重入**：`Timer_Date_Tick` 改 async 后必须加重入保护，否则弹幕顺序错乱。
 - **拦截粒度局限**：`handledEventsToo:true` 无法完全阻断已注册处理器；MTC 播放/暂停按钮无事件（需改共享控件 `DanmakuMTC`）。二者都要在实施时按体验取舍。
-- **包体积**：内嵌 tsc 使包 +几 MB（换取应用内直接写 TS）。
+- **包体积**：内嵌 tsc 使包 +几 MB（换取应用内直接写 TS）。`Assets/typescript.js` **当前不存在，需实施时引入**；`Assets/` 下现有的是 BAS 资产（`bas-host.html`、`bas.js`、`bas-jquery-shim.js`），注册风格见 `BiliBili.UWP.csproj:110-113`。
 - **脚本安全**：本地文件 + 本地宿主 + 禁新窗口导航 + 白名单消息；**联网素材是明确需求**，需限定/记录资源请求域名。发送弹幕涉及登录态与风控，复用现有链路、不自行绕过。
 - **.NET Native（Release AOT）**：新 C# 代码避免反射/`dynamic`，JSON 用显式模型反序列化。
 - **多 WebView2 实例内存**：控件懒初始化。
 - **能力边界**：`danmu.Remove` 不支持 Position、需实例引用——交互 ② 按 `rowID` 查实例并接受该限制。
+- **子模块改动**：交互 ② 若被迫修改 `Libraries/NSDanmaku-Fork` 内的 `Danmaku.xaml.cs`，会推进子模块指针并影响 `NSDanmaku` 项目本身。优先用「快照 + PlayerPage 侧过滤」绕开。
