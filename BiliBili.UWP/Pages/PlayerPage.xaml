@@ -327,6 +327,9 @@
                                         <MenuFlyoutItem x:Name="menuitem_LocalDanmu" Click="menuitem_LocalDanmu_Click">加载本地弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_tantan" Click="menuitem_tantan_Click">加载弹弹Play弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_UpdateDanmu" Click="menuitem_UpdateDanmu_Click">更新弹幕</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_LoadScriptDanmaku" Click="menuitem_LoadScriptDanmaku_Click">加载代码弹幕</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_LoadDemoScriptDanmaku" Click="menuitem_LoadDemoScriptDanmaku_Click">加载示例代码弹幕</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_ClearScriptDanmaku" Click="menuitem_ClearScriptDanmaku_Click">清除代码弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_SubtitleSetting" Click="Menuitem_SubtitleSetting_Click">字幕设置</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_BiliJumpSkipCurrent" IsEnabled="False" Click="menuitem_BiliJumpSkipCurrent_Click">跳过当前广告</MenuFlyoutItem>
                                         <!--<MenuFlyoutItem x:Name="menuitem_Capture" Click="menuitem_Capture_Click">视频截图</MenuFlyoutItem>-->
@@ -342,6 +345,7 @@
                         </MediaPlayerElement.TransportControls>
                     </MediaPlayerElement>
                     <c:BasDanmakuControl x:Name="basDanmakuControl" />
+                    <c:ScriptDanmakuControl x:Name="scriptDanmakuControl" ActionRequested="ScriptDanmakuControl_ActionRequested" />
                     <c:InteractiveDanmakuControl x:Name="interactiveDanmakuControl" ActionRequested="InteractiveDanmakuControl_ActionRequested" />
                     <GridView x:Name="gridview_node" SelectionMode="None" IsItemClickEnabled="True" Visibility="Collapsed" ItemClick="Gridview_node_ItemClick" SizeChanged="Gridview_node_SizeChanged" VerticalAlignment="Bottom"  Margin="0 0 0 100" >
                         <GridView.ItemTemplate>

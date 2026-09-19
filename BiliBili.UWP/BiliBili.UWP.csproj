@@ -111,6 +111,7 @@
     <Content Include="Assets\bas-jquery-shim.js" />
     <Content Include="Assets\bas-host.html" />
     <Content Include="Assets\bas.js" />
+    <Content Include="Assets\script-danmaku-host.html" />
     <Content Include="Assets\geetest.html" />
     <Content Include="Assets\Bili\主要\coin\cn7.png" />
     <Content Include="Assets\Bili\主要\coin\dby.png" />
@@ -332,6 +333,9 @@
     <Compile Include="Controls\BasDanmakuControl.xaml.cs">
       <DependentUpon>BasDanmakuControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Controls\ScriptDanmakuControl.xaml.cs">
+      <DependentUpon>ScriptDanmakuControl.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Controls\InteractiveDanmakuControl.xaml.cs">
       <DependentUpon>InteractiveDanmakuControl.xaml</DependentUpon>
     </Compile>
@@ -386,6 +390,7 @@
     <Compile Include="Helper\BiliJumpAiCacheService.cs" />
     <Compile Include="Helper\BiliLiveDanmu.cs" />
     <Compile Include="Helper\BiliDanmakuService.cs" />
+    <Compile Include="Helper\ScriptDanmakuService.cs" />
     <Compile Include="Helper\DownloadHelper2.cs" />
     <Compile Include="Helper\DynamicJObject.cs" />
     <Compile Include="Helper\ExceptionHandler.cs" />
@@ -417,6 +422,8 @@
     <Compile Include="Models\SpaceDynamicModel.cs" />
     <Compile Include="Models\BangumiModel.cs" />
     <Compile Include="Models\BasDanmakuModel.cs" />
+    <Compile Include="Models\ScriptDanmakuModel.cs" />
+    <Compile Include="Modules\ScriptDanmakuParser.cs" />
     <Compile Include="Models\BanInfoModel.cs" />
     <Compile Include="Models\FaceModels.cs" />
     <Compile Include="Models\HomeModels.cs" />
@@ -855,6 +862,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="Controls\BasDanmakuControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Controls\ScriptDanmakuControl.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

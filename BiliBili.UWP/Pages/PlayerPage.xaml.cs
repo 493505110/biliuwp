@@ -89,6 +89,9 @@ namespace BiliBili.UWP.Pages
         DateTime lastBasDanmakuPositionAt;
         double basDanmakuWindowStart = -1;
         double basDanmakuWindowEnd = -1;
+        List<ScriptDanmakuModel> scriptDanmuPool = new List<ScriptDanmakuModel>();
+        double lastScriptDanmakuPosition = -1;
+        DateTime lastScriptDanmakuPositionAt;
         List<BiliJumpAdSegment> biliJumpAds = new List<BiliJumpAdSegment>();
         BiliJumpAdSegment biliJumpCurrentAd;
         string biliJumpLastNotifiedKey;
@@ -107,6 +110,7 @@ namespace BiliBili.UWP.Pages
             playerAPI = new PlayerAPI();
             MTC.DanmuLoaded += MTC_DanmuLoaded;
             basDanmakuControl.ActionRequested += BasDanmakuControl_ActionRequested;
+            scriptDanmakuControl.ActionRequested += ScriptDanmakuControl_ActionRequested;
             playerSurface.AddHandler(
                 UIElement.TappedEvent,
                 new TappedEventHandler(PlayerSurface_Tapped),
@@ -272,6 +276,7 @@ namespace BiliBili.UWP.Pages
                     HandleBiliJumpPosition();
                     HandleInteractiveDanmakuPosition();
                     SyncBasDanmakuPosition();
+                    SyncScriptDanmakuPosition();
                 }
                 else
                 {
@@ -284,6 +289,7 @@ namespace BiliBili.UWP.Pages
                                 HandleBiliJumpPosition();
                                 HandleInteractiveDanmakuPosition();
                                 SyncBasDanmakuPosition();
+                                SyncScriptDanmakuPosition();
                             }
                         }
                         catch (Exception ex)
@@ -498,6 +504,7 @@ namespace BiliBili.UWP.Pages
                 }
 
                 SyncBasDanmakuPlaybackState();
+                SyncScriptDanmakuPlaybackState();
             });
 
         }
@@ -1065,6 +1072,7 @@ namespace BiliBili.UWP.Pages
                     ClearBiliJumpAds();
                     ClearSubTitle();
                     ClearBasDanmaku();
+                    ClearScriptDanmaku();
                     ClearInteractiveDanmaku();
                     MTC.timer2.Stop();
                     MTC.DanmuLoaded -= MTC_DanmuLoaded;
@@ -1427,6 +1435,111 @@ namespace BiliBili.UWP.Pages
         }
 
         private double GetBasDanmakuPlaybackRate()
+        {
+            var rate = mediaPlayer?.PlaybackSession.PlaybackRate ?? slider_Rate?.Value ?? 1;
+            return double.IsNaN(rate) || double.IsInfinity(rate) || rate <= 0 ? 1 : rate;
+        }
+
+        /// <summary>
+        /// 注入脚本弹幕集合。脚本条数少，不做 BAS 那样的时间窗，全集交给宿主自调度。
+        /// </summary>
+        private void SetScriptDanmakuPool(IEnumerable<ScriptDanmakuModel> pool)
+        {
+            scriptDanmuPool = ScriptDanmakuService.Normalize(pool)
+                .OrderBy(item => item.stime)
+                .ToList();
+            lastScriptDanmakuPosition = -1;
+            lastScriptDanmakuPositionAt = DateTime.UtcNow;
+            ReplaceScriptDanmakuWindow();
+        }
+
+        private void ClearScriptDanmaku()
+        {
+            scriptDanmuPool = new List<ScriptDanmakuModel>();
+            lastScriptDanmakuPosition = -1;
+            lastScriptDanmakuPositionAt = DateTime.UtcNow;
+            if (scriptDanmakuControl != null)
+            {
+                _ = scriptDanmakuControl.ClearAsync();
+            }
+        }
+
+        private void ReplaceScriptDanmakuWindow()
+        {
+            if (scriptDanmakuControl == null)
+            {
+                return;
+            }
+
+            var session = mediaPlayer?.PlaybackSession;
+            var position = session == null ? 0 : Math.Max(0, session.Position.TotalSeconds);
+            var shouldPlay = session != null
+                && session.PlaybackState == MediaPlaybackState.Playing
+                && LoadDanmu;
+
+            _ = scriptDanmakuControl.ReplaceAsync(
+                scriptDanmuPool,
+                position,
+                shouldPlay,
+                LoadDanmu,
+                GetScriptDanmakuPlaybackRate());
+        }
+
+        private void SyncScriptDanmakuPosition()
+        {
+            var session = mediaPlayer?.PlaybackSession;
+            if (session == null || scriptDanmakuControl == null || scriptDanmuPool.Count == 0)
+            {
+                return;
+            }
+
+            var position = Math.Max(0, session.Position.TotalSeconds);
+            var now = DateTime.UtcNow;
+            var shouldPlay = session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu;
+            var shouldSeek = lastScriptDanmakuPosition < 0;
+            if (!shouldSeek && session.PlaybackState == MediaPlaybackState.Playing)
+            {
+                var elapsed = Math.Max(0, (now - lastScriptDanmakuPositionAt).TotalSeconds);
+                var expected = lastScriptDanmakuPosition
+                    + elapsed * GetScriptDanmakuPlaybackRate();
+                shouldSeek = Math.Abs(position - expected) > 1.25;
+            }
+            else if (!shouldSeek)
+            {
+                shouldSeek = Math.Abs(position - lastScriptDanmakuPosition) > 0.25;
+            }
+
+            if (shouldSeek)
+            {
+                _ = scriptDanmakuControl.SeekAsync(
+                    position,
+                    shouldPlay,
+                    GetScriptDanmakuPlaybackRate());
+            }
+
+            lastScriptDanmakuPosition = position;
+            lastScriptDanmakuPositionAt = now;
+        }
+
+        private void SyncScriptDanmakuPlaybackState()
+        {
+            var session = mediaPlayer?.PlaybackSession;
+            if (session == null || scriptDanmakuControl == null || scriptDanmuPool.Count == 0)
+            {
+                return;
+            }
+
+            var position = Math.Max(0, session.Position.TotalSeconds);
+            var shouldPlay = session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu;
+            _ = scriptDanmakuControl.SetPlaybackStateAsync(
+                position,
+                shouldPlay,
+                GetScriptDanmakuPlaybackRate());
+            lastScriptDanmakuPosition = position;
+            lastScriptDanmakuPositionAt = DateTime.UtcNow;
+        }
+
+        private double GetScriptDanmakuPlaybackRate()
         {
             var rate = mediaPlayer?.PlaybackSession.PlaybackRate ?? slider_Rate?.Value ?? 1;
             return double.IsNaN(rate) || double.IsInfinity(rate) || rate <= 0 ? 1 : rate;
@@ -2109,6 +2222,7 @@ namespace BiliBili.UWP.Pages
             mediaPlayer?.Pause();
             ClearPlaybackSource();
             ClearBasDanmaku();
+            ClearScriptDanmaku();
             txt_VideoCodec.Text = "未知";
             string playbackErrorMessage = null;
             try
@@ -3621,10 +3735,82 @@ namespace BiliBili.UWP.Pages
             LoadDanmu = e;
             _ = basDanmakuControl?.SetVisibleAsync(e);
             SyncBasDanmakuPlaybackState();
+            _ = scriptDanmakuControl?.SetVisibleAsync(e);
+            SyncScriptDanmakuPlaybackState();
             if (!e)
             {
                 currentInteractiveDanmaku = null;
                 interactiveDanmakuControl.HideItem();
+            }
+        }
+
+        private async void ScriptDanmakuControl_ActionRequested(
+            object sender,
+            ScriptDanmakuActionEventArgs e)
+        {
+            if (e == null)
+            {
+                return;
+            }
+
+            switch (e.Action)
+            {
+                case ScriptDanmakuActionKind.Pause:
+                    mediaPlayer?.Pause();
+                    break;
+                case ScriptDanmakuActionKind.Seek:
+                    SeekFromScriptDanmaku(e.PositionSeconds);
+                    break;
+                case ScriptDanmakuActionKind.Navigate:
+                    await NavigateFromScriptDanmakuAsync(e.Url);
+                    break;
+            }
+        }
+
+        private void SeekFromScriptDanmaku(double positionSeconds)
+        {
+            var session = mediaPlayer?.PlaybackSession;
+            if (session == null)
+            {
+                return;
+            }
+
+            var duration = session.NaturalDuration.TotalSeconds;
+            var target = Math.Max(0, positionSeconds);
+            if (duration > 0 && target > duration)
+            {
+                target = duration;
+            }
+
+            session.Position = TimeSpan.FromSeconds(target);
+            lastScriptDanmakuPosition = -1;
+            SyncScriptDanmakuPosition();
+        }
+
+        private async Task NavigateFromScriptDanmakuAsync(string url)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri)
+                || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                || (!string.Equals(uri.Host, "www.bilibili.com", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(uri.Host, "bilibili.com", StringComparison.OrdinalIgnoreCase)))
+            {
+                LogHelper.WriteLog("忽略不受支持的代码弹幕跳转：" + (url ?? string.Empty), LogType.ERROR);
+                return;
+            }
+
+            try
+            {
+                mediaPlayer?.Pause();
+                if (!await MessageCenter.HandleUrl(url))
+                {
+                    MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), url);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("处理代码弹幕跳转失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("代码弹幕跳转失败");
             }
         }
 
@@ -4310,6 +4496,8 @@ namespace BiliBili.UWP.Pages
                 mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
             }
             SyncBasDanmakuPlaybackState();
+            // 宿主时钟按 rate 外推，倍速变了必须重推，否则脚本时间轴永久漂移且不会自愈。
+            SyncScriptDanmakuPlaybackState();
         }
 
         private void MTC_FullWindows(object sender, EventArgs e)
@@ -4425,6 +4613,58 @@ namespace BiliBili.UWP.Pages
             hidePointerFlag = false;
         }
 
+        private async void menuitem_LoadScriptDanmaku_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var picker = new Windows.Storage.Pickers.FileOpenPicker
+                {
+                    ViewMode = Windows.Storage.Pickers.PickerViewMode.List
+                };
+                picker.FileTypeFilter.Add(".json");
+                var file = await picker.PickSingleFileAsync();
+                if (file == null)
+                {
+                    return;
+                }
+
+                var items = await ScriptDanmakuService.LoadFromFileAsync(file);
+                if (items.Count == 0)
+                {
+                    Utils.ShowMessageToast("文件中没有可用的脚本弹幕", 3000);
+                    return;
+                }
+
+                SetScriptDanmakuPool(items);
+                Utils.ShowMessageToast("已加载 " + items.Count + " 条代码弹幕", 3000);
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("加载代码弹幕失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("加载代码弹幕失败", 3000);
+            }
+        }
+
+        private void menuitem_LoadDemoScriptDanmaku_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var items = ScriptDanmakuService.GetBuiltInDemo();
+                SetScriptDanmakuPool(items);
+                Utils.ShowMessageToast("已加载内置示例代码弹幕", 3000);
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("加载内置示例代码弹幕失败", LogType.ERROR, ex);
+                Utils.ShowMessageToast("加载代码弹幕失败", 3000);
+            }
+        }
+
+        private void menuitem_ClearScriptDanmaku_Click(object sender, RoutedEventArgs e)
+        {
+            ClearScriptDanmaku();
+        }
+
         private void TantanDialog_ReturnDanmakus(object sender, List<NSDanmaku.Model.DanmakuModel> e)
         {
             AppendDanmakuPool(e);
@@ -4444,6 +4684,7 @@ namespace BiliBili.UWP.Pages
         {
             ClearBiliJumpAds();
             ClearBasDanmaku();
+            ClearScriptDanmaku();
             var data = await interactionVideo.GetNodes(node_id);
             if (data == null)
             {

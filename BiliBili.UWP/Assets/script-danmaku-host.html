@@ -1,0 +1,449 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <style>
+        html, body, #stage {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        #stage {
+            position: relative;
+        }
+
+        #stage canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="stage"></div>
+    <script>
+        (function () {
+            "use strict";
+
+            var DEFAULT_DURATION_MS = 3000;
+            var MAX_COMPILE_ERROR_REPORTS = 8;
+            var MAX_RUNTIME_ERROR_REPORTS = 8;
+
+            var state = {
+                positionMs: 0,
+                playing: false,
+                rate: 1,
+                updatedAt: performance.now()
+            };
+
+            var container = document.getElementById("stage");
+            var canvas = null;
+            var context2d = null;
+            var items = [];
+            var generation = 0;
+            var visible = true;
+            var running = false;
+            var frameHandle = 0;
+            var compileErrorCount = 0;
+            var runtimeErrorCount = 0;
+            var pendingItemJson = "";
+            var viewportWidth = 0;
+            var viewportHeight = 0;
+            var devicePixelRatioValue = 1;
+
+            function post(type, values) {
+                try {
+                    if (!window.chrome
+                        || !window.chrome.webview
+                        || typeof window.chrome.webview.postMessage !== "function") {
+                        return;
+                    }
+
+                    var message = { type: type };
+                    if (values) {
+                        for (var key in values) {
+                            if (Object.prototype.hasOwnProperty.call(values, key)) {
+                                message[key] = values[key];
+                            }
+                        }
+                    }
+
+                    window.chrome.webview.postMessage(JSON.stringify(message));
+                } catch (error) {
+                    // 消息桥不可用时仍让渲染器继续工作。
+                }
+            }
+
+            function getErrorMessage(error) {
+                if (!error) {
+                    return "未知错误";
+                }
+
+                if (typeof error === "string") {
+                    return error;
+                }
+
+                return error.message || String(error);
+            }
+
+            function reportError(stage, error, itemId) {
+                post("error", {
+                    stage: stage || "unknown",
+                    itemId: itemId || "",
+                    message: getErrorMessage(error)
+                });
+            }
+
+            function reportCompileError(error, itemId) {
+                if (compileErrorCount >= MAX_COMPILE_ERROR_REPORTS) {
+                    return;
+                }
+
+                compileErrorCount++;
+                reportError("compile", error, itemId);
+            }
+
+            function reportRuntimeError(error, itemId) {
+                if (runtimeErrorCount >= MAX_RUNTIME_ERROR_REPORTS) {
+                    return;
+                }
+
+                runtimeErrorCount++;
+                reportError("runtime", error, itemId);
+            }
+
+            function currentPositionMs() {
+                if (!state.playing) {
+                    return state.positionMs;
+                }
+
+                return state.positionMs
+                    + (performance.now() - state.updatedAt) * state.rate;
+            }
+
+            function ensureCanvas() {
+                if (canvas) {
+                    return;
+                }
+
+                canvas = document.createElement("canvas");
+                canvas.style.pointerEvents = "none";
+                container.appendChild(canvas);
+                context2d = canvas.getContext("2d");
+                resizeCanvas();
+            }
+
+            function resizeCanvas() {
+                if (!canvas) {
+                    return;
+                }
+
+                var width = container.offsetWidth || 1;
+                var height = container.offsetHeight || 1;
+                var ratio = window.devicePixelRatio || 1;
+                viewportWidth = width;
+                viewportHeight = height;
+                devicePixelRatioValue = ratio;
+                canvas.width = Math.max(1, Math.round(width * ratio));
+                canvas.height = Math.max(1, Math.round(height * ratio));
+                context2d = canvas.getContext("2d");
+                if (context2d) {
+                    context2d.setTransform(ratio, 0, 0, ratio, 0, 0);
+                }
+            }
+
+            function isActive(item, now) {
+                return now >= item.startMs && now <= item.endMs;
+            }
+
+            function requestPause() {
+                post("action", { action: "pause" });
+                return true;
+            }
+
+            function requestSeek(seconds) {
+                var value = Number(seconds);
+                if (!isFinite(value) || value < 0) {
+                    return false;
+                }
+
+                post("action", { action: "seek", seconds: value });
+                return true;
+            }
+
+            function requestNavigate(url) {
+                var value = String(url || "");
+                if (!value) {
+                    return false;
+                }
+
+                // 目标白名单由 PlayerPage 侧判定，这里只做非空与协议粗筛。
+                if (value.indexOf("https://") !== 0 && value.indexOf("http://") !== 0) {
+                    return false;
+                }
+
+                post("action", { action: "navigate", url: value });
+                return true;
+            }
+
+            function createContext(item, now) {
+                var duration = Math.max(1, item.endMs - item.startMs);
+                var elapsed = Math.max(0, Math.min(duration, now - item.startMs));
+                return {
+                    g: context2d,
+                    width: viewportWidth,
+                    height: viewportHeight,
+                    dpr: devicePixelRatioValue,
+                    t: elapsed,
+                    duration: duration,
+                    progress: elapsed / duration,
+                    stime: item.model.stime,
+                    id: item.model.id,
+                    pause: requestPause,
+                    seek: requestSeek,
+                    navigate: requestNavigate
+                };
+            }
+
+            function callSafely(fn, item, now) {
+                if (typeof fn !== "function") {
+                    return;
+                }
+
+                var ctx = createContext(item, now);
+                context2d.save();
+                try {
+                    fn(ctx);
+                } catch (error) {
+                    reportRuntimeError(error, item.model.id);
+                } finally {
+                    try {
+                        context2d.restore();
+                    } catch (restoreError) {
+                        // 画布状态异常时忽略，下一帧会重新 save。
+                    }
+                }
+            }
+
+            function drawFrame(now) {
+                if (!context2d) {
+                    return false;
+                }
+
+                context2d.clearRect(0, 0, viewportWidth, viewportHeight);
+
+                // 隐藏状态下保持画布为空：setState / resize 也会走到这里，
+                // 不拦会让已关闭的脚本弹幕重新画回屏幕上。
+                if (!visible) {
+                    return false;
+                }
+
+                var anyActive = false;
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    if (!isActive(item, now)) {
+                        continue;
+                    }
+
+                    anyActive = true;
+                    if (item.compileFailed) {
+                        continue;
+                    }
+
+                    callSafely(item.draw, item, now);
+                }
+
+                return anyActive;
+            }
+
+            function frame() {
+                if (!running) {
+                    return;
+                }
+
+                var now = currentPositionMs();
+                var anyActive = drawFrame(now);
+
+                // 自停必须在这里决定并直接返回：若在 drawFrame 内置 running=false
+                // 却仍无条件续帧，恢复播放时会与已排队的回调形成两条并行帧链。
+                if (!anyActive && !state.playing) {
+                    running = false;
+                    frameHandle = 0;
+                    return;
+                }
+
+                frameHandle = window.requestAnimationFrame(frame);
+            }
+
+            function ensureRunning() {
+                if (running || !visible) {
+                    return;
+                }
+
+                running = true;
+                frameHandle = window.requestAnimationFrame(frame);
+            }
+
+            function stopRunning() {
+                running = false;
+                if (frameHandle) {
+                    window.cancelAnimationFrame(frameHandle);
+                    frameHandle = 0;
+                }
+
+                if (context2d) {
+                    context2d.clearRect(0, 0, viewportWidth, viewportHeight);
+                }
+            }
+
+            function compileItem(model) {
+                var code = model && typeof model.code === "string" ? model.code : "";
+                if (!code) {
+                    throw new Error("脚本内容为空");
+                }
+
+                // TypeScript 支持见设计文档 §2：此处只接受已转译的 JS。
+                // lang == "ts" 时需先经宿主内嵌 tsc 转译，当前阶段尚未接入。
+                var lang = (model.lang || "js").toLowerCase();
+                if (lang !== "js") {
+                    throw new Error("暂不支持的语言：" + lang + "（TS 转译尚未接入）");
+                }
+
+                return new Function("ctx", code);
+            }
+
+            function addItem(model, itemGeneration) {
+                var startMs = Math.max(0, Number(model.stime) || 0) * 1000;
+                var durationSeconds = Number(model.duration);
+                if (!isFinite(durationSeconds) || durationSeconds <= 0) {
+                    durationSeconds = DEFAULT_DURATION_MS / 1000;
+                }
+
+                var item = {
+                    model: model,
+                    startMs: startMs,
+                    endMs: startMs + durationSeconds * 1000,
+                    draw: null,
+                    compileFailed: false
+                };
+
+                try {
+                    item.draw = compileItem(model);
+                } catch (error) {
+                    item.compileFailed = true;
+                    reportCompileError(error, model && model.id);
+                }
+
+                items.push(item);
+                post("parsed", { count: items.length, itemId: model && model.id });
+
+                if (itemGeneration !== generation) {
+                    return;
+                }
+
+                var now = currentPositionMs();
+                if (isActive(item, now)) {
+                    ensureRunning();
+                    post("rendered", { count: items.length });
+                }
+            }
+
+            function appendItems(list) {
+                if (!Array.isArray(list) || list.length === 0) {
+                    return;
+                }
+
+                // 取一次 generation：若这批条目到达期间发生了 reset，
+                // 后续条目不再触发 rendered 上报。
+                var itemGeneration = generation;
+                for (var index = 0; index < list.length; index++) {
+                    addItem(list[index], itemGeneration);
+                }
+            }
+
+            function setState(positionSeconds, playing, rate) {
+                state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
+                state.playing = !!playing;
+                state.rate = Number(rate) > 0 ? Number(rate) : 1;
+                state.updatedAt = performance.now();
+
+                if (state.playing) {
+                    ensureRunning();
+                } else {
+                    // 暂停时保留当前帧，让画面停在脚本进度上。
+                    drawFrame(currentPositionMs());
+                }
+            }
+
+            window.scriptDanmakuHost = {
+                reset: function (positionSeconds, playing, rate, nextVisible) {
+                    generation++;
+                    items = [];
+                    pendingItemJson = "";
+                    compileErrorCount = 0;
+                    runtimeErrorCount = 0;
+                    visible = nextVisible !== false;
+                    stopRunning();
+                    ensureCanvas();
+                    post("parsed", { count: 0 });
+                    setState(positionSeconds, playing, rate);
+                },
+                append: function (list) {
+                    appendItems(list);
+                },
+                beginItem: function () {
+                    pendingItemJson = "";
+                },
+                appendItemChunk: function (chunk) {
+                    pendingItemJson += String(chunk || "");
+                },
+                endItem: function () {
+                    if (!pendingItemJson) {
+                        return;
+                    }
+
+                    try {
+                        var model = JSON.parse(pendingItemJson);
+                        if (model) {
+                            appendItems([model]);
+                        }
+                    } catch (error) {
+                        reportError("decode", error);
+                    } finally {
+                        pendingItemJson = "";
+                    }
+                },
+                setState: setState,
+                seek: function (positionSeconds, playing, rate) {
+                    setState(positionSeconds, playing, rate);
+                },
+                visible: function (nextVisible) {
+                    visible = !!nextVisible;
+                    if (visible && state.playing) {
+                        ensureRunning();
+                    } else if (!visible) {
+                        stopRunning();
+                    } else {
+                        drawFrame(currentPositionMs());
+                    }
+                },
+                resize: function () {
+                    resizeCanvas();
+                    drawFrame(currentPositionMs());
+                }
+            };
+
+            window.addEventListener("resize", window.scriptDanmakuHost.resize);
+            ensureCanvas();
+            post("ready");
+        })();
+    </script>
+</body>
+</html>
