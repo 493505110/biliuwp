@@ -32,9 +32,21 @@
         (function () {
             "use strict";
 
+            // 渲染模型：保留模式（设计文档 §3.1）。
+            // 每条脚本只执行一次，执行期间用 ctx.create* 建出保留元素树并声明 tween；
+            // 之后每帧只推进 tween 插值、更新属性、重绘脏元素。
+            // 禁止每帧重跑脚本绘制：真实 M8 作品脚本里没有逐帧重绘代码，
+            // 立即模式只会让画面停在第一帧（理由见设计文档 §3.1）。
+
             var DEFAULT_DURATION_MS = 3000;
+            var DEFAULT_LIFE_TIME_SECONDS = 3;
             var MAX_COMPILE_ERROR_REPORTS = 8;
             var MAX_RUNTIME_ERROR_REPORTS = 8;
+            var DEFAULT_TEXT_COLOR = 16777215;
+            var DEFAULT_TEXT_FONT = "黑体";
+            var DEFAULT_TEXT_FONTSIZE = 25;
+            var GLOW_PADDING = 12;
+            var DEFAULT_BOUNDS_PADDING = 2;
 
             var state = {
                 positionMs: 0,
@@ -47,16 +59,26 @@
             var canvas = null;
             var context2d = null;
             var items = [];
+            var elements = [];
+            var rootElement = createRetainedElement("group");
             var generation = 0;
             var visible = true;
             var running = false;
             var frameHandle = 0;
             var compileErrorCount = 0;
             var runtimeErrorCount = 0;
+            // 分块传输大脚本时的拼接缓冲（beginItem → appendItemChunk* → endItem）。
             var pendingItemJson = "";
+            // 脚本执行次数计数：保留模式的核心契约是「每条脚本只执行一次」，
+            // 这个计数器让它成为可断言的量。
+            var totalRunCount = 0;
             var viewportWidth = 0;
             var viewportHeight = 0;
             var devicePixelRatioValue = 1;
+            // 脏标记：tick 消费，tween 推进 / seek / setState 之类的变化置位。
+            var dirty = false;
+            // 绘制计数器：脏元素才会增加它，用于把「静态元素不重绘」做成可断言的契约。
+            var paintCount = 0;
 
             function post(type, values) {
                 try {
@@ -157,10 +179,8 @@
                 if (context2d) {
                     context2d.setTransform(ratio, 0, 0, ratio, 0, 0);
                 }
-            }
 
-            function isActive(item, now) {
-                return now >= item.startMs && now <= item.endMs;
+                markAllDirty();
             }
 
             function requestPause() {
@@ -193,71 +213,1769 @@
                 return true;
             }
 
-            function createContext(item, now) {
-                var duration = Math.max(1, item.endMs - item.startMs);
-                var elapsed = Math.max(0, Math.min(duration, now - item.startMs));
+            // ---- 补间缓动（对齐 M8 移植层 M8Easing 语义，支持 "M8Easing.SineEaseInOut" 全名）----
+
+            function linearEase(time, begin, change, duration) {
+                return change * time / duration + begin;
+            }
+
+            function sineEaseIn(time, begin, change, duration) {
+                return -change * Math.cos(time / duration * (Math.PI / 2)) + change + begin;
+            }
+
+            function sineEaseOut(time, begin, change, duration) {
+                return change * Math.sin(time / duration * (Math.PI / 2)) + begin;
+            }
+
+            function sineEaseInOut(time, begin, change, duration) {
+                return -change / 2 * (Math.cos(Math.PI * time / duration) - 1) + begin;
+            }
+
+            function sineEaseOutIn(time, begin, change, duration) {
+                if (time < duration / 2) {
+                    return sineEaseIn(time * 2, begin, change / 2, duration);
+                }
+
+                return sineEaseOut(time * 2 - duration, begin + change / 2, change / 2, duration);
+            }
+
+            function powerEase(time, begin, change, duration, power) {
+                return change * Math.pow(time / duration, power) + begin;
+            }
+
+            function powerEaseInOut(time, begin, change, duration, power) {
+                var local = time / (duration / 2);
+                if (local < 1) {
+                    return change / 2 * Math.pow(local, power) + begin;
+                }
+
+                return change / 2 * (2 - Math.pow(2 - local, power)) + begin;
+            }
+
+            function quadraticEaseIn(time, begin, change, duration) {
+                return powerEase(time, begin, change, duration, 2);
+            }
+
+            function quadraticEaseOut(time, begin, change, duration) {
+                return powerEase(duration - time, begin + change, -change, duration, 2);
+            }
+
+            function quadraticEaseInOut(time, begin, change, duration) {
+                return powerEaseInOut(time, begin, change, duration, 2);
+            }
+
+            function cubicEaseIn(time, begin, change, duration) {
+                return powerEase(time, begin, change, duration, 3);
+            }
+
+            function cubicEaseOut(time, begin, change, duration) {
+                return powerEase(duration - time, begin + change, -change, duration, 3);
+            }
+
+            function cubicEaseInOut(time, begin, change, duration) {
+                return powerEaseInOut(time, begin, change, duration, 3);
+            }
+
+            function quinticEaseIn(time, begin, change, duration) {
+                return powerEase(time, begin, change, duration, 5);
+            }
+
+            function quinticEaseOut(time, begin, change, duration) {
+                return powerEase(duration - time, begin + change, -change, duration, 5);
+            }
+
+            function quinticEaseInOut(time, begin, change, duration) {
+                return powerEaseInOut(time, begin, change, duration, 5);
+            }
+
+            function exponentialEaseIn(time, begin, change, duration) {
+                if (time === 0) {
+                    return begin;
+                }
+
+                return change * Math.pow(2, 10 * (time / duration - 1)) + begin;
+            }
+
+            function exponentialEaseOut(time, begin, change, duration) {
+                if (time === duration) {
+                    return begin + change;
+                }
+
+                return change * (1 - Math.pow(2, -10 * time / duration)) + begin;
+            }
+
+            function exponentialEaseInOut(time, begin, change, duration) {
+                if (time === 0) {
+                    return begin;
+                }
+
+                if (time === duration) {
+                    return begin + change;
+                }
+
+                var local = time / (duration / 2);
+                if (local < 1) {
+                    return change / 2 * Math.pow(2, 10 * (local - 1)) + begin;
+                }
+
+                local = local - 1;
+                return change / 2 * (2 - Math.pow(2, -10 * local)) + begin;
+            }
+
+            function circularEaseIn(time, begin, change, duration) {
+                var local = time / duration;
+                return -change * (Math.sqrt(1 - local * local) - 1) + begin;
+            }
+
+            function circularEaseOut(time, begin, change, duration) {
+                var local = time / duration - 1;
+                return change * Math.sqrt(1 - local * local) + begin;
+            }
+
+            function circularEaseInOut(time, begin, change, duration) {
+                var local = time / (duration / 2);
+                if (local < 1) {
+                    return -change / 2 * (Math.sqrt(1 - local * local) - 1) + begin;
+                }
+
+                local = local - 2;
+                return change / 2 * (Math.sqrt(1 - local * local) + 1) + begin;
+            }
+
+            var BACK_OVERSHOOT = 1.70158;
+
+            function backEaseIn(time, begin, change, duration) {
+                var local = time / duration;
+                return change * local * local
+                    * ((BACK_OVERSHOOT + 1) * local - BACK_OVERSHOOT) + begin;
+            }
+
+            function backEaseOut(time, begin, change, duration) {
+                var local = time / duration - 1;
+                return change * (local * local
+                    * ((BACK_OVERSHOOT + 1) * local + BACK_OVERSHOOT) + 1) + begin;
+            }
+
+            function backEaseInOut(time, begin, change, duration) {
+                var local = time / (duration / 2);
+                if (local < 1) {
+                    return change / 2 * (local * local
+                        * (((BACK_OVERSHOOT * 1.525) + 1) * local - (BACK_OVERSHOOT * 1.525))) + begin;
+                }
+
+                local = local - 2;
+                return change / 2 * (local * local
+                    * (((BACK_OVERSHOOT * 1.525) + 1) * local + (BACK_OVERSHOOT * 1.525)) + 2) + begin;
+            }
+
+            var easingTable = {
+                EaseNone: linearEase,
+                Linear: linearEase,
+                LinearEaseIn: linearEase,
+                LinearEaseOut: linearEase,
+                LinearEaseInOut: linearEase,
+                LinearEaseOutIn: linearEase,
+                SineEaseIn: sineEaseIn,
+                SineEaseOut: sineEaseOut,
+                SineEaseInOut: sineEaseInOut,
+                SineEaseOutIn: sineEaseOutIn,
+                QuadraticEaseIn: quadraticEaseIn,
+                QuadraticEaseOut: quadraticEaseOut,
+                QuadraticEaseInOut: quadraticEaseInOut,
+                CubicEaseIn: cubicEaseIn,
+                CubicEaseOut: cubicEaseOut,
+                CubicEaseInOut: cubicEaseInOut,
+                QuarticEaseIn: quinticEaseIn,
+                QuarticEaseOut: quinticEaseOut,
+                QuarticEaseInOut: quinticEaseInOut,
+                QuinticEaseIn: quinticEaseIn,
+                QuinticEaseOut: quinticEaseOut,
+                QuinticEaseInOut: quinticEaseInOut,
+                ExponentialEaseIn: exponentialEaseIn,
+                ExponentialEaseOut: exponentialEaseOut,
+                ExponentialEaseInOut: exponentialEaseInOut,
+                CircularEaseIn: circularEaseIn,
+                CircularEaseOut: circularEaseOut,
+                CircularEaseInOut: circularEaseInOut,
+                BackEaseIn: backEaseIn,
+                BackEaseOut: backEaseOut,
+                BackEaseInOut: backEaseInOut
+            };
+
+            function resolveEasing(value) {
+                if (typeof value === "function") {
+                    return value;
+                }
+
+                if (typeof value !== "string" || !value) {
+                    return linearEase;
+                }
+
+                // 允许 "M8Easing.SineEaseInOut" 这类带命名空间的全名。
+                var dot = value.lastIndexOf(".");
+                var name = dot >= 0 ? value.substring(dot + 1) : value;
+                return easingTable[name] || linearEase;
+            }
+
+            function toFiniteNumber(value, fallback) {
+                var number = Number(value);
+                return isFinite(number) ? number : fallback;
+            }
+
+            function normalizeColor(value) {
+                var color = Math.floor(toFiniteNumber(value, DEFAULT_TEXT_COLOR));
+                if (color < 0) {
+                    color = 0;
+                }
+
+                return color & 0xFFFFFF;
+            }
+
+            // ---- 保留元素 ----
+
+            var nextElementId = 1;
+
+            function propertyDescriptor(name) {
                 return {
-                    g: context2d,
-                    width: viewportWidth,
-                    height: viewportHeight,
-                    dpr: devicePixelRatioValue,
-                    t: elapsed,
-                    duration: duration,
-                    progress: elapsed / duration,
-                    stime: item.model.stime,
-                    id: item.model.id,
-                    pause: requestPause,
-                    seek: requestSeek,
-                    navigate: requestNavigate
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return this.props[name];
+                    },
+                    set: function (value) {
+                        // 元素属性可写：直接赋值即标脏，下一帧只重绘该元素。
+                        setPropertyInternal(this, name, value, true);
+                        this.propertyDirty[name] = true;
+                        dirty = true;
+                    }
                 };
             }
 
-            function callSafely(fn, item, now) {
-                if (typeof fn !== "function") {
+            function createRetainedElement(kind) {
+                var element = {
+                    id: nextElementId++,
+                    kind: kind,
+                    props: {
+                        x: 0,
+                        y: 0,
+                        z: 0,
+                        alpha: 1,
+                        scaleX: 1,
+                        scaleY: 1,
+                        rotation: 0,
+                        rotationX: 0,
+                        rotationY: 0,
+                        rotationZ: 0,
+                        visible: true,
+                        matrix: null,
+                        filters: null
+                    },
+                    children: [],
+                    parent: null,
+                    ownerItem: null,
+                    expired: false,
+                    // 逐属性记脏：元素被整体标脏（例如 insertItem 时）后，
+                    // 静态元素也不会因此被反复重绘。
+                    propertyDirty: {},
+                    painted: false,
+                    needsCache: false,
+                    cacheCanvas: null,
+                    cacheCtx: null,
+                    cacheBounds: null,
+                    cacheOriginX: 0,
+                    cacheOriginY: 0,
+                    cacheDpr: 1,
+                    // 复合缓存：元素有子节点时，首帧把子树烘到离屏画布，
+                    // 之后整体作为一个元素做变换合成，子树不再逐帧绘制。
+                    composite: null,
+                    hasTween: false,
+                    motion: null,
+                    onFrame: null
+                };
+
+                var names = ["x", "y", "z", "alpha", "scaleX", "scaleY",
+                    "rotation", "rotationX", "rotationY", "rotationZ",
+                    "visible", "matrix", "filters"];
+                for (var index = 0; index < names.length; index++) {
+                    Object.defineProperty(element, names[index], propertyDescriptor(names[index]));
+                }
+
+                return element;
+            }
+
+            function setPropertyInternal(element, name, value, markDirty) {
+                var props = element.props;
+                if (props[name] === value) {
+                    return false;
+                }
+
+                props[name] = value;
+                // rotationZ 是 rotation 的别名，与 M8 移植层一致。
+                if (name === "rotation" || name === "rotationZ") {
+                    props.rotation = value;
+                    props.rotationZ = value;
+                }
+
+                if (markDirty) {
+                    element.propertyDirty[name] = true;
+                }
+
+                return true;
+            }
+
+            function markElementDirty(element) {
+                if (!element) {
                     return;
                 }
 
-                var ctx = createContext(item, now);
-                context2d.save();
-                try {
-                    fn(ctx);
-                } catch (error) {
-                    reportRuntimeError(error, item.model.id);
-                } finally {
-                    try {
-                        context2d.restore();
-                    } catch (restoreError) {
-                        // 画布状态异常时忽略，下一帧会重新 save。
+                // 只标「当前属性」：x 变化不该让一个静态的图片元素重新解码。
+                element.propertyDirty["*"] = true;
+                dirty = true;
+            }
+
+            // 有东西变了，本帧需要走一次合成。元素级的脏标记决定谁被重画。
+            function markItemDirty() {
+                dirty = true;
+            }
+
+            // 画布尺寸 / DPI 变化：所有元素的内容缓存都要按新比例重画一次。
+            function markAllDirty() {
+                dirty = true;
+                for (var index = 0; index < elements.length; index++) {
+                    elements[index].needsCache = true;
+                }
+            }
+
+            function isElementDirty(element) {
+                for (var name in element.propertyDirty) {
+                    if (Object.prototype.hasOwnProperty.call(element.propertyDirty, name)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            function clearElementDirty(element) {
+                element.propertyDirty = {};
+            }
+
+            function applyScriptPatch(element, patch) {
+                if (!patch || typeof patch !== "object") {
+                    return;
+                }
+
+                for (var name in patch) {
+                    if (Object.prototype.hasOwnProperty.call(patch, name)) {
+                        element[name] = patch[name];
                     }
                 }
             }
 
-            function drawFrame(now) {
+            function applyInitialValues(element, patch) {
+                if (!patch || typeof patch !== "object") {
+                    return;
+                }
+
+                for (var name in patch) {
+                    if (Object.prototype.hasOwnProperty.call(patch, name)) {
+                        setPropertyInternal(element, name, patch[name], false);
+                    }
+                }
+            }
+
+            // ---- tween 补间 ----
+            //
+            // 语义对齐 M8 移植层（Scripting/M8Motion.cs 的 CreateSegment）：
+            //   { x: { fromValue: -50, toValue: 320, easing: "Linear", lifeTime: 4, startDelay: 0 }, alpha: {...} }
+            // 外层 lifeTime 是补间时长（秒）的缺省值，同时也是元素的寿命；
+            // 属性级 lifeTime 覆盖外层；startDelay / startDelayMs 是延迟。
+            // 属性级 fromValue 必填（缺省即报错禁用该条），toValue 缺省等于 fromValue。
+            var TWEEN_KEYS = ["x", "y", "z", "alpha", "rotation", "rotationX", "rotationY",
+                "rotationZ", "scaleX", "scaleY", "fontsize"];
+
+            function readNumberMember(config, name) {
+                if (!config || typeof config !== "object") {
+                    return NaN;
+                }
+
+                var value = config[name];
+                if (value === undefined || value === null || value === "") {
+                    return NaN;
+                }
+
+                var number = Number(value);
+                return isFinite(number) ? number : NaN;
+            }
+
+            function readSeconds(config, name, fallbackSeconds) {
+                var seconds = readNumberMember(config, name);
+                return isNaN(seconds) ? fallbackSeconds : Math.max(0, seconds);
+            }
+
+            function readTrackDurationMs(config, fallbackSeconds) {
+                var milliseconds = readNumberMember(config, "lifeTimeMs");
+                if (!isNaN(milliseconds)) {
+                    return Math.max(0, milliseconds);
+                }
+
+                return Math.max(0, readSeconds(config, "lifeTime", fallbackSeconds) * 1000);
+            }
+
+            function readTrackDelayMs(config) {
+                var milliseconds = readNumberMember(config, "startDelayMs");
+                if (!isNaN(milliseconds)) {
+                    return Math.max(0, milliseconds);
+                }
+
+                return Math.max(0, readSeconds(config, "startDelay", 0) * 1000);
+            }
+
+            function readRepeat(config) {
+                var repeat = readNumberMember(config, "repeat");
+                if (isNaN(repeat) || repeat <= 0) {
+                    return 1;
+                }
+
+                return Math.floor(repeat);
+            }
+
+            function applyTweenValue(element, key, value) {
+                if (key === "fontsize") {
+                    if (element.style) {
+                        element.style.fontsize = value;
+                    }
+
+                    return;
+                }
+
+                setPropertyInternal(element, key, value, false);
+            }
+
+            function readTweenTargetValue(element, key) {
+                if (key === "fontsize") {
+                    return element.style ? element.style.fontsize : DEFAULT_TEXT_FONTSIZE;
+                }
+
+                return element.props[key];
+            }
+
+            function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds) {
+                if (!propertyConfig || typeof propertyConfig !== "object") {
+                    return null;
+                }
+
+                var fromValue = propertyConfig.fromValue;
+                if (fromValue === undefined || fromValue === null) {
+                    throw new Error("tween " + key + " 缺少 fromValue");
+                }
+
+                var toValue = propertyConfig.toValue;
+                if (toValue === undefined || toValue === null) {
+                    toValue = fromValue;
+                }
+
+                var from = Number(fromValue);
+                var to = Number(toValue);
+                if (!isFinite(from) || !isFinite(to)) {
+                    throw new Error("tween " + key + " 的 fromValue/toValue 不是有效数字");
+                }
+
+                var durationMs = readTrackDurationMs(propertyConfig, lifeTimeSeconds);
+                return {
+                    key: key,
+                    from: from,
+                    to: to,
+                    durationMs: durationMs > 0 ? durationMs : 1,
+                    delayMs: readTrackDelayMs(propertyConfig),
+                    repeat: readRepeat(propertyConfig),
+                    easing: resolveEasing(propertyConfig.easing)
+                };
+            }
+
+            function createTween(element, config, options) {
+                if (!element) {
+                    throw new Error("tween 需要一个元素");
+                }
+
+                if (!config || typeof config !== "object") {
+                    throw new Error("tween 需要补间配置");
+                }
+
+                var lifeTimeSeconds = readSeconds(config, "lifeTime", DEFAULT_LIFE_TIME_SECONDS);
+                if (options && typeof options === "object") {
+                    lifeTimeSeconds = readSeconds(options, "lifeTime", lifeTimeSeconds);
+                }
+
+                if (lifeTimeSeconds <= 0) {
+                    lifeTimeSeconds = 0.001;
+                }
+
+                var tracks = [];
+                for (var index = 0; index < TWEEN_KEYS.length; index++) {
+                    var key = TWEEN_KEYS[index];
+                    var propertyConfig = config[key];
+                    if (propertyConfig === undefined || propertyConfig === null) {
+                        continue;
+                    }
+
+                    var track = createTweenTrack(config, propertyConfig, key, lifeTimeSeconds);
+                    if (track) {
+                        tracks.push(track);
+                    }
+                }
+
+                if (tracks.length === 0) {
+                    throw new Error("tween 配置里没有任何可补间的属性");
+                }
+
+                var totalMs = 0;
+                for (var trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
+                    var trackTotal = tracks[trackIndex].delayMs
+                        + tracks[trackIndex].durationMs * tracks[trackIndex].repeat;
+                    if (trackTotal > totalMs) {
+                        totalMs = trackTotal;
+                    }
+                }
+
+                var motion = {
+                    tracks: tracks,
+                    // 寿命缺省 3 秒，与 M8 的 MotionConfig.lifeTime 一致。
+                    lifeTimeMs: lifeTimeSeconds * 1000,
+                    totalMs: totalMs,
+                    lastElapsedMs: -1,
+                    appliedOnce: false
+                };
+
+                element.motion = motion;
+                element.hasTween = true;
+                element.ownerItem.hasTween = true;
+
+                // 立即套用 t=0 的插值：脚本执行完那一刻元素就应在起始位置，
+                // 且此时属性尚未被脚本赋值覆盖（先建元素再 tween 的写法两者一致）。
+                applyMotion(motion, element, 0);
+                return motion;
+            }
+
+            function applyMotion(motion, element, elapsedMs) {
+                for (var index = 0; index < motion.tracks.length; index++) {
+                    var track = motion.tracks[index];
+                    var local = elapsedMs - track.delayMs;
+                    if (local < 0) {
+                        local = 0;
+                    }
+
+                    var total = track.durationMs * track.repeat;
+                    if (local > total) {
+                        local = total;
+                    }
+
+                    var withinRepeat = local % track.durationMs;
+                    if (local >= total && total > 0) {
+                        withinRepeat = track.durationMs;
+                    }
+
+                    var value = track.easing(
+                        withinRepeat,
+                        track.from,
+                        track.to - track.from,
+                        track.durationMs);
+                    applyTweenValue(element, track.key, value);
+                    element.propertyDirty[track.key] = true;
+                }
+
+                markItemDirty(element.ownerItem);
+            }
+
+            // 只推进 tween，不做任何绘制——这是每帧唯一会跑脚本「声明」的地方。
+            function advanceMotion(motion, element, elapsedMs) {
+                if (motion.lastElapsedMs === elapsedMs) {
+                    return false;
+                }
+
+                motion.lastElapsedMs = elapsedMs;
+                applyMotion(motion, element, elapsedMs);
+                return true;
+            }
+
+            function advanceElementMotion(element, elapsedMs) {
+                if (!element.hasTween || !element.motion) {
+                    return false;
+                }
+
+                return advanceMotion(element.motion, element, elapsedMs);
+            }
+
+            // ---- 元素工厂 ----
+
+            function normalizeStyle(style) {
+                var result = {
+                    x: 0,
+                    y: 0,
+                    z: 0,
+                    scaleX: 1,
+                    scaleY: 1,
+                    rotation: 0,
+                    alpha: 1,
+                    visible: true
+                };
+
+                if (!style || typeof style !== "object") {
+                    return result;
+                }
+
+                var names = ["x", "y", "z", "scaleX", "scaleY", "rotation", "alpha"];
+                for (var index = 0; index < names.length; index++) {
+                    var name = names[index];
+                    if (style[name] !== undefined && style[name] !== null) {
+                        result[name] = toFiniteNumber(style[name], result[name]);
+                    }
+                }
+
+                if (style.scale !== undefined && style.scale !== null) {
+                    var scale = toFiniteNumber(style.scale, 1);
+                    result.scaleX = scale;
+                    result.scaleY = scale;
+                }
+
+                if (style.visible !== undefined && style.visible !== null) {
+                    result.visible = !!style.visible;
+                }
+
+                return result;
+            }
+
+            function createTextStyle(style) {
+                var source = style && typeof style === "object" ? style : {};
+                return {
+                    // 默认值与 M8 的 createComment 一致：白字、黑体、25px。
+                    color: normalizeColor(source.color === undefined || source.color === null
+                        ? DEFAULT_TEXT_COLOR
+                        : source.color),
+                    font: typeof source.font === "string" && source.font
+                        ? source.font
+                        : DEFAULT_TEXT_FONT,
+                    fontsize: toFiniteNumber(source.fontsize, DEFAULT_TEXT_FONTSIZE),
+                    bold: !!source.bold,
+                    border: !!source.border,
+                    borderColor: normalizeColor(source.borderColor === undefined
+                        || source.borderColor === null
+                        ? 0
+                        : source.borderColor)
+                };
+            }
+
+            function measureTextElement(element) {
+                var style = element.style;
+                var metrics = ensureMeasureContext();
+                metrics.font = textFontCss(style);
+                var text = element.text === undefined || element.text === null
+                    ? ""
+                    : String(element.text);
+                return {
+                    text: text,
+                    width: metrics.measureText(text).width,
+                    height: style.fontsize * 1.2
+                };
+            }
+
+            var measureContext = null;
+
+            function ensureMeasureContext() {
+                if (!measureContext) {
+                    var probe = document.createElement("canvas");
+                    measureContext = probe.getContext("2d");
+                }
+
+                return measureContext;
+            }
+
+            function textFontCss(style) {
+                return (style.bold ? "bold " : "") + style.fontsize + "px " + style.font;
+            }
+
+            function drawTextElement(target, element, offsetX, offsetY) {
+                var style = element.style;
+                var metrics = measureTextElement(element);
+                target.font = textFontCss(style);
+                target.textBaseline = "middle";
+                target.textAlign = "left";
+                if (style.border) {
+                    target.lineWidth = Math.max(1, style.fontsize / 12);
+                    target.strokeStyle = rgbCss(style.borderColor);
+                    target.strokeText(metrics.text, offsetX, offsetY + metrics.height / 2);
+                }
+
+                target.fillStyle = rgbCss(style.color);
+                target.fillText(metrics.text, offsetX, offsetY + metrics.height / 2);
+            }
+
+            function rgbCss(color) {
+                return "rgb(" + ((color >> 16) & 0xFF) + ","
+                    + ((color >> 8) & 0xFF) + ","
+                    + (color & 0xFF) + ")";
+            }
+
+            function createGraphics(element) {
+                var graphics = {
+                    clear: function () {
+                        element.shapeItems = [];
+                        element.painted = false;
+                        scheduleElementCache(element);
+                    },
+                    beginFill: function (color, alpha) {
+                        graphics.__fill = {
+                            color: normalizeColor(color),
+                            alpha: alpha === undefined || alpha === null ? 1 : toFiniteNumber(alpha, 1)
+                        };
+                    },
+                    endFill: function () {
+                        graphics.__fill = null;
+                    },
+                    lineStyle: function (thickness, color, alpha) {
+                        graphics.__line = {
+                            width: toFiniteNumber(thickness, 1),
+                            color: normalizeColor(color),
+                            alpha: alpha === undefined || alpha === null ? 1 : toFiniteNumber(alpha, 1)
+                        };
+                    },
+                    moveTo: function (x, y) {
+                        graphics.__path = {
+                            kind: "poly",
+                            points: [toFiniteNumber(x, 0), toFiniteNumber(y, 0)]
+                        };
+                        if (graphics.__line) {
+                            element.shapeItems.push({ kind: "line", path: graphics.__path, style: graphics.__line });
+                        }
+
+                        element.shapeItems.push({ kind: "fill", path: graphics.__path, style: graphics.__fill });
+                    },
+                    lineTo: function (x, y) {
+                        if (!graphics.__path || graphics.__path.kind !== "poly") {
+                            return;
+                        }
+
+                        graphics.__path.points.push(toFiniteNumber(x, 0), toFiniteNumber(y, 0));
+                    },
+                    curveTo: function (cx, cy, x, y) {
+                        if (!graphics.__path || graphics.__path.kind !== "poly") {
+                            return;
+                        }
+
+                        graphics.__path.curves = graphics.__path.curves || [];
+                        graphics.__path.curves.push([
+                            toFiniteNumber(cx, 0), toFiniteNumber(cy, 0),
+                            toFiniteNumber(x, 0), toFiniteNumber(y, 0)
+                        ]);
+                        graphics.__path.points.push(toFiniteNumber(x, 0), toFiniteNumber(y, 0));
+                    },
+                    drawRect: function (x, y, width, height) {
+                        element.shapeItems.push({
+                            kind: "rect",
+                            x: toFiniteNumber(x, 0),
+                            y: toFiniteNumber(y, 0),
+                            width: toFiniteNumber(width, 0),
+                            height: toFiniteNumber(height, 0),
+                            fill: graphics.__fill,
+                            line: graphics.__line
+                        });
+                    },
+                    drawRoundRect: function (x, y, width, height, rx, ry) {
+                        element.shapeItems.push({
+                            kind: "roundRect",
+                            x: toFiniteNumber(x, 0),
+                            y: toFiniteNumber(y, 0),
+                            width: toFiniteNumber(width, 0),
+                            height: toFiniteNumber(height, 0),
+                            rx: toFiniteNumber(rx, 0),
+                            ry: toFiniteNumber(ry, toFiniteNumber(rx, 0)),
+                            fill: graphics.__fill,
+                            line: graphics.__line
+                        });
+                    },
+                    drawCircle: function (x, y, radius) {
+                        element.shapeItems.push({
+                            kind: "circle",
+                            x: toFiniteNumber(x, 0),
+                            y: toFiniteNumber(y, 0),
+                            radius: toFiniteNumber(radius, 0),
+                            fill: graphics.__fill,
+                            line: graphics.__line
+                        });
+                    },
+                    drawEllipse: function (x, y, width, height) {
+                        element.shapeItems.push({
+                            kind: "ellipse",
+                            x: toFiniteNumber(x, 0),
+                            y: toFiniteNumber(y, 0),
+                            width: toFiniteNumber(width, 0),
+                            height: toFiniteNumber(height, 0),
+                            fill: graphics.__fill,
+                            line: graphics.__line
+                        });
+                    },
+                    drawWedge: function (x, y, radius, startAngle, arc) {
+                        element.shapeItems.push({
+                            kind: "wedge",
+                            x: toFiniteNumber(x, 0),
+                            y: toFiniteNumber(y, 0),
+                            radius: toFiniteNumber(radius, 0),
+                            startAngle: toFiniteNumber(startAngle, 0),
+                            arc: toFiniteNumber(arc, 0),
+                            fill: graphics.__fill,
+                            line: graphics.__line
+                        });
+                    },
+                    drawPolygon: function () {
+                        var points = [];
+                        for (var index = 0; index < arguments.length; index++) {
+                            points.push(toFiniteNumber(arguments[index], 0));
+                        }
+
+                        element.shapeItems.push({
+                            kind: "polygon",
+                            points: points,
+                            fill: graphics.__fill,
+                            line: graphics.__line
+                        });
+                    },
+                    // Flash 的 drawGraphicsData / drawPath 依赖完整路径数据模型，
+                    // 当前只覆盖常用图元，遇到未支持的调用显式报错而不是静默画错。
+                    drawGraphicsData: function () {
+                        throw new Error("drawGraphicsData 尚未支持");
+                    },
+                    drawPath: function () {
+                        throw new Error("drawPath 尚未支持");
+                    }
+                };
+                return graphics;
+            }
+
+            function scheduleElementCache(element) {
+                markElementDirty(element);
+                if (element.parent && element.parent.children.length > 0) {
+                    element.parent.needsCache = true;
+                }
+            }
+
+            function createShapeElement() {
+                var element = createRetainedElement("shape");
+                element.shapeItems = [];
+                element.graphics = createGraphics(element);
+                element.autoCached = true;
+                return element;
+            }
+
+            function createTextElement(text, style) {
+                var element = createRetainedElement("text");
+                element.text = text === undefined || text === null ? "" : String(text);
+                element.style = createTextStyle(style);
+                applyInitialValues(element, normalizeStyle(style));
+                element.autoCached = true;
+                return element;
+            }
+
+            function createImageElement(url) {
+                var element = createRetainedElement("image");
+                element.url = String(url || "");
+                element.image = null;
+                element.loaded = false;
+                element.failed = false;
+                element.width = 0;
+                element.height = 0;
+                element.autoCached = true;
+
+                if (element.url) {
+                    var bitmap = new Image();
+                    bitmap.onload = function () {
+                        element.image = bitmap;
+                        element.loaded = true;
+                        element.width = bitmap.naturalWidth || bitmap.width;
+                        element.height = bitmap.naturalHeight || bitmap.height;
+                        element.needsCache = true;
+                        element.painted = false;
+                        markElementDirty(element);
+                    };
+                    bitmap.onerror = function () {
+                        element.failed = true;
+                        element.needsCache = true;
+                        element.painted = false;
+                        markElementDirty(element);
+                    };
+                    bitmap.src = element.url;
+                }
+
+                return element;
+            }
+
+            function createLayerElement(width, height) {
+                var element = createRetainedElement("layer");
+                element.layerWidth = Math.max(1, Math.round(toFiniteNumber(width, viewportWidth || 1)));
+                element.layerHeight = Math.max(1, Math.round(toFiniteNumber(height, viewportHeight || 1)));
+                element.layerCanvas = document.createElement("canvas");
+                element.layerCanvas.width = element.layerWidth;
+                element.layerCanvas.height = element.layerHeight;
+                element.layer = element.layerCanvas.getContext("2d");
+                element.autoCached = false;
+                return element;
+            }
+
+            // ---- 元素树 ----
+
+            // 元素登记表：markAllDirty()（画布尺寸/DPI 变化）要遍历它把
+            // 所有元素的内容缓存标为待重建，所以每个进入元素树的元素都要登记。
+            function registerElement(element) {
+                if (elements.indexOf(element) < 0) {
+                    elements.push(element);
+                }
+            }
+
+            function unregisterElement(element) {
+                var index = elements.indexOf(element);
+                if (index >= 0) {
+                    elements.splice(index, 1);
+                }
+            }
+
+            function attachElement(element, parent) {
+                var target = parent || rootElement;
+                element.parent = target;
+                target.children.push(element);
+                registerElement(element);
+                target.composite = null;
+                // 挂到复合元素下的新子节点要先烘进父元素的复合层。
+                if (target !== rootElement) {
+                    target.needsCache = true;
+                }
+
+                dirty = true;
+            }
+
+            function addChildToParent(element, parent) {
+                if (!element || !element.kind) {
+                    return element;
+                }
+
+                if (element.parent) {
+                    removeChildFromParent(element);
+                }
+
+                attachElement(element, parent);
+                return element;
+            }
+
+            function removeChildFromParent(element) {
+                if (!element || !element.parent) {
+                    return element;
+                }
+
+                var parent = element.parent;
+                var siblings = parent.children;
+                var index = siblings.indexOf(element);
+                if (index >= 0) {
+                    siblings.splice(index, 1);
+                }
+
+                parent.composite = null;
+                parent.compositeDirty = true;
+                element.parent = null;
+                unregisterElement(element);
+                dirty = true;
+                return element;
+            }
+
+            function releaseElementCaches(element) {
+                element.painted = false;
+                element.needsCache = false;
+                element.cacheCanvas = null;
+                element.cacheCtx = null;
+                element.cacheBounds = null;
+                element.composite = null;
+                element.propertyDirty = {};
+
+                for (var index = 0; index < element.children.length; index++) {
+                    releaseElementCaches(element.children[index]);
+                }
+            }
+
+            function detachElement(element) {
+                if (element.parent) {
+                    var parent = element.parent;
+                    var siblings = parent.children;
+                    var index = siblings.indexOf(element);
+                    if (index >= 0) {
+                        siblings.splice(index, 1);
+                    }
+
+                    parent.composite = null;
+                    parent.compositeDirty = true;
+                    element.parent = null;
+                }
+
+                unregisterSubtree(element);
+                releaseElementCaches(element);
+                dirty = true;
+            }
+
+            // 摘除的元素连同其子树一起退出登记表，否则元素被回收后
+            // markAllDirty() 还会去给已释放的缓存置位。
+            function unregisterSubtree(element) {
+                unregisterElement(element);
+                for (var index = 0; index < element.children.length; index++) {
+                    unregisterSubtree(element.children[index]);
+                }
+            }
+
+            // ---- 绘制与缓存 ----
+            //
+            // 元素分三类：
+            //  - 叶子元素（shape / text / image）：内容画一次进离屏位图（cacheCanvas），
+            //    之后只有「内容变了」才重画；单纯移动 / 缩放 / 旋转只改变换矩阵。
+            //  - 复合元素（有子节点）：子树先各自成位图，再烘到该元素自己的复合层，
+            //    父元素的 tween 只作用在这张已烘好的位图上（子树的绘制代码不再重跑）。
+            //  - layer 元素：脚本自绘的离屏 canvas，逐帧直接合成，不走缓存。
+
+            var currentBounds = null;
+
+            function boundsReset() {
+                currentBounds = {
+                    minX: Infinity,
+                    minY: Infinity,
+                    maxX: -Infinity,
+                    maxY: -Infinity
+                };
+            }
+
+            function boundsAdd(x, y) {
+                if (!isFinite(x) || !isFinite(y)) {
+                    return;
+                }
+
+                if (x < currentBounds.minX) {
+                    currentBounds.minX = x;
+                }
+
+                if (y < currentBounds.minY) {
+                    currentBounds.minY = y;
+                }
+
+                if (x > currentBounds.maxX) {
+                    currentBounds.maxX = x;
+                }
+
+                if (y > currentBounds.maxY) {
+                    currentBounds.maxY = y;
+                }
+            }
+
+            function boundsResult(padding) {
+                if (currentBounds.maxX < currentBounds.minX) {
+                    return null;
+                }
+
+                var pad = padding === undefined ? DEFAULT_BOUNDS_PADDING : padding;
+                return {
+                    x: currentBounds.minX - pad,
+                    y: currentBounds.minY - pad,
+                    width: Math.max(1, currentBounds.maxX - currentBounds.minX + pad * 2),
+                    height: Math.max(1, currentBounds.maxY - currentBounds.minY + pad * 2)
+                };
+            }
+
+            function drawShapeElement(target, element, offsetX, offsetY) {
+                var items = element.shapeItems || [];
+                for (var index = 0; index < items.length; index++) {
+                    drawShapeItem(target, items[index], offsetX, offsetY);
+                }
+            }
+
+            function applyStrokeStyle(target, line) {
+                target.lineWidth = Math.max(0.1, line.width);
+                target.strokeStyle = "rgba(" + ((line.color >> 16) & 0xFF) + ","
+                    + ((line.color >> 8) & 0xFF) + ","
+                    + (line.color & 0xFF) + "," + line.alpha + ")";
+            }
+
+            function applyFillStyle(target, fill) {
+                target.fillStyle = "rgba(" + ((fill.color >> 16) & 0xFF) + ","
+                    + ((fill.color >> 8) & 0xFF) + ","
+                    + (fill.color & 0xFF) + "," + fill.alpha + ")";
+            }
+
+            function tracePolygon(target, path, offsetX, offsetY) {
+                var points = path.points;
+                target.beginPath();
+                target.moveTo(points[0] + offsetX, points[1] + offsetY);
+                var index = 2;
+                while (index < points.length) {
+                    target.lineTo(points[index] + offsetX, points[index + 1] + offsetY);
+                    index += 2;
+                }
+            }
+
+            function drawShapeItem(target, item, offsetX, offsetY) {
+                var path;
+                switch (item.kind) {
+                    case "line":
+                    case "fill":
+                        path = item.path;
+                        if (!path || !path.points || path.points.length < 2) {
+                            return;
+                        }
+
+                        tracePolygon(target, path, offsetX, offsetY);
+                        if (item.kind === "fill") {
+                            if (item.style) {
+                                applyFillStyle(target, item.style);
+                                target.fill();
+                            }
+                        } else if (item.style) {
+                            applyStrokeStyle(target, item.style);
+                            target.stroke();
+                        }
+
+                        return;
+                    case "rect":
+                        target.beginPath();
+                        target.rect(item.x + offsetX, item.y + offsetY, item.width, item.height);
+                        break;
+                    case "roundRect":
+                        target.beginPath();
+                        roundedRectPath(
+                            target,
+                            item.x + offsetX,
+                            item.y + offsetY,
+                            item.width,
+                            item.height,
+                            item.rx,
+                            item.ry);
+                        break;
+                    case "circle":
+                        target.beginPath();
+                        target.arc(
+                            item.x + offsetX,
+                            item.y + offsetY,
+                            Math.abs(item.radius),
+                            0,
+                            Math.PI * 2);
+                        break;
+                    case "ellipse":
+                        target.beginPath();
+                        target.ellipse(
+                            item.x + offsetX,
+                            item.y + offsetY,
+                            Math.abs(item.width) / 2,
+                            Math.abs(item.height) / 2,
+                            0,
+                            0,
+                            Math.PI * 2);
+                        break;
+                    case "wedge":
+                        target.beginPath();
+                        target.moveTo(item.x + offsetX, item.y + offsetY);
+                        target.arc(
+                            item.x + offsetX,
+                            item.y + offsetY,
+                            Math.abs(item.radius),
+                            item.startAngle,
+                            item.startAngle + item.arc);
+                        target.closePath();
+                        break;
+                    case "polygon":
+                        if (!item.points || item.points.length < 4) {
+                            return;
+                        }
+
+                        target.beginPath();
+                        target.moveTo(item.points[0] + offsetX, item.points[1] + offsetY);
+                        var pointIndex = 2;
+                        while (pointIndex < item.points.length) {
+                            target.lineTo(
+                                item.points[pointIndex] + offsetX,
+                                item.points[pointIndex + 1] + offsetY);
+                            pointIndex += 2;
+                        }
+
+                        target.closePath();
+                        break;
+                    default:
+                        return;
+                }
+
+                if (item.fill) {
+                    applyFillStyle(target, item.fill);
+                    target.fill();
+                }
+
+                if (item.line) {
+                    applyStrokeStyle(target, item.line);
+                    target.stroke();
+                }
+            }
+
+            function roundedRectPath(target, x, y, width, height, rx, ry) {
+                var radiusX = Math.max(0, Math.min(Math.abs(rx), Math.abs(width) / 2));
+                var radiusY = Math.max(0, Math.min(Math.abs(ry), Math.abs(height) / 2));
+                target.moveTo(x + radiusX, y);
+                target.lineTo(x + width - radiusX, y);
+                target.quadraticCurveTo(x + width, y, x + width, y + radiusY);
+                target.lineTo(x + width, y + height - radiusY);
+                target.quadraticCurveTo(x + width, y + height, x + width - radiusX, y + height);
+                target.lineTo(x + radiusX, y + height);
+                target.quadraticCurveTo(x, y + height, x, y + height - radiusY);
+                target.lineTo(x, y + radiusY);
+                target.quadraticCurveTo(x, y, x + radiusX, y);
+                target.closePath();
+            }
+
+            function computeShapeBounds(element) {
+                var items = element.shapeItems || [];
+                boundsReset();
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    var path;
+                    switch (item.kind) {
+                        case "line":
+                        case "fill":
+                            path = item.path;
+                            if (path && path.points) {
+                                var pointIndex = 0;
+                                while (pointIndex < path.points.length) {
+                                    boundsAdd(path.points[pointIndex], path.points[pointIndex + 1]);
+                                    pointIndex += 2;
+                                }
+
+                                if (path.curves) {
+                                    for (var curveIndex = 0; curveIndex < path.curves.length; curveIndex++) {
+                                        var curve = path.curves[curveIndex];
+                                        boundsAdd(curve[0], curve[1]);
+                                    }
+                                }
+                            }
+
+                            break;
+                        case "rect":
+                        case "roundRect":
+                            boundsAdd(item.x, item.y);
+                            boundsAdd(item.x + item.width, item.y + item.height);
+                            break;
+                        case "circle":
+                            boundsAdd(item.x - Math.abs(item.radius), item.y - Math.abs(item.radius));
+                            boundsAdd(item.x + Math.abs(item.radius), item.y + Math.abs(item.radius));
+                            break;
+                        case "ellipse":
+                            boundsAdd(item.x - Math.abs(item.width) / 2, item.y - Math.abs(item.height) / 2);
+                            boundsAdd(item.x + Math.abs(item.width) / 2, item.y + Math.abs(item.height) / 2);
+                            break;
+                        case "wedge":
+                            boundsAdd(item.x - Math.abs(item.radius), item.y - Math.abs(item.radius));
+                            boundsAdd(item.x + Math.abs(item.radius), item.y + Math.abs(item.radius));
+                            break;
+                        case "polygon":
+                            if (item.points) {
+                                var polygonIndex = 0;
+                                while (polygonIndex < item.points.length) {
+                                    boundsAdd(item.points[polygonIndex], item.points[polygonIndex + 1]);
+                                    polygonIndex += 2;
+                                }
+                            }
+
+                            break;
+                    }
+                }
+
+                return boundsResult(element.padding);
+            }
+
+            function elementLocalBounds(element) {
+                var metrics;
+                switch (element.kind) {
+                    case "shape":
+                        return computeShapeBounds(element);
+                    case "text":
+                        metrics = measureTextElement(element);
+                        return {
+                            x: 0,
+                            y: 0,
+                            width: Math.max(1, metrics.width) + DEFAULT_BOUNDS_PADDING * 2,
+                            height: metrics.height + DEFAULT_BOUNDS_PADDING * 2
+                        };
+                    case "image":
+                        if (!element.loaded) {
+                            return null;
+                        }
+
+                        return {
+                            x: 0,
+                            y: 0,
+                            width: Math.max(1, element.width),
+                            height: Math.max(1, element.height)
+                        };
+                    case "layer":
+                        return {
+                            x: 0,
+                            y: 0,
+                            width: element.layerWidth,
+                            height: element.layerHeight
+                        };
+                    default:
+                        return null;
+                }
+            }
+
+            function applyElementTransform(target, element) {
+                var props = element.props;
+                var matrix = props.matrix;
+                target.translate(props.x, props.y);
+                if (props.rotation) {
+                    target.rotate(props.rotation * Math.PI / 180);
+                }
+
+                if (matrix && typeof matrix === "object") {
+                    target.transform(
+                        toFiniteNumber(matrix.a, 1),
+                        toFiniteNumber(matrix.b, 0),
+                        toFiniteNumber(matrix.c, 0),
+                        toFiniteNumber(matrix.d, 1),
+                        toFiniteNumber(matrix.tx, 0),
+                        toFiniteNumber(matrix.ty, 0));
+                }
+
+                target.scale(props.scaleX, props.scaleY);
+                target.globalAlpha = Math.max(0, Math.min(1, props.alpha));
+            }
+
+            function hasGlowFilter(element) {
+                var filters = element.props.filters;
+                if (!filters || !filters.length) {
+                    return false;
+                }
+
+                for (var index = 0; index < filters.length; index++) {
+                    var filter = filters[index];
+                    var name = filter && (filter.type || filter.kind);
+                    if (name === "GlowFilter" || name === "Glow") {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            // 内容绘制：把元素自己的图元画到给定的 2D 上下文（本地坐标系）。
+            function paintElementContent(target, element) {
+                if (element.kind === "shape") {
+                    drawShapeElement(target, element, 0, 0);
+                } else if (element.kind === "text") {
+                    drawTextElement(target, element, 0, 0);
+                } else if (element.kind === "image" && element.image) {
+                    target.drawImage(element.image, 0, 0);
+                } else if (element.kind === "layer") {
+                    target.drawImage(element.layerCanvas, 0, 0);
+                }
+
+                // 发光滤镜在缓存阶段一次性施加：脚本只画一次，滤镜不必每帧重算。
+                if (hasGlowFilter(element) && typeof target.filter === "string") {
+                    target.filter = "blur(4px)";
+                    target.globalCompositeOperation = "lighter";
+                    paintElementContentRaw(target, element);
+                    target.globalCompositeOperation = "source-over";
+                    target.filter = "none";
+                }
+            }
+
+            function paintElementContentRaw(target, element) {
+                if (element.kind === "shape") {
+                    drawShapeElement(target, element, 0, 0);
+                } else if (element.kind === "text") {
+                    drawTextElement(target, element, 0, 0);
+                } else if (element.kind === "image" && element.image) {
+                    target.drawImage(element.image, 0, 0);
+                }
+            }
+
+            // 叶子元素的内容缓存。只有 needsCache 置位时才会走到这里——
+            // 这是「静态元素首帧之后不再重绘」的落点。
+            function rebuildElementCache(element) {
+                var bounds = elementLocalBounds(element);
+                element.needsCache = false;
+                if (!bounds) {
+                    element.cacheCanvas = null;
+                    element.cacheCtx = null;
+                    element.cacheBounds = null;
+                    element.painted = true;
+                    return;
+                }
+
+                var padding = hasGlowFilter(element) ? GLOW_PADDING : 0;
+                var ratio = window.devicePixelRatio || 1;
+                var width = Math.max(1, Math.ceil((bounds.width + padding * 2) * ratio));
+                var height = Math.max(1, Math.ceil((bounds.height + padding * 2) * ratio));
+                if (!element.cacheCanvas) {
+                    element.cacheCanvas = document.createElement("canvas");
+                }
+
+                if (element.cacheCanvas.width !== width || element.cacheCanvas.height !== height) {
+                    element.cacheCanvas.width = width;
+                    element.cacheCanvas.height = height;
+                }
+
+                element.cacheCtx = element.cacheCanvas.getContext("2d");
+                var target = element.cacheCtx;
+                target.setTransform(1, 0, 0, 1, 0, 0);
+                target.clearRect(0, 0, width, height);
+                target.setTransform(ratio, 0, 0, ratio, 0, 0);
+                target.translate(padding - bounds.x, padding - bounds.y);
+                target.globalAlpha = 1;
+                paintElementContent(target, element);
+
+                element.cacheBounds = {
+                    x: bounds.x - padding,
+                    y: bounds.y - padding,
+                    width: bounds.width + padding * 2,
+                    height: bounds.height + padding * 2
+                };
+                element.painted = true;
+                paintCount++;
+            }
+
+            // 复合元素的子树烘焙。子元素走 blitElement（用自己的缓存），
+            // 所以重建复合层是 N 次位图拷贝，而不是 N 份绘制代码。
+            function rebuildComposite(element) {
+                var ratio = window.devicePixelRatio || 1;
+                var width = Math.max(1, Math.ceil((viewportWidth || 1) * ratio));
+                var height = Math.max(1, Math.ceil((viewportHeight || 1) * ratio));
+                if (!element.composite) {
+                    element.composite = document.createElement("canvas");
+                }
+
+                if (element.composite.width !== width || element.composite.height !== height) {
+                    element.composite.width = width;
+                    element.composite.height = height;
+                }
+
+                var target = element.composite.getContext("2d");
+                target.setTransform(1, 0, 0, 1, 0, 0);
+                target.clearRect(0, 0, width, height);
+                target.setTransform(ratio, 0, 0, ratio, 0, 0);
+                // 子元素坐标是页面坐标：复合层按页面坐标 1:1 烘焙，
+                // 之后对父元素做的任何变换都作用在这张已烘好的位图上。
+                for (var index = 0; index < element.children.length; index++) {
+                    blitElement(target, element.children[index]);
+                }
+
+                element.compositeDirty = false;
+                element.painted = true;
+                paintCount++;
+            }
+
+            function blitElement(target, element) {
+                if (!element || element.expired || element.props.visible === false) {
+                    return;
+                }
+
+                if (element.children.length > 0) {
+                    if (!element.composite) {
+                        rebuildComposite(element);
+                    }
+
+                    if (!element.composite) {
+                        return;
+                    }
+
+                    target.save();
+                    applyElementTransform(target, element);
+                    target.drawImage(
+                        element.composite,
+                        0,
+                        0,
+                        element.composite.width / (window.devicePixelRatio || 1),
+                        element.composite.height / (window.devicePixelRatio || 1));
+                    target.restore();
+                    return;
+                }
+
+                if (element.kind === "layer") {
+                    target.save();
+                    applyElementTransform(target, element);
+                    target.drawImage(element.layerCanvas, 0, 0, element.layerWidth, element.layerHeight);
+                    target.restore();
+                    return;
+                }
+
+                if (!element.painted || element.needsCache) {
+                    rebuildElementCache(element);
+                }
+
+                if (!element.cacheCanvas || !element.cacheBounds) {
+                    return;
+                }
+
+                target.save();
+                applyElementTransform(target, element);
+                target.drawImage(
+                    element.cacheCanvas,
+                    element.cacheBounds.x,
+                    element.cacheBounds.y,
+                    element.cacheBounds.width,
+                    element.cacheBounds.height);
+                target.restore();
+            }
+
+            function isSubtreeDirty(element) {
+                if (!element.painted || element.needsCache || element.compositeDirty
+                    || isElementDirty(element)) {
+                    return true;
+                }
+
+                for (var index = 0; index < element.children.length; index++) {
+                    if (isSubtreeDirty(element.children[index])) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            function clearSubtreeDirty(element) {
+                element.propertyDirty = {};
+                element.compositeDirty = false;
+                for (var index = 0; index < element.children.length; index++) {
+                    clearSubtreeDirty(element.children[index]);
+                }
+            }
+
+            // ---- 条目生命周期 ----
+
+            function isInWindow(item, now) {
+                return now >= item.startMs && now <= item.endMs;
+            }
+
+            function registerItemElement(item, element) {
+                element.ownerItem = item;
+                if (!element.lifeTimeMs) {
+                    // 寿命缺省 3 秒，与 M8 的 MotionConfig.lifeTime 一致。
+                    element.lifeTimeMs = DEFAULT_LIFE_TIME_SECONDS * 1000;
+                }
+
+                item.elements.push(element);
+                // 元素创建后立即进入元素树（与 M8 的 SetupMotionElement 一致）。
+                attachElement(element, null);
+                return element;
+            }
+
+            function activateItem(item, now) {
+                item.activated = true;
+                item.removed = false;
+                // 脚本在这里、也只在这里执行一次。之后每帧只推进 tween。
+                item.runCount++;
+                totalRunCount++;
+                try {
+                    item.run(createContext(item, now));
+                } catch (error) {
+                    reportRuntimeError(error, item.model.id);
+                }
+            }
+
+            function releaseItemElement(item, index) {
+                var element = item.elements[index];
+                element.expired = true;
+                // 到期摘除并释放离屏缓存，脚本不负责清理。
+                detachElement(element);
+                item.elements.splice(index, 1);
+            }
+
+            function deactivateItem(item) {
+                item.activated = false;
+                item.removed = true;
+                for (var index = item.elements.length - 1; index >= 0; index--) {
+                    releaseItemElement(item, index);
+                }
+            }
+
+            function advanceItem(item, now) {
+                var elapsed = now - item.startMs;
+                for (var index = item.elements.length - 1; index >= 0; index--) {
+                    var element = item.elements[index];
+                    if (element.expired) {
+                        continue;
+                    }
+
+                    if (element.hasTween) {
+                        advanceElementMotion(element, elapsed);
+                    }
+
+                    if (elapsed >= element.lifeTimeMs) {
+                        releaseItemElement(item, index);
+                    }
+                }
+
+                if (item.usesOnFrame && typeof item.frameFn === "function") {
+                    // 逃生舱：只有 tween 表达不了的效果才该走这里。
+                    try {
+                        item.frameFn(createContext(item, now), elapsed);
+                    } catch (error) {
+                        reportRuntimeError(error, item.model.id);
+                    }
+                }
+            }
+
+            function updateItems(now) {
+                var anyActive = false;
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    if (isInWindow(item, now)) {
+                        anyActive = true;
+                        if (item.compileFailed) {
+                            continue;
+                        }
+
+                        if (!item.activated) {
+                            activateItem(item, now);
+                        } else {
+                            advanceItem(item, now);
+                        }
+                    } else if (item.activated) {
+                        deactivateItem(item);
+                    }
+                }
+
+                return anyActive;
+            }
+
+            // seek 后按新位置重算插值：已激活且在窗口内的条目只让 tween 重新插值，
+            // 不重跑脚本；离开窗口的条目释放元素（再回到窗口时会重新执行一次脚本，
+            // 这是元素已被释放后唯一正确的做法）。
+            function resetItemsForSeek(now) {
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    if (!isInWindow(item, now)) {
+                        if (item.activated) {
+                            deactivateItem(item);
+                        }
+
+                        continue;
+                    }
+
+                    if (!item.activated) {
+                        continue;
+                    }
+
+                    for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
+                        var element = item.elements[elementIndex];
+                        if (element.motion) {
+                            element.motion.lastElapsedMs = -1;
+                        }
+                    }
+                }
+
+                dirty = true;
+            }
+
+            function clearAllItems() {
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    item.activated = false;
+                    item.removed = true;
+                    for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
+                        releaseElementCaches(item.elements[elementIndex]);
+                    }
+
+                    item.elements = [];
+                }
+
+                items = [];
+                rootElement.children = [];
+                rootElement.composite = null;
+                elements = [];
+            }
+
+            // ---- 每帧流程：推进 tween → 标脏 → 只重绘脏元素 → 呈现 ----
+
+            function clearSurface() {
+                if (!context2d || !canvas) {
+                    return;
+                }
+
+                context2d.save();
+                context2d.setTransform(1, 0, 0, 1, 0, 0);
+                context2d.clearRect(0, 0, canvas.width, canvas.height);
+                context2d.restore();
+            }
+
+            function paintDirtyElements() {
+                var topLevel = rootElement.children;
+                for (var index = 0; index < topLevel.length; index++) {
+                    var element = topLevel[index];
+                    if (element.expired || element.props.visible === false) {
+                        continue;
+                    }
+
+                    if (prepareElement(element)) {
+                        blitElement(context2d, element);
+                    }
+                }
+            }
+
+            // 返回 true 表示该元素这一帧需要重新合成到画布上。
+            function prepareElement(element) {
+                if (element.expired) {
+                    return false;
+                }
+
+                var childrenChanged = false;
+                for (var index = 0; index < element.children.length; index++) {
+                    if (prepareElement(element.children[index])) {
+                        childrenChanged = true;
+                    }
+                }
+
+                var ownDirty = isElementDirty(element);
+                var structural = !element.painted || element.needsCache;
+                element.propertyDirty = {};
+
+                if (element.children.length > 0) {
+                    if (structural || element.compositeDirty || childrenChanged) {
+                        rebuildComposite(element);
+                        element.compositeDirty = false;
+                        return true;
+                    }
+
+                    return ownDirty;
+                }
+
+                if (element.kind === "layer") {
+                    // 脚本自绘层每帧都要合成，没有可缓存的静态内容。
+                    return true;
+                }
+
+                if (structural) {
+                    rebuildElementCache(element);
+                    return true;
+                }
+
+                return ownDirty;
+            }
+
+            // 返回「是否存在处于时间窗内的条目」。窗口内没有条目且未播放时自停。
+            function tick(now) {
                 if (!context2d) {
                     return false;
                 }
 
-                context2d.clearRect(0, 0, viewportWidth, viewportHeight);
+                var anyActive = updateItems(now);
 
-                // 隐藏状态下保持画布为空：setState / resize 也会走到这里，
-                // 不拦会让已关闭的脚本弹幕重新画回屏幕上。
+                // 隐藏状态下合成步骤必须直接跳过并保持画布空白，
+                // 否则关闭弹幕总开关后紧跟的 setState / resize 会把脏元素合成回屏幕。
                 if (!visible) {
+                    clearSurface();
+                    dirty = false;
                     return false;
                 }
 
-                var anyActive = false;
-                for (var index = 0; index < items.length; index++) {
-                    var item = items[index];
-                    if (!isActive(item, now)) {
-                        continue;
-                    }
-
-                    anyActive = true;
-                    if (item.compileFailed) {
-                        continue;
-                    }
-
-                    callSafely(item.draw, item, now);
+                if (dirty) {
+                    dirty = false;
+                    paintDirtyElements();
                 }
 
                 return anyActive;
@@ -269,9 +1987,9 @@
                 }
 
                 var now = currentPositionMs();
-                var anyActive = drawFrame(now);
+                var anyActive = tick(now);
 
-                // 自停必须在这里决定并直接返回：若在 drawFrame 内置 running=false
+                // 自停必须在这里决定并直接返回：若在 tick 内置 running=false
                 // 却仍无条件续帧，恢复播放时会与已排队的回调形成两条并行帧链。
                 if (!anyActive && !state.playing) {
                     running = false;
@@ -298,8 +2016,37 @@
                     frameHandle = 0;
                 }
 
-                if (context2d) {
-                    context2d.clearRect(0, 0, viewportWidth, viewportHeight);
+                clearSurface();
+                dirty = true;
+            }
+
+            function setState(positionSeconds, playing, rate) {
+                state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
+                state.playing = !!playing;
+                state.rate = Number(rate) > 0 ? Number(rate) : 1;
+                state.updatedAt = performance.now();
+
+                if (state.playing) {
+                    ensureRunning();
+                } else {
+                    // 暂停时按当前播放位置推进一次插值并重绘，让画面停在脚本进度上
+                    // （不重跑脚本，也不引入任何基于逐帧回调的机制）。
+                    tick(currentPositionMs());
+                }
+            }
+
+            function seekTo(positionSeconds, playing, rate) {
+                state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
+                state.playing = !!playing;
+                state.rate = Number(rate) > 0 ? Number(rate) : 1;
+                state.updatedAt = performance.now();
+
+                var now = currentPositionMs();
+                resetItemsForSeek(now);
+                if (state.playing) {
+                    ensureRunning();
+                } else {
+                    tick(now);
                 }
             }
 
@@ -316,6 +2063,7 @@
                     throw new Error("暂不支持的语言：" + lang + "（TS 转译尚未接入）");
                 }
 
+                // 整个宿主里只有这一处 new Function，且每条脚本只编译一次。
                 return new Function("ctx", code);
             }
 
@@ -330,12 +2078,20 @@
                     model: model,
                     startMs: startMs,
                     endMs: startMs + durationSeconds * 1000,
-                    draw: null,
-                    compileFailed: false
+                    durationMs: durationSeconds * 1000,
+                    run: null,
+                    compileFailed: false,
+                    activated: false,
+                    removed: false,
+                    hasTween: false,
+                    usesOnFrame: false,
+                    frameFn: null,
+                    elements: [],
+                    runCount: 0
                 };
 
                 try {
-                    item.draw = compileItem(model);
+                    item.run = compileItem(model);
                 } catch (error) {
                     item.compileFailed = true;
                     reportCompileError(error, model && model.id);
@@ -348,8 +2104,8 @@
                     return;
                 }
 
-                var now = currentPositionMs();
-                if (isActive(item, now)) {
+                if (isInWindow(item, currentPositionMs())) {
+                    dirty = true;
                     ensureRunning();
                     post("rendered", { count: items.length });
                 }
@@ -368,75 +2124,140 @@
                 }
             }
 
-            function setState(positionSeconds, playing, rate) {
-                state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
-                state.playing = !!playing;
-                state.rate = Number(rate) > 0 ? Number(rate) : 1;
-                state.updatedAt = performance.now();
+            // ---- 脚本上下文（保留模式）----
 
-                if (state.playing) {
-                    ensureRunning();
-                } else {
-                    // 暂停时保留当前帧，让画面停在脚本进度上。
-                    drawFrame(currentPositionMs());
-                }
+            // ctx 只提供「建元素 + 声明 tween + 登记元素树」的能力。
+            // 脚本执行期间创建的所有元素都自动归属当前条目：到期时由宿主统一摘除。
+            function createContext(item, now) {
+                var durationSeconds = item.durationMs / 1000;
+                var context = {
+                    // 只读量。dpr 由宿主处理，脚本拿到的坐标一律是 CSS 像素。
+                    width: viewportWidth,
+                    height: viewportHeight,
+                    dpr: devicePixelRatioValue,
+                    duration: durationSeconds,
+                    stime: item.model.stime,
+                    id: item.model.id,
+                    // 保留模式下脚本每条只执行一次，下面两个量恒定是 0 / 0——
+                    // 它们不再有逐帧语义，也不得被用来驱动任何逐帧机制。
+                    t: 0,
+                    progress: 0,
+                    pause: requestPause,
+                    seek: requestSeek,
+                    navigate: requestNavigate,
+
+                    createText: function (text, style) {
+                        return registerItemElement(item, createTextElement(text, style));
+                    },
+                    createShape: function () {
+                        return registerItemElement(item, createShapeElement());
+                    },
+                    createImage: function (url) {
+                        return registerItemElement(item, createImageElement(url));
+                    },
+                    createLayer: function (width, height) {
+                        return registerItemElement(item, createLayerElement(width, height));
+                    },
+                    addChild: function (element, parent) {
+                        return addChildToParent(element, parent);
+                    },
+                    removeChild: function (element) {
+                        return removeChildFromParent(element);
+                    },
+                    tween: function (element, config, options) {
+                        return createTween(element, config, options);
+                    },
+                    // 逃生舱：只有 tween 表达不了的效果（物理演算等）才该用它。
+                    // 能写成 tween 的不要用 onFrame——注册后该条目会退回逐帧调用，
+                    // 单条脚本的每帧开销不再只与「脏元素数」相关。
+                    onFrame: function (fn) {
+                        item.usesOnFrame = typeof fn === "function";
+                        item.frameFn = item.usesOnFrame ? fn : null;
+                        if (item.usesOnFrame) {
+                            dirty = true;
+                            ensureRunning();
+                        }
+
+                        return item.usesOnFrame;
+                    }
+                };
+
+                // 立即模式遗留的 ctx.g 不再提供：保留模式必须走 createShape/createText
+                // 的保留对象，否则又会退回每帧重跑绘制代码。
+                return context;
             }
 
+            // ---- 宿主命令对象（控件通过 ExecuteScriptAsync 逐字调用）----
+
             window.scriptDanmakuHost = {
-                reset: function (positionSeconds, playing, rate, nextVisible) {
+                reset: function (positionSeconds, playing, rate, shouldShow) {
                     generation++;
-                    items = [];
+                    clearAllItems();
+                    state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
+                    state.playing = !!playing;
+                    state.rate = Number(rate) > 0 ? Number(rate) : 1;
+                    state.updatedAt = performance.now();
+                    visible = shouldShow !== false;
                     pendingItemJson = "";
-                    compileErrorCount = 0;
-                    runtimeErrorCount = 0;
-                    visible = nextVisible !== false;
-                    stopRunning();
-                    ensureCanvas();
-                    post("parsed", { count: 0 });
-                    setState(positionSeconds, playing, rate);
+                    if (visible) {
+                        ensureCanvas();
+                    } else {
+                        stopRunning();
+                    }
                 },
                 append: function (list) {
                     appendItems(list);
                 },
                 beginItem: function () {
+                    // 大 payload 分块：先清缓冲，后续 appendItemChunk 逐块追加。
                     pendingItemJson = "";
                 },
                 appendItemChunk: function (chunk) {
-                    pendingItemJson += String(chunk || "");
+                    pendingItemJson += chunk === undefined || chunk === null ? "" : String(chunk);
                 },
                 endItem: function () {
-                    if (!pendingItemJson) {
+                    var json = pendingItemJson;
+                    pendingItemJson = "";
+                    if (!json) {
                         return;
                     }
 
+                    var model = null;
                     try {
-                        var model = JSON.parse(pendingItemJson);
-                        if (model) {
-                            appendItems([model]);
-                        }
+                        model = JSON.parse(json);
                     } catch (error) {
-                        reportError("decode", error);
-                    } finally {
-                        pendingItemJson = "";
+                        reportCompileError(error, "");
+                        return;
                     }
+
+                    if (!model) {
+                        return;
+                    }
+
+                    // 与 append 同一条路径，同样受 generation 保护。
+                    addItem(model, generation);
                 },
                 setState: setState,
                 seek: function (positionSeconds, playing, rate) {
-                    setState(positionSeconds, playing, rate);
+                    seekTo(positionSeconds, playing, rate);
                 },
-                visible: function (nextVisible) {
-                    visible = !!nextVisible;
-                    if (visible && state.playing) {
+                visible: function (shouldShow) {
+                    visible = shouldShow !== false;
+                    if (visible) {
+                        dirty = true;
                         ensureRunning();
-                    } else if (!visible) {
-                        stopRunning();
                     } else {
-                        drawFrame(currentPositionMs());
+                        // 隐藏时立刻停帧并清空画布；合成步骤也会拦住脏元素。
+                        stopRunning();
                     }
                 },
                 resize: function () {
+                    ensureCanvas();
                     resizeCanvas();
-                    drawFrame(currentPositionMs());
+                    dirty = true;
+                    if (visible) {
+                        ensureRunning();
+                    }
                 }
             };
 

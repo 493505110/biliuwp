@@ -62,7 +62,12 @@ namespace BiliBili.Tests
             var methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);
             Assert.IsTrue(methodStart >= 0, $"Unable to find method signature: {methodSignature}");
 
-            var openingBrace = source.IndexOf('{', methodStart + methodSignature.Length);
+            // 锚点字符串可能自带开括号（例如 "function tick(now) {"）。此时若仍从锚点
+            // 之后去找 '{'，会从函数体内层的花括号开始计数、提前闭合，取到被截断的函数体。
+            var braceInSignature = methodSignature.LastIndexOf('{');
+            var openingBrace = braceInSignature >= 0
+                ? methodStart + braceInSignature
+                : source.IndexOf('{', methodStart + methodSignature.Length);
             Assert.IsTrue(openingBrace >= 0, $"Unable to find method body: {methodSignature}");
 
             var braceDepth = 0;

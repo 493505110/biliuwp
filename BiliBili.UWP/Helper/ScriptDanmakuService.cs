@@ -52,6 +52,8 @@ namespace BiliBili.UWP.Helper
 
         /// <summary>
         /// 内置示例。用于首次验证渲染链路，不依赖任何外部文件。
+        /// 示例按保留模式编写：脚本只执行一次，期间创建保留元素并声明 tween，
+        /// 之后逐帧由宿主插值（不要写成每帧重算坐标）。
         /// </summary>
         public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo()
         {
@@ -63,11 +65,13 @@ namespace BiliBili.UWP.Helper
                     stime = 1,
                     duration = 4,
                     lang = LangJs,
-                    code = "var x = (1 - ctx.progress) * (ctx.width + 240) - 120;"
-                        + "ctx.g.font = '32px sans-serif';"
-                        + "ctx.g.fillStyle = '#66ccff';"
-                        + "ctx.g.textBaseline = 'middle';"
-                        + "ctx.g.fillText('脚本弹幕已生效', x, ctx.height / 2);"
+                    code = "var label = ctx.createText('脚本弹幕已生效', {"
+                        + " font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
+                        + "label.y = Math.round(ctx.height / 2 - 19);"
+                        + "ctx.tween(label, {"
+                        + "  x: { fromValue: -240, toValue: ctx.width,"
+                        + "       easing: 'Linear', lifeTime: 4 }"
+                        + "}, { lifeTime: 4 });"
                 },
                 new ScriptDanmakuModel
                 {
@@ -75,16 +79,25 @@ namespace BiliBili.UWP.Helper
                     stime = 3,
                     duration = 5,
                     lang = LangJs,
-                    code = "var n = 24;"
-                        + "for (var i = 0; i < n; i++) {"
-                        + "  var a = i / n * Math.PI * 2 + ctx.progress * Math.PI * 2;"
-                        + "  var r = 40 + ctx.progress * 160;"
-                        + "  var cx = ctx.width / 2 + Math.cos(a) * r;"
-                        + "  var cy = ctx.height / 2 + Math.sin(a) * r;"
-                        + "  ctx.g.beginPath();"
-                        + "  ctx.g.arc(cx, cy, 6, 0, Math.PI * 2);"
-                        + "  ctx.g.fillStyle = 'rgba(255,102,204,' + (1 - ctx.progress).toFixed(2) + ')';"
-                        + "  ctx.g.fill();"
+                    code = "var count = 12;"
+                        + "var cx = ctx.width / 2;"
+                        + "var cy = ctx.height / 2;"
+                        + "for (var i = 0; i < count; i++) {"
+                        + "  var angle = i / count * Math.PI * 2;"
+                        + "  var dot = ctx.createShape();"
+                        + "  dot.graphics.beginFill(0xFF66CC, 1);"
+                        + "  dot.graphics.drawCircle(0, 0, 6);"
+                        + "  dot.graphics.endFill();"
+                        + "  dot.x = cx;"
+                        + "  dot.y = cy;"
+                        + "  ctx.tween(dot, {"
+                        + "    x: { fromValue: cx, toValue: cx + Math.cos(angle) * 200,"
+                        + "         easing: 'SineEaseOut', lifeTime: 3 },"
+                        + "    y: { fromValue: cy, toValue: cy + Math.sin(angle) * 200,"
+                        + "         easing: 'SineEaseOut', lifeTime: 3 },"
+                        + "    alpha: { fromValue: 1, toValue: 0,"
+                        + "         easing: 'QuadraticEaseIn', lifeTime: 3 }"
+                        + "  }, { lifeTime: 3 });"
                         + "}"
                 }
             });

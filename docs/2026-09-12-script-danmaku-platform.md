@@ -96,10 +96,11 @@ public sealed class ScriptDanmakuDocument
 > 单文件内联，不拆 `.js`——虚拟主机映射下同目录引用没有额外收益，且少一处 csproj 注册。
 
 - **渲染循环（保留模式）**：主 `<canvas>` + `requestAnimationFrame`。脚本**每条只执行一次**，执行期间通过 `ctx` 建出保留对象树（`ctx.createText/createShape/createImage/createLayer`），并把动画写成声明式 tween 配置；之后每帧只做三件事——推进 tween、更新元素属性、**仅重绘被标记为脏的元素**。**禁止每帧重跑脚本**（理由与真实数据见 §3.1）。**不用 DOM-per-danmaku**。无活跃脚本且非播放态时自动停循环；全部脚本已播完时也停（见 §阶段 1 暴露的待办）。
-- **脚本 API（`ctx`）**——阶段 1 实际提供：`ctx.t` / `ctx.duration` / `ctx.progress` / `ctx.stime` / `ctx.id`、`ctx.width` / `ctx.height` / `ctx.dpr`、`ctx.g`（Canvas 2D，已按 dpr 预置变换，坐标是 CSS 像素）、`ctx.pause()` / `ctx.seek(seconds)` / `ctx.navigate(url)`。
-  > **`ctx.t` 是本条弹幕内的相对时间（0 → duration）**，不是全局播放时间；全局时间由 `ctx.stime + ctx.t` 得到。
-  > **`ctx.t` 在保留模式下每次脚本执行都是 0**（脚本只在 stime 那一刻执行一次）；它只在「立即模式」下才有逐帧递增的语义。
-  > 待接入（阶段 2-4）：`ctx.createLayer(w,h)`（离屏 canvas，供 WebGL/3D 自绘后合成）、`ctx.danmaku`（弹幕快照）、`ctx.intercept.*`、`ctx.filter(...)` / `ctx.send(...)` / `ctx.on(...)`。
+- **脚本 API（`ctx`）**——阶段 1 实际提供：`ctx.width` / `ctx.height` / `ctx.dpr` / `ctx.duration` / `ctx.stime` / `ctx.id`、`ctx.createText(text, style)` / `ctx.createShape()` / `ctx.createImage(url)` / `ctx.createLayer(w, h)`、`ctx.addChild(el, parent?)` / `ctx.removeChild(el)`、`ctx.tween(el, config, options?)`、`ctx.onFrame(fn)`（逃生舱，见下）、`ctx.pause()` / `ctx.seek(seconds)` / `ctx.navigate(url)`。元素属性 `x`/`y`/`z`/`alpha`/`scaleX`/`scaleY`/`rotation`（=`rotationZ`）/`visible`/`matrix`/`filters` 可写，直接赋值即标脏。
+  > **`ctx.t` 与 `ctx.progress` 恒为 0**：脚本每条只执行一次，执行时没有任何时间推进，这两个量不再有逐帧语义，**不得**用它们驱动逐帧机制（`t`/`progress` 仍在对象上只为兼容立即模式脚本的读取而不报错）。
+  > **`ctx.g` 已取消**：直接操作画布等于绕开保留模式，脚本只能通过 `createShape`/`createText` 建保留对象。
+  > **`ctx.onFrame(fn)` 是逃生舱**：只有 tween 表达不了的效果（如物理演算）才该用它；注册后该条目退回逐帧调用，单条脚本的每帧开销不再只与「脏元素数」相关。**能写成 tween 的不要用 onFrame**。
+  > 待接入（阶段 2-4）：`ctx.danmaku`（弹幕快照）、`ctx.intercept.*`、`ctx.filter(...)` / `ctx.send(...)` / `ctx.on(...)`。
 - **时间同步**：照搬 `bas-host.html` 已验证的 `state` + `currentPositionMs()` 模式（playing 时 `performance.now()` 外推，`setState`/`seek` 重置基准）。
 - **桥协议（JSON）**：
   - 主→宿主：`reset` / `append` / `beginItem` / `appendItemChunk` / `endItem` / `setState` / `seek` / `visible` / `resize`
@@ -120,8 +121,8 @@ public sealed class ScriptDanmakuDocument
 **保留模式的具体形态**
 
 - **元素**：脚本执行期间创建 `M8Element` 式保留对象（text / shape / image / layer），进入宿主的元素树；属性含 `x/y/scaleX/scaleY/rotation/alpha/visible/filters/matrix`。
-- **动画**：声明式 tween（`fromValue`/`toValue`/`duration`/`startDelay`/`easing`），支持 `motionGroup` 成组统一 `lifeTime`；由统一 ticker 推进。**不提供逐帧回调**（原 `ctx` 的「每帧调绘制回调」语义取消）。
-- **重绘策略**：元素分两类——**静态元素**（只创建、不动）首次绘制后缓存为位图或留在离屏层，后续帧不再重绘；**动画元素**（有活跃 tween 或被脚本改属性）标记脏，每帧只重绘脏元素，不整屏 `clearRect`。
+- **动画**：声明式 tween（`fromValue`/`toValue`/`lifeTime`/`startDelay`/`easing`/`repeat`），由统一 ticker 推进。逐帧回调只保留 `ctx.onFrame` 这一条逃生舱，且默认路径不得使用。
+- **重绘策略**：元素分两类——**静态元素**（只创建、不动）首次绘制后缓存为位图或留在离屏层，后续帧不再重绘；**动画元素**（有活跃 tween 或被脚本改属性）标记脏，每帧只重绘脏元素。整屏 `clearRect` 只在隐藏 / 停止时执行一次。
 - **生命周期**：沿用原版语义——`lifeTime` 到期（默认 3 秒）后从显示树与登记表移除；寿命跟随播放器 play/pause 状态累计（暂停不计入），seek 时按 `forcasting` 判据（`motionPlayTime < target < motionPlayTime + lifeTime*1000`）决定是否重建元素。
 - **绘制预算**：主 canvas 每帧仍有一次合成，但**成本是「脏元素数量」而不是「活跃脚本数 × 脚本体量」**；脚本体量只影响它执行那一次的开销。
 
@@ -218,11 +219,11 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 | 阶段 | 内容 | 验收 | 状态 |
 |---|---|---|---|
 | **0. Spike** | 验证两件事：① 官方 `typescript.js` 的 `transpileModule` 在 WebView2 里跑通；② Canvas/WebGL 在同屏几十条粒子/3D 下的帧率 | 可行性结论 | **未做**（TS 暂缓，见下） |
-| **1. 核心渲染** | 模型 + 服务 + 宿主运行时 + 控件；加载本地 `.js` → 叠加显示、随播放同步 | 看到代码弹幕效果 | **代码完成，待页面级验证**；但**渲染模型需按 §3.1 从立即模式改为保留模式**（见 §阶段 1 实施记录 8） |
+| **1. 核心渲染** | 模型 + 服务 + 宿主运行时 + 控件；加载本地 `.js` → 叠加显示、随播放同步 | 看到代码弹幕效果 | **代码完成（含 §3.1 保留模式改造），待页面级验证** |
 | **2. 弹幕链路** | 读取弹幕数据 + 弹幕数据流拦截 | 脚本能读弹幕、能拦弹幕 | 未开始 |
 | **3. 输入与操作** | 用户输入拦截 + 播放器操作拦截 | 脚本能消费点击、能阻止播放操作 | 未开始 |
 | **4. 控制与发送** | 控制弹幕显示 + 发送弹幕 + 发送拦截 | 三项各验一次 | 未开始 |
-| **5. 打磨** | 性能（保留模式脏重绘/图层缓存/活跃剔除/节流）、可见性跟随 `LoadDanmu`、错误提示、懒初始化 | 综合体验 | 未开始（懒初始化已提前落地；保留模式改造优先级提升到阶段 1 之后立即做，见 §3.1） |
+| **5. 打磨** | 性能（保留模式脏重绘/图层缓存/活跃剔除/节流）、可见性跟随 `LoadDanmu`、错误提示、懒初始化 | 综合体验 | 未开始（懒初始化已提前落地；保留模式脏重绘与离屏缓存已随阶段 1 落地，见 §阶段 1 实施记录 8） |
 
 ### 阶段 1 实施记录
 
@@ -241,12 +242,13 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 
 1. **TS 转译暂缓**：按决策先只做 JS，`Assets/typescript.js` 未引入。宿主对 `lang == "ts"` **显式抛错**并上报日志（文案含「TS 转译尚未接入」），不静默降级。
 2. **宿主是单文件**：设计稿写 `.html` + `.js` 两个文件，实测内联更简单——`SetVirtualHostNameToFolderMapping` 下同目录引用没有额外收益，且少一处 csproj 注册。
-3. **`ctx` 字段与设计稿的差别**：实际提供 `{ g, width, height, dpr, t, duration, progress, stime, id, pause, seek, navigate }`。`t` 是**本条弹幕内的相对时间**（0→duration），全局播放时间另由 `stime + t` 得到。`createLayer` / `danmaku` / `intercept` / `filter` / `send` / `on` 属阶段 2-4，未实现。
+3. **`ctx` 字段与设计稿的差别**：实际提供 `{ width, height, dpr, duration, stime, id, t, progress, pause, seek, navigate }` 与保留模式元素 API `{ createText, createShape, createImage, createLayer, addChild, removeChild, tween, onFrame }`。保留模式下 `t` / `progress` 恒为 0（脚本每条只执行一次），只作兼容读取；`ctx.g` 已随立即模式一并取消。`danmaku` / `intercept` / `filter` / `send` / `on` 属阶段 2-4，未实现。
 4. **画布按 `devicePixelRatio` 缩放**，脚本拿到的 `width`/`height` 仍是 CSS 像素，脚本作者无需处理 DPI。
 5. **懒初始化闸门提前落地**：`pendingItemCount == 0 && !isPageReady && initializationTask == null` 时直接返回，不创建 WebView2。
 6. **新增「加载示例代码弹幕」菜单项**（设计稿只有加载/清除两项），便于不准备文件就验证渲染链路。
 7. **不做时间窗**：按设计稿，全集 `ReplaceAsync` 交给宿主自调度，未套用 BAS 的 lookback/lookahead 窗口。
-8. **渲染模型改为保留模式（本版新增，尚未落到代码）**：阶段 1 的宿主是「每帧重跑脚本绘制回调」的立即模式，需改为 §3.1 的保留模式——脚本每条只执行一次、逐帧只推进 tween 与重绘脏元素。连带影响：`drawFrame` 的整屏 `clearRect` 与 `isActive` 逐帧判定要换成元素级脏标记；两条内置示例脚本要重写成「建元素 + tween」形态（或显式标 `mode: "immediate"`）；`ScriptDanmakuHostContractTests` 里针对「每帧调绘制回调」的断言需同步改写。
+8. **渲染模型改为保留模式（已落地）**：阶段 1 最初的宿主是「每帧重跑脚本绘制回调」的立即模式，现已按 §3.1 改为保留模式。落地要点：脚本每条只在进入时间窗那一刻执行一次（`activateItem` 是唯一执行点，整份宿主只有一处 `new Function`）；`ctx` 改为元素工厂 + `tween` 声明，`ctx.g` 与逐帧 `t`/`progress` 语义取消，只留 `ctx.onFrame` 逃生舱；逐帧流程改为「推进 tween → 标脏 → 只重绘脏元素 → 按 dpr 合成」，静态元素首帧后缓存为位图不再重绘；`visible=false` 时合成步骤直接跳过并保持画布空白；`lifeTime` 到期由宿主摘除元素并释放离屏缓存；seek 按新位置重算插值而不重跑脚本。两条内置示例脚本已重写为「建元素 + tween」形态（`demo-scroll-text` 滚动文字、`demo-particles` 环形粒子），`ScriptDanmakuHostContractTests` 中针对「每帧调绘制回调」的断言已同步改写为保留模式断言。
+   > 已知取舍与未做项：glow 滤镜是近似实现（缓存构建时 `blur(4px)` + `lighter` 叠加，非 Flash GlowFilter 的忠实移植）；`tick()` 的 `anyActive` 仍按整个条目列表推导，视频播放期间即使无活跃 tween 也会空转（优先级低，见 §阶段 1 暴露的待办）；`drawGraphicsData` / `drawPath` 显式抛错未支持。
 
 测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、`ctx` 字段、dpr 缩放、可见性、自停位置、单脚本失败隔离、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
 
@@ -278,7 +280,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
   7. **未注册任何拦截器时，播放/弹幕/输入路径无可感知开销**（性能回归点）。
 - **接口可用性前置**：阶段 4 开工前，先按 `Controls/SendDanmakuDialog.xaml.cs:57` 的参数与签名形态实测 `x/v2/dm/post`，确认可用后再决定抽取方式（见 §6③）。不要先按 `PlayerAPI.SendDanmu` 实现。
 - **回归**：BAS 弹幕（mode9）行为不变。
-- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（20 例）、`ScriptDanmakuPlayerPageContractTests`（8 例），共 46 例，全套 199 例通过。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
+- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（33 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
 - **日志**：`LogHelper` 无脚本弹幕渲染失败。
 
 ## 风险
@@ -298,6 +300,6 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 - **脚本无沙箱隔离**：`new Function` 在宿主页面上下文里跑，脚本可访问 `window` / `document` / `fetch`。本地文件 + 本地宿主的场景下风险可控，但**联网素材是明确需求**，阶段 5 需评估是否加 CSP 或资源域名白名单。设计稿的「禁新窗口导航 + 白名单消息」尚未落到代码。
 - **`LogHelper` 会写出 WebView2 侧上报的细节**：脚本报错内容经 `Truncate` 截到 500 字符后进日志，多次同类错误已做频次上限（编译 8 次、运行时 8 次），避免刷爆日志。
 - **暂停时的最后一帧**：`setState(playing=false)` 会补画一帧让画面停在脚本进度上。若脚本依赖 `requestAnimationFrame` 之外的定时器，暂停时不会继续推进——这是预期行为，但需在写示例脚本时注意。
-- **播放中即使无活跃脚本也不停循环**（已审查确认，暂不修）：`drawFrame` 的停止条件是 `!anyActive && !state.playing`，所以视频在播时即使用户只加载了一条早已播完的脚本，仍会以 60fps 空转清屏。全集注入（无时间窗）放大了这个常驻开销。若要优化，可在 `now > 最大 endMs` 时也停循环——恢复路径天然存在（seek/播放态变化都会走 `setState` → `ensureRunning`）。留待阶段 5。
-  > **保留模式下改法不同**：空转帧不再清屏重绘全部，但仍可优化为「无活跃 tween 且无脏元素 → 跳过合成」；由于保留模式下每帧成本本来就低得多，该项优先级从「中」降为「低」，按 §3.1 的脏标记实现即可顺带解决。
+- **播放中即使无活跃 tween 也不停循环**（保留模式改造后仍未修）：`frame()` 的停止条件是 `!anyActive && !state.playing`，而 `anyActive` 由 `updateItems()` 按「是否处于时间窗内」得出，所以视频在播时即使用户只加载了一条早已播完的脚本，仍会以 60fps 空转。全集注入（无时间窗）放大了这个常驻开销。若要优化，可改为「无活跃 tween 且无脏元素 → 跳过合成甚至停帧」——恢复路径天然存在（seek/播放态变化都会走 `setState` → `ensureRunning`）。留待阶段 5。
+  > 保留模式下每帧成本已从「清屏 + 重绘全部」降到「只重绘脏元素」，空转帧的实际开销大幅下降，因此该项优先级从「中」降为「低」。
 - **脚本无法感知「帧间隔」**（保留模式下不再成立）：原 `ctx.t` 是相对时间，有状态的脚本（粒子等）需自行记录上一帧的 `ctx.t` 求差，示例脚本只能用纯函数形式规避。保留模式下脚本只在创建时执行一次、动画交给 tween 引擎插值，因此**不存在帧间隔感知问题**；代价是「每帧自定义物理演算」这类效果改用 tween 之外的显式机制表达（见 §3.1 末尾关于「不并存」的说明）。
