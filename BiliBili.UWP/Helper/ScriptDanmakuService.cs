@@ -54,6 +54,8 @@ namespace BiliBili.UWP.Helper
         /// 内置示例。用于首次验证渲染链路，不依赖任何外部文件。
         /// 示例按保留模式编写：脚本只执行一次，期间创建保留元素并声明 tween，
         /// 之后逐帧由宿主插值（不要写成每帧重算坐标）。
+        /// tween 的 lifeTime 声明的是补间时长；元素寿命取「声明值」与
+        /// 「条目窗口剩余时间」的较小值，未声明 lifeTime 时等于窗口剩余时间。
         /// </summary>
         public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo()
         {
@@ -69,8 +71,7 @@ namespace BiliBili.UWP.Helper
                         + " font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
                         + "label.y = Math.round(ctx.height / 2 - 19);"
                         + "ctx.tween(label, {"
-                        + "  x: { fromValue: -240, toValue: ctx.width,"
-                        + "       easing: 'Linear', lifeTime: 4 }"
+                        + "  x: { toValue: ctx.width, easing: 'Linear' }"
                         + "}, { lifeTime: 4 });"
                 },
                 new ScriptDanmakuModel
@@ -92,11 +93,11 @@ namespace BiliBili.UWP.Helper
                         + "  dot.y = cy;"
                         + "  ctx.tween(dot, {"
                         + "    x: { fromValue: cx, toValue: cx + Math.cos(angle) * 200,"
-                        + "         easing: 'SineEaseOut', lifeTime: 3 },"
+                        + "         easing: 'SineEaseOut' },"
                         + "    y: { fromValue: cy, toValue: cy + Math.sin(angle) * 200,"
-                        + "         easing: 'SineEaseOut', lifeTime: 3 },"
+                        + "         easing: 'SineEaseOut' },"
                         + "    alpha: { fromValue: 1, toValue: 0,"
-                        + "         easing: 'QuadraticEaseIn', lifeTime: 3 }"
+                        + "         easing: 'QuadraticEaseIn' }"
                         + "  }, { lifeTime: 3 });"
                         + "}"
                 }

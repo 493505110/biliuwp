@@ -55,5 +55,10 @@ jobs:
       - name: Restore
         run: dotnet restore tests/BiliBili.Tests/BiliBili.Tests.csproj
 
+      - name: Run host behaviour tests
+        # 宿主 HTML 的保留模式行为测试（D1~D6）。纯 node、零依赖，
+        # 运行器自带 node，不需要 setup-node。
+        run: node tests/host/retained-mode.test.js
+
       - name: Run unit tests
         run: dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release --no-restore

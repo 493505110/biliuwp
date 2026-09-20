@@ -1,7 +1,7 @@
 # 脚本弹幕平台（mode8 风格）
 
 > **状态：阶段 1（核心渲染）已完成代码与构建验证，待页面级验证；阶段 2-5 未开始。** 见 §实施阶段。
-> **本版修订（渲染模型）**：原设计「每帧遍历活跃弹幕调绘制回调」的**立即模式已废弃**，改为**保留模式**——脚本每条只执行一次、逐帧只推进 tween 与重绘脏元素。理由、真实脚本数据与具体形态见 **§3.1**；代码尚未改造，实施记录见 §阶段 1 实施记录 8。
+> **本版修订（渲染模型）**：原设计「每帧遍历活跃弹幕调绘制回调」的**立即模式已废弃**，改为**保留模式**——脚本每条只执行一次、逐帧只推进 tween 与重绘脏元素。理由、真实脚本数据与具体形态见 **§3.1**；代码已按此改造并补齐脏矩形擦除 / 寿命语义等收尾（D1~D6），实施记录见 §阶段 1 实施记录 8、9。
 > **规模提示**：本需求已从「加个 mode8 类似的东西」长成一个**平台级改动**（自建 WebView2 脚本运行时 + TS 转译 + 三类交互 + 四类拦截 + 几十条同屏渲染）。建议按下面阶段分批落地，每阶段可独立验证。
 > **行号基准**：`PlayerPage.xaml.cs` / `PlayerPage.xaml` 的引用已按**阶段 1 实施后的 HEAD 重新校准**，逐条命中。注意：**这两个文件每实施一个阶段都会整体漂移**（阶段 1 就使 §7 的锚点偏移了 4～239 行不等），动手前请以**符号名**为准、行号仅作快速定位。其余文件（`PlayerAPI.cs` / `ApiHelper.cs` / `DanmakuMTC.cs` / `Generic.xaml` / `SendDanmakuDialog.xaml.cs` / `BiliDanmakuService.cs` / `PlaybackEventTimeline.cs`）行号未受阶段 1 影响。子模块文件行号以 `Libraries/NSDanmaku-Fork` 当前 pin `784d694` 为准。
 > **合并带来的既成事实**：`BiliBili.Background` 侧新增 `DynamicFeedApi` / `DynamicFeedParser` / `NotificationBuilder` / `SettingHelper` 等文件（动态磁贴与更新通知功能）。这些是**另一条功能线，与本计划无交集**，但同处 `BiliBili.Background` 目录，实施时注意区分。
@@ -122,8 +122,15 @@ public sealed class ScriptDanmakuDocument
 
 - **元素**：脚本执行期间创建 `M8Element` 式保留对象（text / shape / image / layer），进入宿主的元素树；属性含 `x/y/scaleX/scaleY/rotation/alpha/visible/filters/matrix`。
 - **动画**：声明式 tween（`fromValue`/`toValue`/`lifeTime`/`startDelay`/`easing`/`repeat`），由统一 ticker 推进。逐帧回调只保留 `ctx.onFrame` 这一条逃生舱，且默认路径不得使用。
-- **重绘策略**：元素分两类——**静态元素**（只创建、不动）首次绘制后缓存为位图或留在离屏层，后续帧不再重绘；**动画元素**（有活跃 tween 或被脚本改属性）标记脏，每帧只重绘脏元素。整屏 `clearRect` 只在隐藏 / 停止时执行一次。
-- **生命周期**：沿用原版语义——`lifeTime` 到期（默认 3 秒）后从显示树与登记表移除；寿命跟随播放器 play/pause 状态累计（暂停不计入），seek 时按 `forcasting` 判据（`motionPlayTime < target < motionPlayTime + lifeTime*1000`）决定是否重建元素。
+- **重绘策略**：元素分两类——**静态元素**（只创建、不动）首次绘制后缓存为位图或留在离屏层，后续帧不再重绘；**动画元素**（有活跃 tween 或被脚本改属性）标记脏，每帧只重绘脏元素。**擦除按「元素包围盒矩形」做，不是每帧整屏 `clearRect`**：元素移动 / 缩放 / 旋转 / 隐藏 / 释放时，把它**上一帧**在画布上的变换后外接矩形入队（`retireElementRect` → `pendingEraseRects`，外扩 `DIRTY_RECT_PADDING = 2` 像素），下一帧先以单位变换擦掉这些矩形、再合成本帧的脏元素。顺序不能反（反了会把刚画好的像素擦掉）；擦除是无差别矩形，可能盖住静止的邻居，所以擦完还要补画「被擦到但不是本帧脏元素」的邻居。整屏 `clearSurface()` **只出现在两条整幅画面作废的路径上**——`tick()` 的 `!visible` 隐藏分支与 `stopRunning()`；逐帧路径出现整屏清空即为回归（那正是立即模式的做法）。
+  > **元素摘除的顺序陷阱**：`releaseItemElement` 必须**先** `detachElement(element)`（内部 `markElementMoved` 入队擦除）**再**标 `element.expired = true`。`markElementMoved` 见到 `expired` 为真会直接返回，顺序反了最后一帧的像素就入不了擦除队列，会在画布上永久残留（条目窗口结束时尤其明显）。契约测试 `Host_ReleasesElementCachesOnLifetimeExpiry` 固定了这个先后关系。
+- **错误隔离**：脚本与缓动都是脚本作者提供的函数，抛错**不得**逃出 rAF 回调——否则 `running` 停在 `true` 而实际已无排队回调，帧循环永久冻结且 `ensureRunning()` 救不回来。因此 `frame()` 的调度链必须与「本帧是否出错」解耦：`try { tick } catch { reportCompositeError } finally { if (running) 续帧 }`。条目级失败（脚本编译/执行抛错）只停该条目；元素级失败（某个元素的缓动抛错）只标该元素 `failed` 并跳过，同帧其它元素与其它条目继续推进。
+- **生命周期**：元素寿命 = **`min(该元素所有 tween 声明的最大 lifeTime（若有）, 条目窗口剩余时间)`**；没有任何 tween 声明 `lifeTime` 时，寿命就等于条目窗口剩余时间（**不是固定 3 秒**）。
+  - 同一元素可能被声明多个 tween，寿命取声明值的最大值。声明值必须单独存在 `element.declaredLifeTimeMs` 上，**不能**与已经并入窗口约束的 `lifeTimeMs` 做 `max`——那样窗口值会永远胜出，脚本声明的寿命只能延长、永远无法缩短（`lifeTime: 2` 的元素会活到窗口结束）。
+  - 到期由宿主摘除元素并释放离屏缓存，脚本不负责清理。寿命跟随播放器 play/pause 状态累计（暂停不计入）。
+  - **seek 重建**：向后 seek 回窗口内时，已激活且在窗口内的条目只让 tween 重新插值（`element.motion.lastElapsedMs = -1`），不重跑脚本；元素已被整批释放的（拖过窗口再拖回来，或元素寿命先于窗口结束）则按条目进度**重建**元素——`rebuildItemElementsForSeek` 会再执行一次脚本，因为不重跑就无从知道脚本建了哪些元素、建在哪个坐标上。重建入口**只有** `resetItemsForSeek` 一处，绝不进入逐帧路径。
+- **复合层重建条件**：有子节点的复合元素整棵子树烘到一张视口大小的离屏层（`rebuildComposite`）。父元素的 tween 只作用在这张已烘好的位图上，子树的绘制代码不再重跑。重烘条件是 `!element.painted || element.needsCache || element.compositeDirty || childrenChanged`；**重建后必须清掉 `needsCache` / `compositeDirty`**，否则它下一帧又被判为结构脏，每帧白烘一整张视口层（这是「同屏有动画元素时静止复合元素不重复重建」的落点）。
+- **元素缓存失效规则**：叶子元素的内容画一次进离屏位图（`cacheCanvas`），单纯移动 / 缩放 / 旋转只改变换矩阵、**复用位图**。只有影响位图内容的属性（`fontsize` / 颜色 / 文本 / 图形路径…）才让缓存失效：`markPropertyDirty` 与 `markTweenKeyDirty` 都以 `TRANSFORM_ONLY_KEYS` 白名单判定——命中白名单（`x/y/z/alpha/scaleX/scaleY/rotation*/matrix/visible/filters`）只标脏，未命中则调 `invalidateElementCache`。把 `fontsize` 这类内容类属性加进白名单会让字号补间完全看不到效果（缓存尺寸不跟着变）。
 - **绘制预算**：主 canvas 每帧仍有一次合成，但**成本是「脏元素数量」而不是「活跃脚本数 × 脚本体量」**；脚本体量只影响它执行那一次的开销。
 
 **与立即模式并存？** 不并存。本分支的宿主统一按保留模式实现；若将来要支持「新式立即模式脚本」，应作为**另一种 `lang`/模式显式声明**（例如 `mode: "immediate"`），而不是让默认路径每帧重跑脚本。
@@ -249,8 +256,38 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 7. **不做时间窗**：按设计稿，全集 `ReplaceAsync` 交给宿主自调度，未套用 BAS 的 lookback/lookahead 窗口。
 8. **渲染模型改为保留模式（已落地）**：阶段 1 最初的宿主是「每帧重跑脚本绘制回调」的立即模式，现已按 §3.1 改为保留模式。落地要点：脚本每条只在进入时间窗那一刻执行一次（`activateItem` 是唯一执行点，整份宿主只有一处 `new Function`）；`ctx` 改为元素工厂 + `tween` 声明，`ctx.g` 与逐帧 `t`/`progress` 语义取消，只留 `ctx.onFrame` 逃生舱；逐帧流程改为「推进 tween → 标脏 → 只重绘脏元素 → 按 dpr 合成」，静态元素首帧后缓存为位图不再重绘；`visible=false` 时合成步骤直接跳过并保持画布空白；`lifeTime` 到期由宿主摘除元素并释放离屏缓存；seek 按新位置重算插值而不重跑脚本。两条内置示例脚本已重写为「建元素 + tween」形态（`demo-scroll-text` 滚动文字、`demo-particles` 环形粒子），`ScriptDanmakuHostContractTests` 中针对「每帧调绘制回调」的断言已同步改写为保留模式断言。
    > 已知取舍与未做项：glow 滤镜是近似实现（缓存构建时 `blur(4px)` + `lighter` 叠加，非 Flash GlowFilter 的忠实移植）；`tick()` 的 `anyActive` 仍按整个条目列表推导，视频播放期间即使无活跃 tween 也会空转（优先级低，见 §阶段 1 暴露的待办）；`drawGraphicsData` / `drawPath` 显式抛错未支持。
+9. **保留模式收尾：脏矩形擦除与寿命语义修正（已落地）**。保留模式首版落地后暴露出六个语义缺陷（D1~D6），已逐条修掉，并新增宿主行为测试套件把它们钉住（见 §验证）：
+   - **D1 拖影**：首版只在隐藏 / 停止时整屏 `clearRect`，移动元素在整条路径上留拖影。改为**按元素包围盒擦除**（`computeElementCanvasRect` 取变换后外接矩形、外扩 2px，入队 `pendingEraseRects`，下一帧先擦后合成），整屏 `clearSurface()` 收敛到隐藏 / 停止两条路径。
+   - **D2 帧链冻结**：缓动抛错会从 rAF 回调逃逸，`running` 停在 `true` 却已无排队回调。改为 `try/catch/finally`，续帧调度放进 `finally` 并以 `running` 为条件；元素级失败只标该元素。
+   - **D3 寿命**：首版缺省硬编码 3 秒、且 `Math.max` 让窗口值永远胜出，`lifeTime: 4` 的滚动文字在屏幕中间就被摘掉、`lifeTime: 2` 又永远无法缩短。改为 `min(声明值, 条目窗口剩余时间)`，声明值与窗口值分开存（`declaredLifeTimeMs` / `lifeTimeMs`）。`ScriptDanmakuService` 的示例注释同步改正。
+   - **D4 复合层**：静止复合元素每帧被重烘一整张视口大小的层（60 帧 60 次）。改为只在 `structural || compositeDirty || childrenChanged` 时重烘，并在重建后清掉 `needsCache` / `compositeDirty`。
+   - **D5 缓存失效**：`fontsize` 等**内容类**属性被当成变换类复用缓存，字号补间完全不可见。改为按 `TRANSFORM_ONLY_KEYS` 白名单分流，未命中即 `invalidateElementCache`。
+   - **D6 seek 与摘除顺序**：元素被整批释放后向后 seek 回窗口内不重建（画面空白），以及 `releaseItemElement` 先标 `expired` 导致最后一帧像素入不了擦除队列（永久残影）。改为 `rebuildItemElementsForSeek` 按进度重建（脚本仍只多跑一次、不逐帧重跑），并把摘除顺序固定为「先 `detachElement` 再标 `expired`」。
 
-测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、`ctx` 字段、dpr 缩放、可见性、自停位置、单脚本失败隔离、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
+测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、`ctx` 字段、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
+
+**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 把宿主 HTML 里的内联 `<script>` 加载进沙箱，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D6：
+
+| 用例 | 语义 | 修复前的表现 |
+|---|---|---|
+| D1 | 移动元素跑 60 帧后不残留旧位置像素（无拖影） | 残留起点像素，`union.x` 停在 0 附近 |
+| D2 | 自定义缓动抛错后帧循环存活、其他条目继续渲染、命令仍有效 | 异常逃出 rAF 回调，帧链冻死 |
+| D3 | 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间) | 一律 3000ms，声明只能延长不能缩短 |
+| D4 | 同屏有动画元素时，静止复合元素不重复重建整层 | 每帧重烘一次（60 帧 60 次） |
+| D5 | `fontsize` 补间后缓存尺寸随之变化，静止元素不被过度失效 | 缓存尺寸不变，字号补间不可见 |
+| D6 | 向后 seek 回窗口内：元素被重建、位置是插值结果、脚本不逐帧重跑 | 摘除后残影不擦、重建位置不对 |
+| D7 | 两条内置示例仍是声明式 tween，能渲染出画面且到点自然收尾 | 示例写的是立即模式，脚本跑完没有动画 |
+
+运行方式（默认宿主为仓库内 `BiliBili.UWP/Assets/script-danmaku-host.html`，可用参数或环境变量改指）：
+
+```
+node tests/host/retained-mode.test.js                       # 跑仓库内宿主
+node tests/host/retained-mode.test.js /tmp/prefix-host.html  # 指定宿主文件（对比跑）
+SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
+```
+
+> 该套件对**修复前**的宿主必须失败（D1/D2/D3/D5/D6 至少各挂一条），对修复后全绿——这是它的验收硬指标，也是它区别于源码契约测试的地方。取修复前宿主的只读命令：`git show <修复前提交>:BiliBili.UWP/Assets/script-danmaku-host.html > /tmp/prefix-host.html`。
+> **桩的四个坑**（改这个套件前务必知道）：① 桩必须实现 canvas 变换（`translate`/`scale`/`setTransform` + `save`/`restore` 栈）并在 `drawImage` 里套用当前矩阵，否则 translate 驱动的移动根本不可见，D1 会**假通过**；② 每个用例都必须重新加载一份干净宿主（新 vm 上下文），且**不能手工清空 rAF 队列**（宿主自己用 `running` 标志管理队列，手工清空会改变被测语义）；③ 读元素内部字段前先用 `Object.keys(element)` 确认字段存在，否则宿主改字段名后测试会静默取到 `undefined` 而"通过"；④ 宿主→主进程的 `postMessage` 载荷是 JSON 字符串，断言前要 `JSON.parse`。
 
 ### 阶段 1 代码审查修正（已落地）
 
@@ -258,7 +295,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 
 1. **倍速变更后脚本时间轴永久漂移**（中高）。`slider_Rate_ValueChanged` 只调了 `SyncBasDanmakuPlaybackState()`，漏了脚本侧。宿主 `currentPositionMs()` 按 `state.rate` 外推，rate 不更新则宿主时钟与视频每秒累积偏差；而漂移判据 `expected = lastPos + elapsed * GetScriptDanmakuPlaybackRate()` 用的是媒体**新**倍速、`lastScriptDanmakuPosition` 又每次 `PositionChanged` 刷新，所以 `shouldSeek` 恒为 false，**不存在自愈路径**，只有暂停/seek/换集才会重推。修法：在该处并列 `SyncScriptDanmakuPlaybackState();`。
 2. **关闭弹幕开关后脚本弹幕会重新出现**（中）。`MTC_OpenDanmaku(false)` 先发 `SetVisibleAsync(false)`（宿主 `stopRunning()` + 清屏），随后 `SyncScriptDanmakuPlaybackState()` 发 `setState(pos, false, rate)`，而后者的非播放分支无条件 `drawFrame()`——当时 `drawFrame` 不读 `visible`，于是把活跃脚本重画回屏幕，且 `running` 已为 false、没有后续帧清理。窗口缩放走 `resize()` 同理。修法：`drawFrame` 开头清屏后若 `!visible` 直接返回 false。
-   > **保留模式下该修法要重做**：不再有整屏 `clearRect`，改为「清屏 + 重绘脏元素」的合成步骤同样必须先判 `visible`，否则隐藏后仍会把脏元素合成回去。判据从「`drawFrame` 返回值」改为「合成步骤是否产出任何元素」。
+   > **保留模式下该修法已按此重做**：合成步骤（`tick()` 的 `!visible` 分支）先清屏再直接返回，绝不把脏元素合成回去；判据从「`drawFrame` 返回值」改为「合成步骤是否产出任何元素」。契约测试 `Host_SkipsCompositingWhenHiddenAndKeepsCanvasBlank` 固定了「隐藏分支早于合成且内部无合成调用」。
 3. **rAF 自停可能并存两条帧链**（低）。原先在 `drawFrame` 内置 `running = false`，而 `frame()` 随后**无条件**续帧；若在旧句柄触发前（≤1 vsync）发生 `setState(playing=true)`，两条链会各自递归，每帧画两次。修法：`drawFrame` 改为返回「是否有活跃脚本」，自停判定移到 `frame()` 内并在终止分支直接 `return`。
 
 同时删掉一处死代码：`frame()` 里算了 `elapsed` 并钳制到 250ms，但该值从未被使用（`ctx` 没有 delta 字段），`lastFrameTime` / `DEFAULT_FRAME_MS` 一并移除。原契约测试曾断言这段钳制存在，属于「测试通过但保护是空的」，已随之改写为可见性/自停断言。
@@ -280,7 +317,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
   7. **未注册任何拦截器时，播放/弹幕/输入路径无可感知开销**（性能回归点）。
 - **接口可用性前置**：阶段 4 开工前，先按 `Controls/SendDanmakuDialog.xaml.cs:57` 的参数与签名形态实测 `x/v2/dm/post`，确认可用后再决定抽取方式（见 §6③）。不要先按 `PlayerAPI.SendDanmu` 实现。
 - **回归**：BAS 弹幕（mode9）行为不变。
-- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（33 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
+- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，7 例 D1~D7，见上）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
 - **日志**：`LogHelper` 无脚本弹幕渲染失败。
 
 ## 风险

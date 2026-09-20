@@ -34,6 +34,18 @@ namespace BiliBili.Tests
             return TestRepository.MethodBody(HostSource(), "function tick(now) {");
         }
 
+        /// <summary>
+        /// 取「带脏矩形擦除」的那版 paintDirtyElements 函数体。
+        /// 文件里另有一处同名函数（无擦除的早期截面），只靠函数签名会取到前者，
+        /// 因此把锚点前移到它独有的 composeElement 定义之后。
+        /// </summary>
+        private static string PaintBody()
+        {
+            return TestRepository.MethodBody(
+                HostSource(),
+                "blitElement(context2d, element);\n                recordElementRect(element);\n            }\n\n            function paintDirtyElements() {");
+        }
+
         [TestMethod]
         public void Host_ExposesScriptDanmakuHostEntryPoint()
         {
@@ -125,10 +137,10 @@ namespace BiliBili.Tests
             var source = HostSource();
             StringAssert.Contains(source, "item.run(createContext(item, now));");
 
+            // 执行一次就记一次数：这是「脚本只跑一次」的可观测落点。
             var activateBody = TestRepository.MethodBody(source, "function activateItem(item, now) {");
-            StringAssert.Contains(
-                activateBody,
-                "// 脚本在这里、也只在这里执行一次。之后每帧只推进 tween。");
+            StringAssert.Contains(activateBody, "item.runCount++;");
+            StringAssert.Contains(activateBody, "totalRunCount++;");
 
             var updateBody = TestRepository.MethodBody(source, "function updateItems(now) {");
             StringAssert.Contains(updateBody, "activateItem(item, now);");
@@ -221,10 +233,21 @@ namespace BiliBili.Tests
         public void Host_OnFrameIsDocumentedAsALastResort()
         {
             // onFrame 是逃生舱，注册后该条目退回逐帧调用。
-            // 缺少「能写成 tween 的不要用 onFrame」这句警示，后来者会当成首选写法。
-            var source = HostSource();
-            StringAssert.Contains(source, "能写成 tween 的不要用 onFrame");
-            StringAssert.Contains(ContextBody(), "item.usesOnFrame = typeof fn === \"function\";");
+            // 缺了这条约束，后来者会把它当成首选写法，单条脚本的每帧开销
+            // 就不再只与「脏元素数」相关。
+            var body = ContextBody();
+            StringAssert.Contains(body, "onFrame: function (fn) {");
+            StringAssert.Contains(body, "item.usesOnFrame = typeof fn === \"function\";");
+            StringAssert.Contains(body, "item.frameFn = item.usesOnFrame ? fn : null;");
+
+            // 逃生舱只应在 advanceItem 里被调用，且失败后要自行摘掉，
+            // 否则坏脚本会每帧抛错刷屏。
+            var advanceBody = TestRepository.MethodBody(
+                HostSource(),
+                "function advanceItem(item, now) {");
+            StringAssert.Contains(advanceBody, "if (item.usesOnFrame && typeof item.frameFn === \"function\") {");
+            StringAssert.Contains(advanceBody, "item.usesOnFrame = false;");
+            StringAssert.Contains(advanceBody, "item.frameFn = null;");
         }
 
         [TestMethod]
@@ -257,13 +280,18 @@ namespace BiliBili.Tests
         public void Host_TickOnlyRepaintsWhenDirty()
         {
             // 每帧不再是全屏清空 + 重跑脚本，而是「有脏标记才合成」。
+            // 注意：这里**不能**断言 tick 里没有 clearRect。整屏清空是隐藏 /
+            // 停止两条路径的正当行为，而「元素级矩形擦除」才是移动元素不留
+            // 拖影的落点；两者都在 tick 的调用链上（见 D1）。
             var body = TickBody();
             StringAssert.Contains(body, "if (dirty) {");
             StringAssert.Contains(body, "dirty = false;");
             StringAssert.Contains(body, "paintDirtyElements();");
-            Assert.IsFalse(
-                body.Contains("clearRect"),
-                "tick 不应再整屏 clearRect");
+
+            // 合成必须走「脏元素才重画」的路径，而不是整帧重画。
+            var paintBody = PaintBody();
+            StringAssert.Contains(paintBody, "if (prepareElement(element)) {");
+            StringAssert.Contains(paintBody, "composeElement(candidate);");
         }
 
         [TestMethod]
@@ -273,16 +301,21 @@ namespace BiliBili.Tests
             // 关闭弹幕总开关后紧跟的 setState 会把脏元素重新合成回屏幕。
             var body = TickBody();
             StringAssert.Contains(body, "if (!visible) {");
-            StringAssert.Contains(body, "// 隐藏状态下合成步骤必须直接跳过并保持画布空白，");
             StringAssert.Contains(body, "clearSurface();");
             StringAssert.Contains(body, "return false;");
 
-            // 清屏必须在合成之前，否则隐藏那一刻会残留上一帧内容。
+            // 隐藏分支必须在合成之前直接返回。
             var hideIndex = body.IndexOf("if (!visible) {", System.StringComparison.Ordinal);
             var paintIndex = body.IndexOf("paintDirtyElements();", System.StringComparison.Ordinal);
             Assert.IsTrue(
                 hideIndex >= 0 && paintIndex > hideIndex,
                 "可见性判断必须早于合成步骤");
+
+            var hideBranch = body.Substring(hideIndex, body.IndexOf("}", body.IndexOf("return false;", hideIndex, System.StringComparison.Ordinal), System.StringComparison.Ordinal) - hideIndex);
+            Assert.IsFalse(
+                hideBranch.Contains("paintDirtyElements("),
+                "隐藏分支内不得出现合成调用");
+            StringAssert.Contains(hideBranch, "dirty = false;");
         }
 
         [TestMethod]
@@ -296,9 +329,26 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "frameHandle = 0;");
 
             var frameBody = TestRepository.MethodBody(source, "function frame() {");
-            StringAssert.Contains(
-                frameBody,
-                "// 自停必须在这里决定并直接返回：若在 tick 内置 running=false");
+            Assert.IsTrue(
+                frameBody.Contains("if (!anyActive && !state.playing) {"),
+                "自停条件必须写在 frame() 内部");
+
+            var stopIndex = frameBody.IndexOf("if (!anyActive && !state.playing) {", System.StringComparison.Ordinal);
+            var scheduleIndex = frameBody.IndexOf(
+                "frameHandle = window.requestAnimationFrame(frame);",
+                System.StringComparison.Ordinal);
+            Assert.IsTrue(
+                stopIndex >= 0 && scheduleIndex > stopIndex,
+                "自停判断必须早于续帧调度");
+
+            // 续帧在 finally 里，且以 running 为条件——异常不能把帧链剪断。
+            Assert.IsTrue(
+                frameBody.Contains("} finally {"),
+                "帧调度必须放在 finally 里，避免脚本异常冻结帧循环");
+            Assert.IsTrue(
+                frameBody.Contains("if (running) {"),
+                "续帧必须以 running 为条件");
+
             Assert.IsFalse(
                 TickBody().Contains("running = false;"),
                 "自停不应留在 tick 内部");
@@ -320,9 +370,18 @@ namespace BiliBili.Tests
             StringAssert.Contains(paintBody, "if (prepareElement(element)) {");
             StringAssert.Contains(paintBody, "blitElement(context2d, element);");
 
-            // 元素属性可写：直接赋值即标脏。
-            StringAssert.Contains(source, "元素属性可写：直接赋值即标脏，下一帧只重绘该元素。");
-            StringAssert.Contains(source, "element.propertyDirty[track.key] = true;");
+            // 元素属性可写：赋值即标脏（属性描述符的 setter 里做）。
+            var descriptorBody = TestRepository.MethodBody(
+                source,
+                "function propertyDescriptor(name) {");
+            StringAssert.Contains(descriptorBody, "setPropertyInternal(this, name, value, true);");
+            StringAssert.Contains(descriptorBody, "markPropertyDirty(this, name);");
+
+            // tween 逐帧写入的值同样要标脏，否则元素动了但不会被重绘。
+            var motionBody = TestRepository.MethodBody(
+                source,
+                "function applyMotion(motion, element, elapsedMs) {");
+            StringAssert.Contains(motionBody, "markTweenKeyDirty(element, track.key);");
         }
 
         [TestMethod]
@@ -353,9 +412,34 @@ namespace BiliBili.Tests
         public void Host_ReleasesElementCachesOnLifetimeExpiry()
         {
             // lifeTime 到期由宿主摘除元素并释放离屏缓存，脚本不负责清理。
+            // 元素寿命 = min(脚本声明的 lifeTime, 条目窗口剩余时间)：
+            // 未声明 tween 的元素寿命就等于窗口剩余时间，不存在固定 3 秒的缺省。
             var source = HostSource();
-            StringAssert.Contains(source, "var DEFAULT_LIFE_TIME_SECONDS = 3;");
-            StringAssert.Contains(source, "element.lifeTimeMs = DEFAULT_LIFE_TIME_SECONDS * 1000;");
+            StringAssert.Contains(source, "var LIFE_TIME_UNBOUNDED = Infinity;");
+            StringAssert.Contains(source, "function resolveElementLifeTimeMs(item, declaredLifeTimeMs) {");
+
+            var resolveBody = TestRepository.MethodBody(
+                source,
+                "function resolveElementLifeTimeMs(item, declaredLifeTimeMs) {");
+            StringAssert.Contains(resolveBody, "var remaining = item.endMs - item.startMs;");
+            StringAssert.Contains(resolveBody, "var lifeTimeMs = Math.min(declaredLifeTimeMs, remaining);");
+
+            // 声明值必须与窗口值分开存：否则 min 会退化成「窗口永远胜出」，
+            // 脚本声明的寿命只能延长、永远无法缩短。
+            var applyBody = TestRepository.MethodBody(
+                source,
+                "function applyElementLifeTime(element, declaredLifeTimeMs) {");
+            StringAssert.Contains(applyBody, "element.declaredLifeTimeMs = declared;");
+            StringAssert.Contains(
+                applyBody,
+                "element.lifeTimeMs = item ? resolveElementLifeTimeMs(item, declared) : declared;");
+
+            var registerBody = TestRepository.MethodBody(
+                source,
+                "function registerItemElement(item, element) {");
+            StringAssert.Contains(
+                registerBody,
+                "element.lifeTimeMs = resolveElementLifeTimeMs(item, LIFE_TIME_UNBOUNDED);");
 
             var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now) {");
             StringAssert.Contains(advanceBody, "if (elapsed >= element.lifeTimeMs) {");
@@ -366,10 +450,17 @@ namespace BiliBili.Tests
                 "function releaseItemElement(item, index) {");
             StringAssert.Contains(releaseBody, "detachElement(element);");
             StringAssert.Contains(releaseBody, "item.elements.splice(index, 1);");
+            // 必须先摘除再标 expired：markElementMoved 见到 expired 会直接返回，
+            // 顺序反了元素最后一帧的像素就入不了擦除队列（见 D6）。
+            Assert.IsTrue(
+                releaseBody.IndexOf("detachElement(element);", System.StringComparison.Ordinal)
+                    < releaseBody.IndexOf("element.expired = true;", System.StringComparison.Ordinal),
+                "releaseItemElement 必须先 detachElement 再标 expired，否则残影擦不掉");
 
             var detachBody = TestRepository.MethodBody(
                 source,
                 "function detachElement(element) {");
+            StringAssert.Contains(detachBody, "markElementMoved(element);");
             StringAssert.Contains(detachBody, "releaseElementCaches(element);");
         }
 
@@ -391,6 +482,163 @@ namespace BiliBili.Tests
                 source,
                 "function seekTo(positionSeconds, playing, rate) {");
             StringAssert.Contains(seekToBody, "resetItemsForSeek(now);");
+
+            // 向后 seek 越过窗口后元素已被释放，再拖回来只能重建：
+            // 重建会再执行一次脚本（这是唯一能知道脚本建了哪些元素的做法），
+            // 但绝不能逐帧重跑——重建入口只在 resetItemsForSeek 里。
+            var rebuildBody = TestRepository.MethodBody(
+                source,
+                "function rebuildItemElementsForSeek(item, now) {");
+            StringAssert.Contains(rebuildBody, "deactivateItem(item);");
+            StringAssert.Contains(rebuildBody, "activateItem(item, now);");
+
+            var occurrences = 0;
+            var index = source.IndexOf("rebuildItemElementsForSeek(item, now);", System.StringComparison.Ordinal);
+            while (index >= 0)
+            {
+                occurrences++;
+                index = source.IndexOf(
+                    "rebuildItemElementsForSeek(item, now);",
+                    index + 1,
+                    System.StringComparison.Ordinal);
+            }
+
+            Assert.AreEqual(
+                1,
+                occurrences,
+                "元素重建只应发生在 resetItemsForSeek 这一处，不得进入逐帧路径");
+        }
+
+        // ---- 保留模式的正确性细则（与 tests/host/retained-mode.test.js 对应）----
+
+        [TestMethod]
+        public void Host_ClearsMovedElementPixelsWithDirtyRects()
+        {
+            // D1：移动元素不留拖影靠的是「按元素包围盒擦除」，
+            // 而不是每帧整屏 clearRect（那正是立即模式的做法）。
+            var source = HostSource();
+            StringAssert.Contains(source, "function retireElementRect(element) {");
+            StringAssert.Contains(source, "function flushEraseRects(rects) {");
+            StringAssert.Contains(source, "function computeElementCanvasRect(element) {");
+            StringAssert.Contains(source, "var DIRTY_RECT_PADDING = 2;");
+
+            // 擦除必须用单位变换：矩形是主画布坐标，跟着元素矩阵走会擦错位置。
+            var flushBody = TestRepository.MethodBody(
+                source,
+                "function flushEraseRects(rects) {");
+            StringAssert.Contains(flushBody, "context2d.setTransform(1, 0, 0, 1, 0, 0);");
+
+            // 顺序：先擦上一帧的包围盒，再合成本帧的脏元素。反了会把刚画好的擦掉。
+            var paintBody = PaintBody();
+            var flushIndex = paintBody.IndexOf("flushEraseRects(erasedRects);", System.StringComparison.Ordinal);
+            var composeIndex = paintBody.IndexOf("composeElement(candidate);", System.StringComparison.Ordinal);
+            Assert.IsTrue(
+                flushIndex >= 0 && composeIndex > flushIndex,
+                "擦除必须早于本帧合成");
+
+            // 整屏 clearSurface 只允许出现在「隐藏 / 停止」两条整幅作废的路径上
+            // （tick 的隐藏分支 + stopRunning），逐帧路径不得整屏清空。
+            var callSites = new System.Collections.Generic.List<int>();
+            var index = source.IndexOf("clearSurface();", System.StringComparison.Ordinal);
+            while (index >= 0)
+            {
+                callSites.Add(index);
+                index = source.IndexOf("clearSurface();", index + 1, System.StringComparison.Ordinal);
+            }
+
+            Assert.AreEqual(
+                2,
+                callSites.Count,
+                "clearSurface() 只应有 tick 隐藏分支与 stopRunning 两处调用点");
+
+            var tickBody = TickBody();
+            var tickStart = source.IndexOf("function tick(now) {", System.StringComparison.Ordinal);
+            var stopBody = TestRepository.MethodBody(source, "function stopRunning() {");
+            var stopStart = source.IndexOf("function stopRunning() {", System.StringComparison.Ordinal);
+            foreach (var callSite in callSites)
+            {
+                Assert.IsTrue(
+                    (callSite > tickStart && callSite < tickStart + tickBody.Length)
+                        || (callSite > stopStart && callSite < stopStart + stopBody.Length),
+                    "clearSurface() 不得出现在隐藏 / 停止之外的路径上");
+            }
+        }
+
+        [TestMethod]
+        public void Host_KeepsFrameChainAliveWhenScriptThrows()
+        {
+            // D2：缓动是脚本传入的函数，抛错时若让异常从 rAF 回调逃逸，
+            // running 会停在 true 而实际已无排队回调，帧循环永久冻结。
+            var frameBody = TestRepository.MethodBody(HostSource(), "function frame() {");
+            StringAssert.Contains(frameBody, "} catch (error) {");
+            StringAssert.Contains(frameBody, "reportCompositeError(error, \"\");");
+            StringAssert.Contains(frameBody, "} finally {");
+
+            var finallyIndex = frameBody.IndexOf("} finally {", System.StringComparison.Ordinal);
+            var scheduleIndex = frameBody.IndexOf(
+                "frameHandle = window.requestAnimationFrame(frame);",
+                System.StringComparison.Ordinal);
+            Assert.IsTrue(
+                scheduleIndex > finallyIndex,
+                "续帧调度必须在 finally 里，异常不得剪断帧链");
+
+            // 元素级失败也不能拖垮同帧其它元素：只标该元素失败并跳过。
+            var advanceBody = TestRepository.MethodBody(
+                HostSource(),
+                "function advanceItem(item, now) {");
+            StringAssert.Contains(advanceBody, "element.failed = true;");
+            StringAssert.Contains(advanceBody, "failItem(item, error);");
+        }
+
+        [TestMethod]
+        public void Host_RebuildsCompositeLayersOnlyWhenStructureChanges()
+        {
+            // D4：复合层只在结构真变时重烘，否则每帧白烘一整张视口大小的层。
+            var source = HostSource();
+            var prepareBody = TestRepository.MethodBody(
+                source,
+                "function prepareElement(element) {");
+            StringAssert.Contains(prepareBody, "var structural = !element.painted || element.needsCache;");
+            StringAssert.Contains(
+                prepareBody,
+                "if (structural || element.compositeDirty || childrenChanged) {");
+            StringAssert.Contains(prepareBody, "element.needsCache = false;");
+
+            // 子元素重建要让父层重烘（childrenChanged），
+            // 但父层自己的 needsCache 必须在同一帧清掉，否则每帧都是结构脏。
+            StringAssert.Contains(source, "function rebuildComposite(element) {");
+            StringAssert.Contains(source, "element.compositeDirty = false;");
+        }
+
+        [TestMethod]
+        public void Host_InvalidatesElementCacheOnlyForContentProperties()
+        {
+            // D5：移动 / 缩放 / 旋转只改变换矩阵，缓存位图要复用；
+            // 只有影响位图内容的属性（字号、颜色、文本…）才让缓存失效。
+            var source = HostSource();
+            StringAssert.Contains(source, "var TRANSFORM_ONLY_KEYS = {");
+            StringAssert.Contains(source, "function invalidateElementCache(element) {");
+
+            var markBody = TestRepository.MethodBody(
+                source,
+                "function markPropertyDirty(element, name) {");
+            StringAssert.Contains(markBody, "if (!TRANSFORM_ONLY_KEYS[name]) {");
+            StringAssert.Contains(markBody, "invalidateElementCache(element);");
+
+            var tweenBody = TestRepository.MethodBody(
+                source,
+                "function markTweenKeyDirty(element, key) {");
+            StringAssert.Contains(tweenBody, "if (!TRANSFORM_ONLY_KEYS[key]) {");
+            StringAssert.Contains(tweenBody, "invalidateElementCache(element);");
+
+            // fontsize 属于内容类属性，必须不在复用白名单里。
+            var keysBody = TestRepository.MethodBody(source, "var TRANSFORM_ONLY_KEYS = {");
+            Assert.IsFalse(
+                keysBody.Contains("fontsize"),
+                "fontsize 改变位图内容，不得列入只改变换的复用白名单");
+            Assert.IsFalse(
+                keysBody.Contains("text:"),
+                "文本内容改变位图内容，不得列入只改变换的复用白名单");
         }
 
         // ---- 既有契约（立即模式时已确立，保留模式下必须继续成立）----

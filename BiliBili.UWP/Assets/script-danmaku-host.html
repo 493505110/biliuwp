@@ -37,6 +37,11 @@
             // 之后每帧只推进 tween 插值、更新属性、重绘脏元素。
             // 禁止每帧重跑脚本绘制：真实 M8 作品脚本里没有逐帧重绘代码，
             // 立即模式只会让画面停在第一帧（理由见设计文档 §3.1）。
+            //
+            // 清屏策略（设计文档 §3.1，本版修正）：逐帧**不做整屏 clearRect**，
+            // 而是「本帧移动过 / 已释放 / 已隐藏」的元素按上一帧的包围盒擦除，
+            // 再合成本帧的脏元素。静态元素因此既不会被重画、也不会被误擦。
+            // 整屏 clearSurface() 只出现在「隐藏 / 停止」这两条整幅画面作废的路径上。
 
             var DEFAULT_DURATION_MS = 3000;
             var DEFAULT_LIFE_TIME_SECONDS = 3;
@@ -47,6 +52,11 @@
             var DEFAULT_TEXT_FONTSIZE = 25;
             var GLOW_PADDING = 12;
             var DEFAULT_BOUNDS_PADDING = 2;
+            // 脏矩形擦除的外扩量（CSS 像素）：吸收缩放/旋转后的取整误差，
+            // 否则被擦掉的一圈上会留下上一帧的细边。
+            var DIRTY_RECT_PADDING = 2;
+            // 元素寿命的「不设上限」取值：条目窗口剩余时间才是真正的上限。
+            var LIFE_TIME_UNBOUNDED = Infinity;
 
             var state = {
                 positionMs: 0,
@@ -67,6 +77,9 @@
             var frameHandle = 0;
             var compileErrorCount = 0;
             var runtimeErrorCount = 0;
+            // 合成阶段的错误（补间缓动是脚本传入的函数，可能在任意一帧抛错）
+            // 与脚本执行错误分开计数：两者都不该刷屏，但也不该互相挤掉配额。
+            var compositeErrorCount = 0;
             // 分块传输大脚本时的拼接缓冲（beginItem → appendItemChunk* → endItem）。
             var pendingItemJson = "";
             // 脚本执行次数计数：保留模式的核心契约是「每条脚本只执行一次」，
@@ -79,6 +92,9 @@
             var dirty = false;
             // 绘制计数器：脏元素才会增加它，用于把「静态元素不重绘」做成可断言的契约。
             var paintCount = 0;
+            // 待擦除的主画布矩形（像素坐标）。元素移动 / 释放 / 隐藏时入队，
+            // 下一帧合成之前统一擦掉——这就是保留模式下的「清屏」。
+            var pendingEraseRects = [];
 
             function post(type, values) {
                 try {
@@ -139,6 +155,17 @@
 
                 runtimeErrorCount++;
                 reportError("runtime", error, itemId);
+            }
+
+            // 补间推进 / 合成阶段的上报通道。单独配额，避免一个每帧抛错的
+            // 坏缓动把编译期错误的配额一起吃掉。
+            function reportCompositeError(error, itemId) {
+                if (compositeErrorCount >= MAX_RUNTIME_ERROR_REPORTS) {
+                    return;
+                }
+
+                compositeErrorCount++;
+                reportError("composite", error, itemId);
             }
 
             function currentPositionMs() {
@@ -444,8 +471,9 @@
                     },
                     set: function (value) {
                         // 元素属性可写：直接赋值即标脏，下一帧只重绘该元素。
+                        // 影响位图内容的属性（见 markPropertyDirty）还会让缓存失效。
                         setPropertyInternal(this, name, value, true);
-                        this.propertyDirty[name] = true;
+                        markPropertyDirty(this, name);
                         dirty = true;
                     }
                 };
@@ -488,7 +516,23 @@
                     // 复合缓存：元素有子节点时，首帧把子树烘到离屏画布，
                     // 之后整体作为一个元素做变换合成，子树不再逐帧绘制。
                     composite: null,
+                    compositeDirty: false,
+                    // 元素在主画布上「上一帧画到哪」的包围盒。脏矩形擦除、以及
+                    // 元素到期/隐藏时的残影清理都依赖它（没有它就只能整屏清屏）。
+                    lastPaintedRect: null,
+                    // 本帧内容缓存被重建过：即使位置没变也必须重新合成。
+                    rebuiltThisFrame: false,
+                    // 本帧是否是「脏元素」（擦除波及后的补画要跳过它，避免重复合成）。
+                    dirtyCandidate: false,
+                    // 元素级失败标记：补间推进抛错后停用该元素，不再逐帧重试。
+                    failed: false,
                     hasTween: false,
+                    // 脚本声明的寿命（毫秒），只记录 tween 声明的最大值；
+                    // 不参与「条目窗口剩余时间」的合并，否则窗口值永远胜出、
+                    // 声明只能延长不能缩短（见 applyElementLifeTime）。
+                    declaredLifeTimeMs: LIFE_TIME_UNBOUNDED,
+                    // 寿命上限（毫秒）= min(declaredLifeTimeMs, 条目窗口剩余时间)。
+                    lifeTimeMs: LIFE_TIME_UNBOUNDED,
                     motion: null,
                     onFrame: null
                 };
@@ -520,7 +564,28 @@
                     element.propertyDirty[name] = true;
                 }
 
+                if (TRANSFORM_ONLY_KEYS[name]) {
+                    // 隐藏元素同样要擦掉它留在主画布上的旧像素，
+                    // 否则 visible=false 之后画面里永远留着它的最后一帧。
+                    if (name === "visible" && value === false) {
+                        markElementHidden(element);
+                    } else if (value !== false) {
+                        // 变换类属性变了：元素在屏幕上的位置随之改变，
+                        // 必须把上一帧的包围盒入队擦除，否则留下拖影。
+                        markElementMoved(element);
+                    }
+                }
+
                 return true;
+            }
+
+            // 元素被脚本隐藏：它的旧像素要擦掉，且它不再参与合成。
+            function markElementHidden(element) {
+                if (element.painted || element.lastPaintedRect) {
+                    enqueueElementErase(element);
+                    element.lastPaintedRect = null;
+                    dirty = true;
+                }
             }
 
             function markElementDirty(element) {
@@ -546,6 +611,12 @@
                 }
             }
 
+            // 元素在主画布上的可见性：隐藏元素同样要擦掉它在主画布上的旧像素，
+            // 否则 visible=false 之后画面里永远留着它的最后一帧。
+            function isElementVisible(element) {
+                return !element.expired && element.props.visible !== false;
+            }
+
             function isElementDirty(element) {
                 for (var name in element.propertyDirty) {
                     if (Object.prototype.hasOwnProperty.call(element.propertyDirty, name)) {
@@ -554,22 +625,6 @@
                 }
 
                 return false;
-            }
-
-            function clearElementDirty(element) {
-                element.propertyDirty = {};
-            }
-
-            function applyScriptPatch(element, patch) {
-                if (!patch || typeof patch !== "object") {
-                    return;
-                }
-
-                for (var name in patch) {
-                    if (Object.prototype.hasOwnProperty.call(patch, name)) {
-                        element[name] = patch[name];
-                    }
-                }
             }
 
             function applyInitialValues(element, patch) {
@@ -640,6 +695,47 @@
                 return Math.floor(repeat);
             }
 
+            // ---- 位图缓存的失效规则 ----
+            //
+            // 缓存里存的是「元素内容」的像素，所以只有影响内容的属性变化才需要重建：
+            //  - 内容类（fontsize 等）：缓存尺寸与绘制结果都会变 → 必须重建。
+            //  - 变换类（x / y / scale / rotation / alpha / matrix / z / visible）：
+            //    只改变换矩阵，缓存原样复用 → 不重建（这是保留模式的性能来源）。
+            // 未知属性按内容类处理：宁可多重建一次，也不能让脚本改了内容却看不到。
+            var TRANSFORM_ONLY_KEYS = {
+                x: true, y: true, z: true,
+                alpha: true, scaleX: true, scaleY: true,
+                rotation: true, rotationX: true, rotationY: true, rotationZ: true,
+                matrix: true, visible: true, filters: true
+            };
+
+            // 脚本直接给元素属性赋值（例如先建元素再设 text 之外的内容属性）走这里。
+            function markPropertyDirty(element, name) {
+                element.propertyDirty[name] = true;
+                if (!TRANSFORM_ONLY_KEYS[name]) {
+                    invalidateElementCache(element);
+                }
+            }
+
+            // 内容变了：自己重建缓存，父元素重建复合层。
+            function invalidateElementCache(element) {
+                element.needsCache = true;
+                element.painted = false;
+                var parent = element.parent;
+                if (parent && parent !== rootElement) {
+                    parent.needsCache = true;
+                }
+            }
+
+            // 每帧推进 tween 时值一定在变，逐帧置 needsCache 会让叶子缓存形同虚设，
+            // 因此这里只在「内容类属性」变化时才失效缓存。
+            function markTweenKeyDirty(element, key) {
+                element.propertyDirty[key] = true;
+                if (!TRANSFORM_ONLY_KEYS[key]) {
+                    invalidateElementCache(element);
+                }
+            }
+
             function applyTweenValue(element, key, value) {
                 if (key === "fontsize") {
                     if (element.style) {
@@ -652,22 +748,27 @@
                 setPropertyInternal(element, key, value, false);
             }
 
+            // fromValue 缺省时按元素的当前值推导（原版 M8 的常见写法
+            // { toValue: ctx.width } 没有 fromValue）。fontsize 取文本样式上的值，
+            // 其余属性取元素自己的属性；元素上本来就没有该属性时视为 0。
             function readTweenTargetValue(element, key) {
                 if (key === "fontsize") {
                     return element.style ? element.style.fontsize : DEFAULT_TEXT_FONTSIZE;
                 }
 
-                return element.props[key];
+                var value = element.props[key];
+                return value === undefined || value === null ? 0 : value;
             }
 
-            function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds) {
+            function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element) {
                 if (!propertyConfig || typeof propertyConfig !== "object") {
                     return null;
                 }
 
                 var fromValue = propertyConfig.fromValue;
                 if (fromValue === undefined || fromValue === null) {
-                    throw new Error("tween " + key + " 缺少 fromValue");
+                    // 缺省即从元素当前值出发，不再报错禁用该条。
+                    fromValue = readTweenTargetValue(element, key);
                 }
 
                 var toValue = propertyConfig.toValue;
@@ -691,6 +792,39 @@
                     repeat: readRepeat(propertyConfig),
                     easing: resolveEasing(propertyConfig.easing)
                 };
+            }
+
+            // 元素寿命 = min(脚本声明的寿命, 条目窗口剩余时间)。
+            // 没有任何 tween 声明 lifeTime 时，寿命就等于窗口剩余时间——
+            // 旧实现把缺省硬编码成 3 秒并丢弃脚本声明，于是 lifeTime: 4 的
+            // 滚动文字在屏幕中间就被摘掉了（见设计文档 §3.1）。
+            // 注意：传入的 declaredLifeTimeMs 必须是**未经窗口约束**的声明值，
+            // 否则 min 会退化成「窗口永远胜出」（见 applyElementLifeTime）。
+            function resolveElementLifeTimeMs(item, declaredLifeTimeMs) {
+                var remaining = item.endMs - item.startMs;
+                if (!isFinite(remaining) || remaining < 0) {
+                    remaining = 0;
+                }
+
+                if (declaredLifeTimeMs === undefined || declaredLifeTimeMs === null) {
+                    declaredLifeTimeMs = LIFE_TIME_UNBOUNDED;
+                }
+
+                var lifeTimeMs = Math.min(declaredLifeTimeMs, remaining);
+                return lifeTimeMs > 0 ? lifeTimeMs : remaining;
+            }
+
+            // 同一元素可能声明多个 tween：寿命取声明值的最大值。
+            // 声明值单独存在 declaredLifeTimeMs 上，不能与已经并入窗口约束的
+            // lifeTimeMs 做 max —— 那样窗口值会永远胜出，脚本声明的寿命
+            // 只能延长、永远无法缩短（lifeTime: 2 的元素会活到窗口结束）。
+            function applyElementLifeTime(element, declaredLifeTimeMs) {
+                var declared = isFinite(element.declaredLifeTimeMs)
+                    ? Math.max(element.declaredLifeTimeMs, declaredLifeTimeMs)
+                    : declaredLifeTimeMs;
+                element.declaredLifeTimeMs = declared;
+                var item = element.ownerItem;
+                element.lifeTimeMs = item ? resolveElementLifeTimeMs(item, declared) : declared;
             }
 
             function createTween(element, config, options) {
@@ -719,7 +853,7 @@
                         continue;
                     }
 
-                    var track = createTweenTrack(config, propertyConfig, key, lifeTimeSeconds);
+                    var track = createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element);
                     if (track) {
                         tracks.push(track);
                     }
@@ -740,7 +874,8 @@
 
                 var motion = {
                     tracks: tracks,
-                    // 寿命缺省 3 秒，与 M8 的 MotionConfig.lifeTime 一致。
+                    // 脚本声明的寿命（毫秒）。它只作声明记录，元素的真实寿命
+                    // 还要受条目窗口剩余时间约束，见 resolveElementLifeTimeMs。
                     lifeTimeMs: lifeTimeSeconds * 1000,
                     totalMs: totalMs,
                     lastElapsedMs: -1,
@@ -750,6 +885,7 @@
                 element.motion = motion;
                 element.hasTween = true;
                 element.ownerItem.hasTween = true;
+                applyElementLifeTime(element, motion.lifeTimeMs);
 
                 // 立即套用 t=0 的插值：脚本执行完那一刻元素就应在起始位置，
                 // 且此时属性尚未被脚本赋值覆盖（先建元素再 tween 的写法两者一致）。
@@ -781,7 +917,7 @@
                         track.to - track.from,
                         track.durationMs);
                     applyTweenValue(element, track.key, value);
-                    element.propertyDirty[track.key] = true;
+                    markTweenKeyDirty(element, track.key);
                 }
 
                 markItemDirty(element.ownerItem);
@@ -1053,9 +1189,7 @@
 
             function scheduleElementCache(element) {
                 markElementDirty(element);
-                if (element.parent && element.parent.children.length > 0) {
-                    element.parent.needsCache = true;
-                }
+                invalidateElementCache(element);
             }
 
             function createShapeElement() {
@@ -1170,6 +1304,10 @@
                 }
 
                 var parent = element.parent;
+                // 从复合层里摘出来的子元素，旧像素还在父层的复合缓存里：
+                // 擦除它的主画布矩形并让父层重烘。
+                markElementMoved(element);
+                parent.needsCache = true;
                 var siblings = parent.children;
                 var index = siblings.indexOf(element);
                 if (index >= 0) {
@@ -1212,6 +1350,9 @@
                     element.parent = null;
                 }
 
+                // 摘除前先把主画布上的旧像素入队擦除，否则移动元素到期后
+                // 它的最后一帧会永久留在画布上。
+                markElementMoved(element);
                 unregisterSubtree(element);
                 releaseElementCaches(element);
                 dirty = true;
@@ -1753,10 +1894,11 @@
 
             function registerItemElement(item, element) {
                 element.ownerItem = item;
-                if (!element.lifeTimeMs) {
-                    // 寿命缺省 3 秒，与 M8 的 MotionConfig.lifeTime 一致。
-                    element.lifeTimeMs = DEFAULT_LIFE_TIME_SECONDS * 1000;
-                }
+                // 寿命初值 = 条目窗口剩余时间（未声明 tween 时就是这个值）。
+                // 声明了 tween 的元素再由 tween 的 lifeTime 收紧，
+                // 取 min(声明值, 窗口剩余)，见 applyElementLifeTime。
+                element.declaredLifeTimeMs = LIFE_TIME_UNBOUNDED;
+                element.lifeTimeMs = resolveElementLifeTimeMs(item, LIFE_TIME_UNBOUNDED);
 
                 item.elements.push(element);
                 // 元素创建后立即进入元素树（与 M8 的 SetupMotionElement 一致）。
@@ -1767,21 +1909,39 @@
             function activateItem(item, now) {
                 item.activated = true;
                 item.removed = false;
+                item.failed = false;
                 // 脚本在这里、也只在这里执行一次。之后每帧只推进 tween。
                 item.runCount++;
                 totalRunCount++;
                 try {
                     item.run(createContext(item, now));
                 } catch (error) {
+                    // 脚本自己抛错：该条目停用（不再推进它的补间），
+                    // 但不影响同一帧里其它条目的渲染。
+                    item.failed = true;
                     reportRuntimeError(error, item.model.id);
                 }
             }
 
+            // 条目级失败：同一处只上报一次，之后逐帧跳过，避免每帧刷屏。
+            function failItem(item, error) {
+                if (item.failed) {
+                    return;
+                }
+
+                item.failed = true;
+                reportCompositeError(error, item.model.id);
+            }
+
             function releaseItemElement(item, index) {
                 var element = item.elements[index];
-                element.expired = true;
                 // 到期摘除并释放离屏缓存，脚本不负责清理。
+                // detachElement 会把它的主画布矩形入队，本帧擦掉残影。
+                // 顺序不能反：markElementMoved 见到 element.expired 为真会直接
+                // 返回，先标 expired 就入不了队，元素最后一帧的像素会永久
+                // 留在画布上（条目窗口结束时尤其明显）。
                 detachElement(element);
+                element.expired = true;
                 item.elements.splice(index, 1);
             }
 
@@ -1801,8 +1961,15 @@
                         continue;
                     }
 
+                    // 单个元素出错不拖垮整条条目，更不拖垮整帧：
+                    // 只把该元素标成已失败，后续帧不再推进它。
                     if (element.hasTween) {
-                        advanceElementMotion(element, elapsed);
+                        try {
+                            advanceElementMotion(element, elapsed);
+                        } catch (error) {
+                            element.failed = true;
+                            failItem(item, error);
+                        }
                     }
 
                     if (elapsed >= element.lifeTimeMs) {
@@ -1815,7 +1982,9 @@
                     try {
                         item.frameFn(createContext(item, now), elapsed);
                     } catch (error) {
-                        reportRuntimeError(error, item.model.id);
+                        item.usesOnFrame = false;
+                        item.frameFn = null;
+                        failItem(item, error);
                     }
                 }
             }
@@ -1844,8 +2013,8 @@
             }
 
             // seek 后按新位置重算插值：已激活且在窗口内的条目只让 tween 重新插值，
-            // 不重跑脚本；离开窗口的条目释放元素（再回到窗口时会重新执行一次脚本，
-            // 这是元素已被释放后唯一正确的做法）。
+            // 不重跑脚本；元素已经到期被摘除的（例如向后拖过再拖回来），
+            // 按条目进度重算补间后重建元素——脚本仍然不重跑，也不重复执行。
             function resetItemsForSeek(now) {
                 for (var index = 0; index < items.length; index++) {
                     var item = items[index];
@@ -1861,6 +2030,14 @@
                         continue;
                     }
 
+                    // 条目中途失败过（脚本或缓动抛错）就不再重建，
+                    // 否则 seek 会把已经停用的坏条目重新拉活。
+                    if (item.failed) {
+                        continue;
+                    }
+
+                    rebuildItemElementsForSeek(item, now);
+
                     for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
                         var element = item.elements[elementIndex];
                         if (element.motion) {
@@ -1870,6 +2047,39 @@
                 }
 
                 dirty = true;
+            }
+
+            // 按新位置重建该条目的元素：清掉旧元素（含它们的残影），
+            // 再用当前播放位置重跑一次脚本——脚本只会被"重建"这一次，
+            // 之后仍走 tween 插值。不重跑脚本就无法知道脚本建了哪些元素、
+            // 建在哪个坐标上，这是元素已被释放后唯一正确的做法。
+            function rebuildItemElementsForSeek(item, now) {
+                var elapsed = now - item.startMs;
+                if (elapsed < 0) {
+                    elapsed = 0;
+                }
+
+                var hasLiveElement = false;
+                for (var index = 0; index < item.elements.length; index++) {
+                    var element = item.elements[index];
+                    if (!element.expired && elapsed < element.lifeTimeMs) {
+                        hasLiveElement = true;
+                        break;
+                    }
+                }
+
+                if (hasLiveElement) {
+                    return;
+                }
+
+                deactivateItem(item);
+                activateItem(item, now);
+            }
+
+            // 向后 seek 越过条目窗口时，窗口内的元素会被整批释放；
+            // 再拖回来必须重建。判据与 resetItemsForSeek 一致。
+            function isItemWindowReentered(item, now) {
+                return isInWindow(item, now) && item.activated && !item.failed;
             }
 
             function clearAllItems() {
@@ -1917,6 +2127,247 @@
                 }
             }
 
+            // 把元素这一帧在主画布上占据的区域换算成主画布的像素矩形。
+            // 复合元素与 layer 元素的实际尺寸取决于它们自己的离屏画布，
+            // 其它元素取决于本地包围盒；再把本地包围盒的四个角按元素的变换
+            // （缩放 → 旋转 → 平移，与 applyElementTransform 同序）投到页面坐标，
+            // 取外接矩形。旋转时外接矩形会变大，宁可多擦一点也不能留残影。
+            function computeElementCanvasRect(element) {
+                if (!element.painted || element.props.visible === false || element.expired) {
+                    return null;
+                }
+
+                var bounds;
+                if (element.children.length > 0) {
+                    if (!element.composite) {
+                        return null;
+                    }
+
+                    // 复合层是按页面坐标 1:1 烘的，所以它的本地原点就是 (0, 0)。
+                    var compositeRatio = window.devicePixelRatio || 1;
+                    bounds = {
+                        x: 0,
+                        y: 0,
+                        width: element.composite.width / compositeRatio,
+                        height: element.composite.height / compositeRatio
+                    };
+                } else if (element.kind === "layer") {
+                    bounds = { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
+                } else if (element.cacheBounds) {
+                    bounds = element.cacheBounds;
+                } else {
+                    return null;
+                }
+
+                var props = element.props;
+                var scaleX = toFiniteNumber(props.scaleX, 1);
+                var scaleY = toFiniteNumber(props.scaleY, 1);
+                var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
+                var cos = Math.cos(rotation);
+                var sin = Math.sin(rotation);
+                var corners = [
+                    [bounds.x, bounds.y],
+                    [bounds.x + bounds.width, bounds.y],
+                    [bounds.x + bounds.width, bounds.y + bounds.height],
+                    [bounds.x, bounds.y + bounds.height]
+                ];
+
+                var minX = Infinity;
+                var minY = Infinity;
+                var maxX = -Infinity;
+                var maxY = -Infinity;
+                for (var index = 0; index < corners.length; index++) {
+                    var localX = corners[index][0] * scaleX;
+                    var localY = corners[index][1] * scaleY;
+                    var pageX = localX * cos - localY * sin + props.x;
+                    var pageY = localX * sin + localY * cos + props.y;
+                    if (pageX < minX) {
+                        minX = pageX;
+                    }
+
+                    if (pageY < minY) {
+                        minY = pageY;
+                    }
+
+                    if (pageX > maxX) {
+                        maxX = pageX;
+                    }
+
+                    if (pageY > maxY) {
+                        maxY = pageY;
+                    }
+                }
+
+                var ratio = window.devicePixelRatio || 1;
+                return {
+                    x: Math.floor((minX - DIRTY_RECT_PADDING) * ratio),
+                    y: Math.floor((minY - DIRTY_RECT_PADDING) * ratio),
+                    width: Math.ceil((maxX - minX + DIRTY_RECT_PADDING * 2) * ratio),
+                    height: Math.ceil((maxY - minY + DIRTY_RECT_PADDING * 2) * ratio)
+                };
+            }
+
+            // 元素这一帧在主画布上实际占据的矩形（供下一帧擦除用）。
+            function recordElementRect(element) {
+                element.lastPaintedRect = computeElementCanvasRect(element);
+            }
+
+            // 元素被隐藏 / 释放 / 摘除后，它在主画布上的旧像素必须被擦掉，
+            // 否则移动过的元素会在整条路径上留下拖影。
+            function retireElementRect(element) {
+                var rect = element.lastPaintedRect;
+                if (rect) {
+                    pendingEraseRects.push(rect);
+                    element.lastPaintedRect = null;
+                }
+
+                for (var index = 0; index < element.children.length; index++) {
+                    retireElementRect(element.children[index]);
+                }
+            }
+
+            function rectsOverlap(a, b) {
+                return !(a.x + a.width < b.x || b.x + b.width < a.x
+                    || a.y + a.height < b.y || b.y + b.height < a.y);
+            }
+
+            function intersectsAnyEraseRect(rect) {
+                for (var index = 0; index < pendingEraseRects.length; index++) {
+                    if (rectsOverlap(rect, pendingEraseRects[index])) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            // 先擦掉「本帧移动过 / 已释放 / 已隐藏」的元素上一帧的包围盒，
+            // 再合成本帧的脏元素。顺序不能反：反了会把刚画好的像素擦掉。
+            function flushEraseRects(rects) {
+                if (!context2d || !rects || rects.length === 0) {
+                    return;
+                }
+                context2d.save();
+                context2d.setTransform(1, 0, 0, 1, 0, 0);
+                for (var index = 0; index < rects.length; index++) {
+                    var rect = rects[index];
+                    context2d.clearRect(rect.x, rect.y, rect.width, rect.height);
+                }
+
+                context2d.restore();
+            }
+
+            // 元素在主画布上的变换后位置变了（或它刚被隐藏），
+            // 上一帧的像素就要在下一帧被擦掉。retireElementRect 会清掉
+            // lastPaintedRect，所以同一帧内重复调用不会重复入队。
+            function enqueueElementErase(element) {
+                retireElementRect(element);
+            }
+
+            // 元素移动/缩放/旋转/隐藏/释放时调用：把上帧包围盒入队擦除，
+            // 并让元素在下一帧重新合成（它自己或它所在的复合层）。
+            function markElementMoved(element) {
+                if (!element || element.expired) {
+                    return;
+                }
+
+                if (element.painted || element.lastPaintedRect) {
+                    enqueueElementErase(element);
+                }
+
+                dirty = true;
+                var parent = element.parent;
+                if (parent && parent !== rootElement) {
+                    parent.needsCache = true;
+                }
+            }
+
+            function composeElement(element) {
+                blitElement(context2d, element);
+                recordElementRect(element);
+            }
+
+            function paintDirtyElements() {
+                var topLevel = rootElement.children;
+                var candidates = [];
+                var index;
+                for (index = 0; index < topLevel.length; index++) {
+                    var element = topLevel[index];
+                    element.rebuiltThisFrame = false;
+                    element.dirtyCandidate = false;
+                    if (element.expired || element.props.visible === false) {
+                        continue;
+                    }
+
+                    if (prepareElement(element)) {
+                        element.dirtyCandidate = true;
+                        candidates.push(element);
+                    }
+                }
+
+                var erasedRects = pendingEraseRects;
+                pendingEraseRects = [];
+                flushEraseRects(erasedRects);
+
+                // 擦除是元素级的无差别矩形，可能盖住了别的（静止的）元素：
+                // 先补画「被擦到但不是本帧脏元素」的邻居，再合成脏元素，
+                // 这样既不留洞，也不会把层叠顺序反过来。
+                for (index = 0; index < topLevel.length; index++) {
+                    var neighbor = topLevel[index];
+                    if (neighbor.dirtyCandidate || !isElementVisible(neighbor)) {
+                        continue;
+                    }
+
+                    if (intersectsAny(erasedRects, neighbor.lastPaintedRect)) {
+                        composeElement(neighbor);
+                    }
+                }
+
+                var painted = 0;
+                for (index = 0; index < candidates.length; index++) {
+                    var candidate = candidates[index];
+                    if (!isElementVisible(candidate)) {
+                        continue;
+                    }
+
+                    // 位置与上一帧完全一致、内容也没重建的元素不必再合成。
+                    // 这是「静态元素首帧之后不再重绘」的落点。
+                    // （本帧移动过的元素 lastPaintedRect 已被清空，一定会走到合成。）
+                    if (!candidate.rebuiltThisFrame && candidate.lastPaintedRect
+                        && rectsEqual(candidate.lastPaintedRect, computeElementCanvasRect(candidate))) {
+                        continue;
+                    }
+
+                    composeElement(candidate);
+                    painted++;
+                }
+
+                return painted;
+            }
+
+            function intersectsAny(rects, rect) {
+                if (!rect) {
+                    return false;
+                }
+
+                for (var index = 0; index < rects.length; index++) {
+                    if (rects[index] && rectsOverlap(rect, rects[index])) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            function rectsEqual(a, b) {
+                if (!a || !b) {
+                    return a === b;
+                }
+
+                return a.x === b.x && a.y === b.y
+                    && a.width === b.width && a.height === b.height;
+            }
+
             // 返回 true 表示该元素这一帧需要重新合成到画布上。
             function prepareElement(element) {
                 if (element.expired) {
@@ -1933,11 +2384,15 @@
                 var ownDirty = isElementDirty(element);
                 var structural = !element.painted || element.needsCache;
                 element.propertyDirty = {};
+                element.needsCache = false;
 
                 if (element.children.length > 0) {
+                    // 复合元素只在结构真变时重烘：重建后 needsCache 必须清掉，
+                    // 否则它下一帧又会被判为结构脏，每帧白烘一整张视口层。
                     if (structural || element.compositeDirty || childrenChanged) {
                         rebuildComposite(element);
                         element.compositeDirty = false;
+                        element.rebuiltThisFrame = true;
                         return true;
                     }
 
@@ -1951,6 +2406,7 @@
 
                 if (structural) {
                     rebuildElementCache(element);
+                    element.rebuiltThisFrame = true;
                     return true;
                 }
 
@@ -1986,18 +2442,27 @@
                     return;
                 }
 
-                var now = currentPositionMs();
-                var anyActive = tick(now);
+                // 调度链必须与「本帧是否出错」解耦：缓动是脚本传入的函数，
+                // 它抛错时若让异常从 rAF 回调逃逸，running 会停在 true 而
+                // 实际已无排队回调，帧循环永久冻结且 ensureRunning 救不回来。
+                try {
+                    var now = currentPositionMs();
+                    var anyActive = tick(now);
 
-                // 自停必须在这里决定并直接返回：若在 tick 内置 running=false
-                // 却仍无条件续帧，恢复播放时会与已排队的回调形成两条并行帧链。
-                if (!anyActive && !state.playing) {
-                    running = false;
-                    frameHandle = 0;
-                    return;
+                    // 自停必须在这里决定并直接返回：若在 tick 内置 running=false
+                    // 却仍无条件续帧，恢复播放时会与已排队的回调形成两条并行帧链。
+                    if (!anyActive && !state.playing) {
+                        running = false;
+                        frameHandle = 0;
+                        return;
+                    }
+                } catch (error) {
+                    reportCompositeError(error, "");
+                } finally {
+                    if (running) {
+                        frameHandle = window.requestAnimationFrame(frame);
+                    }
                 }
-
-                frameHandle = window.requestAnimationFrame(frame);
             }
 
             function ensureRunning() {
@@ -2083,6 +2548,8 @@
                     compileFailed: false,
                     activated: false,
                     removed: false,
+                    // 条目级失败：脚本或补间抛错后置位，后续帧跳过它的推进。
+                    failed: false,
                     hasTween: false,
                     usesOnFrame: false,
                     frameFn: null,
