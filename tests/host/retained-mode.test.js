@@ -746,21 +746,28 @@ test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点�
         },
         {
             id: 'demo-particles', stime: 3, duration: 5, lang: 'js',
-            code: 'var ring = ctx.createShape();'
-                + 'for (var i = 0; i < 24; i++) {'
-                + '  var angle = i / 24 * Math.PI * 2;'
-                + '  ring.graphics.beginFill(0xFF66CC, 1);'
-                + '  ring.graphics.drawCircle(Math.cos(angle) * 40, Math.sin(angle) * 40, 6);'
-                + '  ring.graphics.endFill();'
+            code: 'var count = 24;'
+                + 'var cx = ctx.width / 2;'
+                + 'var cy = ctx.height / 2;'
+                + 'var dots = [];'
+                + 'for (var i = 0; i < count; i++) {'
+                + '  var dot = ctx.createShape();'
+                + '  dot.graphics.beginFill(0xFF66CC, 1);'
+                + '  dot.graphics.drawCircle(0, 0, 6);'
+                + '  dot.graphics.endFill();'
+                + '  dots.push(dot);'
                 + '}'
-                + 'ring.x = ctx.width / 2;'
-                + 'ring.y = ctx.height / 2;'
-                + 'ctx.tween(ring, {'
-                + "  rotation: { fromValue: 0, toValue: 360, easing: 'Linear' },"
-                + "  scaleX: { fromValue: 1, toValue: 5, easing: 'Linear' },"
-                + "  scaleY: { fromValue: 1, toValue: 5, easing: 'Linear' },"
-                + "  alpha: { fromValue: 1, toValue: 0, easing: 'Linear' }"
-                + '}, { lifeTime: 3 });'
+                + 'ctx.onFrame(function (frameCtx, elapsedMs) {'
+                + '  var p = Math.min(1, elapsedMs / 3000);'
+                + '  var radius = 40 + p * 160;'
+                + '  for (var i = 0; i < count; i++) {'
+                + '    var angle = i / count * Math.PI * 2 + p * Math.PI * 2;'
+                + '    dots[i].x = cx + Math.cos(angle) * radius;'
+                + '    dots[i].y = cy + Math.sin(angle) * radius;'
+                + '    dots[i].alpha = 1 - p;'
+                + '    dots[i].visible = p < 1;'
+                + '  }'
+                + '});'
         }
     ];
 
@@ -769,12 +776,17 @@ test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点�
     host.append(demos);
     host.setState(0.5, true, 1);
 
-    // 两条示例都是声明式 tween：脚本里不得出现逐帧重算坐标的旧写法。
+    // 两条示例都不得退回立即模式的写法。
     for (const demo of demos) {
-        assert.ok(demo.code.indexOf('ctx.tween(') >= 0, demo.id + ' 必须用 ctx.tween 声明动画');
         assert.equal(demo.code.indexOf('ctx.progress'), -1, demo.id + ' 不得再用 ctx.progress 逐帧重算');
         assert.equal(demo.code.indexOf('ctx.g.'), -1, demo.id + ' 不得直接操作画布上下文');
     }
+
+    // 滚动文字走声明式 tween；粒子要恒定 6px 点半径，tween 表达不了
+    // （scale 会把点一起放大），因此走 ctx.onFrame 逃生舱逐帧只改位置。
+    assert.ok(demos[0].code.indexOf('ctx.tween(') >= 0, 'demo-scroll-text 必须用 ctx.tween 声明动画');
+    assert.ok(demos[1].code.indexOf('ctx.onFrame(') >= 0, 'demo-particles 必须用 ctx.onFrame 声明逐帧路径');
+    assert.equal(demos[1].code.indexOf('scaleX'), -1, 'demo-particles 不得用 scale 扩散：那会把点一起放大');
 
     // 跑到两条示例都进入窗口的中段：文字 1~5s、粒子 3~8s，3.8s 两条都在。
     host.runFrames(200);
@@ -788,6 +800,37 @@ test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点�
         unionRect(host.mainCanvas().__marks), null,
         '示例播放结束后画布上不应残留像素');
     assert.equal(host.errors().length, 0, '收尾阶段也不应产生错误');
+});
+
+test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素', () => {
+    // 对应 ReplaceAsync 在弹幕可见时换脚本 / 倍速重推：宿主收到 reset(…, visible=true)
+    // 时整批元素被丢弃，它们的像素不会再有擦除队列，必须靠 reset 自己清屏。
+    const host = loadHost();
+    const painted = () => unionRect(host.mainCanvas().__marks);
+
+    host.reset(0, true, 1, true);
+    host.append([{
+        id: 'gen1', stime: 0, duration: 8, lang: 'js',
+        code: "var t = ctx.createText('AAAA', { font: 'sans-serif', fontsize: 48, color: 0xFF0000 });"
+            + 't.x = 100;t.y = 100;'
+    }]);
+    host.setState(0.5, true, 1);
+    host.runFrames(3);
+    assert.ok(painted(), '第一批弹幕应已画到画布上');
+
+    host.reset(0, true, 1, true);
+    host.append([{
+        id: 'gen2', stime: 0, duration: 8, lang: 'js',
+        code: "var t = ctx.createText('BBBB', { font: 'sans-serif', fontsize: 48, color: 0x0000FF });"
+            + 't.x = 400;t.y = 400;'
+    }]);
+    assert.equal(
+        painted(), null,
+        'reset 之后画布必须被清空，否则上一批弹幕的像素会永久残留');
+
+    host.setState(0.5, true, 1);
+    host.runFrames(3);
+    assert.ok(painted(), '第二批弹幕应能正常画出来');
 });
 
 run();

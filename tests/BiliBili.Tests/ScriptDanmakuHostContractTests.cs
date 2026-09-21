@@ -536,8 +536,10 @@ namespace BiliBili.Tests
                 flushIndex >= 0 && composeIndex > flushIndex,
                 "擦除必须早于本帧合成");
 
-            // 整屏 clearSurface 只允许出现在「隐藏 / 停止」两条整幅作废的路径上
-            // （tick 的隐藏分支 + stopRunning），逐帧路径不得整屏清空。
+            // 整屏 clearSurface 只允许出现在「整幅画面作废」的三条路径上：
+            // tick 的隐藏分支、stopRunning、以及 reset 整批替换条目时
+            // （被丢弃的元素不会再进擦除队列，必须靠 reset 自己清屏）。
+            // 逐帧路径不得整屏清空。
             var callSites = new System.Collections.Generic.List<int>();
             var index = source.IndexOf("clearSurface();", System.StringComparison.Ordinal);
             while (index >= 0)
@@ -547,9 +549,16 @@ namespace BiliBili.Tests
             }
 
             Assert.AreEqual(
-                2,
+                3,
                 callSites.Count,
-                "clearSurface() 只应有 tick 隐藏分支与 stopRunning 两处调用点");
+                "clearSurface() 应只有 tick 隐藏分支、stopRunning、reset 三处调用点");
+
+            var resetStart = source.IndexOf("reset: function (", System.StringComparison.Ordinal);
+            Assert.IsTrue(resetStart >= 0, "未找到 reset 命令");
+            var resetClear = source.IndexOf("clearSurface();", resetStart, System.StringComparison.Ordinal);
+            Assert.IsTrue(
+                resetClear >= 0 && resetClear - resetStart < 900,
+                "reset 必须清屏：整批条目作废后，被丢弃元素的像素不会再有擦除队列");
 
             var tickBody = TickBody();
             var tickStart = source.IndexOf("function tick(now) {", System.StringComparison.Ordinal);
@@ -559,8 +568,9 @@ namespace BiliBili.Tests
             {
                 Assert.IsTrue(
                     (callSite > tickStart && callSite < tickStart + tickBody.Length)
-                        || (callSite > stopStart && callSite < stopStart + stopBody.Length),
-                    "clearSurface() 不得出现在隐藏 / 停止之外的路径上");
+                        || (callSite > stopStart && callSite < stopStart + stopBody.Length)
+                        || (callSite > resetStart && callSite < resetStart + 900),
+                    "clearSurface() 只允许出现在隐藏 / 停止 / reset 三条整幅作废的路径上");
             }
         }
 

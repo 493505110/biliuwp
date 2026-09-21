@@ -57,8 +57,9 @@ namespace BiliBili.UWP.Helper
         /// tween 的 lifeTime 声明的是补间时长；元素寿命取「声明值」与
         /// 「条目窗口剩余时间」的较小值，未声明 lifeTime 时等于窗口剩余时间。
         /// demo-scroll-text 复刻原版 M8 示例的观感：文字从右侧屏幕外滑入、
-        /// 向左移出；demo-particles 把 24 个点画进同一个 shape 的本地坐标，
-        /// 用 rotation + scale + alpha 三条补间同时做出旋转、扩散与淡出。
+        /// 向左移出；demo-particles 复刻原版的 24 点旋转扩散环——点的半径
+        /// 要恒定 6px，用 scale 会把点一起放大，所以改用 ctx.onFrame 逃生舱
+        /// 逐帧只改位置（脚本仍只执行一次，元素树与缓存不重建）。
         /// </summary>
         public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo()
         {
@@ -84,23 +85,28 @@ namespace BiliBili.UWP.Helper
                     stime = 3,
                     duration = 5,
                     lang = LangJs,
-                    code = "var ring = ctx.createShape();"
-                        + "for (var i = 0; i < 24; i++) {"
-                        + "  var angle = i / 24 * Math.PI * 2;"
-                        + "  ring.graphics.beginFill(0xFF66CC, 1);"
-                        + "  ring.graphics.drawCircle(Math.cos(angle) * 40,"
-                        + "      Math.sin(angle) * 40, 6);"
-                        + "  ring.graphics.endFill();"
+                    code = "var count = 24;"
+                        + "var cx = ctx.width / 2;"
+                        + "var cy = ctx.height / 2;"
+                        + "var dots = [];"
+                        + "for (var i = 0; i < count; i++) {"
+                        + "  var dot = ctx.createShape();"
+                        + "  dot.graphics.beginFill(0xFF66CC, 1);"
+                        + "  dot.graphics.drawCircle(0, 0, 6);"
+                        + "  dot.graphics.endFill();"
+                        + "  dots.push(dot);"
                         + "}"
-                        + "ring.x = ctx.width / 2;"
-                        + "ring.y = ctx.height / 2;"
-                        + "ctx.tween(ring, {"
-                        + "  rotation: { fromValue: 0, toValue: 360,"
-                        + "      easing: 'Linear' },"
-                        + "  scaleX: { fromValue: 1, toValue: 5, easing: 'Linear' },"
-                        + "  scaleY: { fromValue: 1, toValue: 5, easing: 'Linear' },"
-                        + "  alpha: { fromValue: 1, toValue: 0, easing: 'Linear' }"
-                        + "}, { lifeTime: 3 });"
+                        + "ctx.onFrame(function (frameCtx, elapsedMs) {"
+                        + "  var p = Math.min(1, elapsedMs / 3000);"
+                        + "  var radius = 40 + p * 160;"
+                        + "  for (var i = 0; i < count; i++) {"
+                        + "    var angle = i / count * Math.PI * 2 + p * Math.PI * 2;"
+                        + "    dots[i].x = cx + Math.cos(angle) * radius;"
+                        + "    dots[i].y = cy + Math.sin(angle) * radius;"
+                        + "    dots[i].alpha = 1 - p;"
+                        + "    dots[i].visible = p < 1;"
+                        + "  }"
+                        + "});"
                 }
             });
         }

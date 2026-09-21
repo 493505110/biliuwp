@@ -41,7 +41,8 @@
             // 清屏策略（设计文档 §3.1，本版修正）：逐帧**不做整屏 clearRect**，
             // 而是「本帧移动过 / 已释放 / 已隐藏」的元素按上一帧的包围盒擦除，
             // 再合成本帧的脏元素。静态元素因此既不会被重画、也不会被误擦。
-            // 整屏 clearSurface() 只出现在「隐藏 / 停止」这两条整幅画面作废的路径上。
+            // 整屏 clearSurface() 只出现在「整幅画面作废」的三条路径上：tick 的隐藏分支、
+            // stopRunning、以及 reset 整批替换条目时（被丢弃的元素不会再进擦除队列）。
 
             var DEFAULT_DURATION_MS = 3000;
             var DEFAULT_LIFE_TIME_SECONDS = 3;
@@ -2668,6 +2669,10 @@
                     pendingItemJson = "";
                     if (visible) {
                         ensureCanvas();
+                        // 整批条目已作废：被丢弃的元素不会再进擦除队列，光靠
+                        // 「脏元素重绘」会把上一批弹幕的像素永久留在画布上。
+                        clearSurface();
+                        dirty = false;
                     } else {
                         stopRunning();
                     }
