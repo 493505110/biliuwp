@@ -213,7 +213,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 分两层，纯逻辑与 UWP 依赖分离，前者可直接被 `tests/BiliBili.Tests` 编译：
 
 - **`Modules/ScriptDanmakuParser.cs`**（纯逻辑，无 UWP 依赖）：`Parse(string)`（Json.NET 反序列化 + 校验）、`Normalize(IEnumerable)`（过滤 `stime<0`、NaN/Infinity、空 `code`；补 `id`/`duration`/`lang`，duration 钳制到 `[0, 600]` 且缺省 3）、`NormalizeLang`（除明确 ts 外一律 js）、常量。
-- **`Helper/ScriptDanmakuService.cs`**（UWP 侧，薄封装）：`LoadFromFileAsync(StorageFile)` 读文件后委托 Parser，空结果记 `LogHelper`；`GetBuiltInDemo()` 提供两条 JS 内置示例（文字横移、粒子环）。
+- **`Helper/ScriptDanmakuService.cs`**（UWP 侧，薄封装）：`LoadFromFileAsync(StorageFile)` 读文件后委托 Parser，空结果记 `LogHelper`；`GetBuiltInDemo()` 提供一条 JS 内置示例（文字横移 + 粒子环写在同一条脚本里）。
 
 > **实施注记**：`Parse` 对 JSON 非法返回空列表，单条非法只丢弃该条——保证坏文件不会让整个功能失效，也不会静默产生半截集合。
 
@@ -254,7 +254,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 5. **懒初始化闸门提前落地**：`pendingItemCount == 0 && !isPageReady && initializationTask == null` 时直接返回，不创建 WebView2。
 6. **新增「加载示例代码弹幕」菜单项**（设计稿只有加载/清除两项），便于不准备文件就验证渲染链路。
 7. **不做时间窗**：按设计稿，全集 `ReplaceAsync` 交给宿主自调度，未套用 BAS 的 lookback/lookahead 窗口。
-8. **渲染模型改为保留模式（已落地）**：阶段 1 最初的宿主是「每帧重跑脚本绘制回调」的立即模式，现已按 §3.1 改为保留模式。落地要点：脚本每条只在进入时间窗那一刻执行一次（`activateItem` 是唯一执行点，整份宿主只有一处 `new Function`）；`ctx` 改为元素工厂 + `tween` 声明，`ctx.g` 与逐帧 `t`/`progress` 语义取消，只留 `ctx.onFrame` 逃生舱；逐帧流程改为「推进 tween → 标脏 → 只重绘脏元素 → 按 dpr 合成」，静态元素首帧后缓存为位图不再重绘；`visible=false` 时合成步骤直接跳过并保持画布空白；`lifeTime` 到期由宿主摘除元素并释放离屏缓存；seek 按新位置重算插值而不重跑脚本。两条内置示例脚本已重写为「建元素 + tween」形态（`demo-scroll-text` 滚动文字、`demo-particles` 环形粒子），`ScriptDanmakuHostContractTests` 中针对「每帧调绘制回调」的断言已同步改写为保留模式断言。
+8. **渲染模型改为保留模式（已落地）**：阶段 1 最初的宿主是「每帧重跑脚本绘制回调」的立即模式，现已按 §3.1 改为保留模式。落地要点：脚本每条只在进入时间窗那一刻执行一次（`activateItem` 是唯一执行点，整份宿主只有一处 `new Function`）；`ctx` 改为元素工厂 + `tween` 声明，`ctx.g` 与逐帧 `t`/`progress` 语义取消，只留 `ctx.onFrame` 逃生舱；逐帧流程改为「推进 tween → 标脏 → 只重绘脏元素 → 按 dpr 合成」，静态元素首帧后缓存为位图不再重绘；`visible=false` 时合成步骤直接跳过并保持画布空白；`lifeTime` 到期由宿主摘除元素并释放离屏缓存；seek 按新位置重算插值而不重跑脚本。内置示例脚本已重写为「建元素 + tween」形态（`demo-m8-sample`：文字走声明式 tween、粒子环走 `ctx.onFrame` 逃生舱，两种写法写在同一条脚本里），`ScriptDanmakuHostContractTests` 中针对「每帧调绘制回调」的断言已同步改写为保留模式断言。
    > 已知取舍与未做项：glow 滤镜是近似实现（缓存构建时 `blur(4px)` + `lighter` 叠加，非 Flash GlowFilter 的忠实移植）；`tick()` 的 `anyActive` 仍按整个条目列表推导，视频播放期间即使无活跃 tween 也会空转（优先级低，见 §阶段 1 暴露的待办）；`drawGraphicsData` / `drawPath` 显式抛错未支持。
 9. **保留模式收尾：脏矩形擦除与寿命语义修正（已落地）**。保留模式首版落地后暴露出六个语义缺陷（D1~D6），已逐条修掉，并新增宿主行为测试套件把它们钉住（见 §验证）：
    - **D1 拖影**：首版只在隐藏 / 停止时整屏 `clearRect`，移动元素在整条路径上留拖影。改为**按元素包围盒擦除**（`computeElementCanvasRect` 取变换后外接矩形、外扩 2px，入队 `pendingEraseRects`，下一帧先擦后合成），整屏 `clearSurface()` 收敛到隐藏 / 停止两条路径。
@@ -263,7 +263,8 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
    - **D4 复合层**：静止复合元素每帧被重烘一整张视口大小的层（60 帧 60 次）。改为只在 `structural || compositeDirty || childrenChanged` 时重烘，并在重建后清掉 `needsCache` / `compositeDirty`。
    - **D5 缓存失效**：`fontsize` 等**内容类**属性被当成变换类复用缓存，字号补间完全不可见。改为按 `TRANSFORM_ONLY_KEYS` 白名单分流，未命中即 `invalidateElementCache`。
    - **D6 seek 与摘除顺序**：元素被整批释放后向后 seek 回窗口内不重建（画面空白），以及 `releaseItemElement` 先标 `expired` 导致最后一帧像素入不了擦除队列（永久残影）。改为 `rebuildItemElementsForSeek` 按进度重建（脚本仍只多跑一次、不逐帧重跑），并把摘除顺序固定为「先 `detachElement` 再标 `expired`」。
-10. **内置示例复刻原版 M8 观感（已落地）**。保留模式重写时两条示例的观感与原版 M8 示例走样，现已改回：`demo-scroll-text` 恢复**从右侧屏幕外滑入、向左移出**（`fromValue: ctx.width + 120` → `toValue: -120`，端点与原版 `(1 - progress) * (ctx.width + 240) - 120` 一致），走声明式 `tween`；`demo-particles` 改回 **24 个点**、点半径恒定 **6px**，环半径 40 → 200 的同时整环旋转、整体淡出。这里的运动是「半径与角度同时随时间变化」的极坐标路径，用 `scale` 表达扩散会把点一起放大（原版点大小恒定），因此这一条**故意走 `ctx.onFrame` 逃生舱**逐帧只改位置——脚本仍只执行一次、元素树与位图缓存都不重建，正好演示逃生舱的适用边界（`p >= 1` 时把点 `visible=false`，让它们被摘除并擦净）。行为套件 `D7` 的示例副本与断言已同步更新（滚动文字必须用 `tween`，粒子必须用 `onFrame` 且代码里不得出现 `scaleX`）。
+10. **内置示例复刻原版 M8 观感（已落地）**。保留模式重写时示例的观感与原版 M8 示例走样，现已改回：文字恢复**从右侧屏幕外滑入、向左移出**（`fromValue: ctx.width + 120` → `toValue: -120`，端点与原版 `(1 - progress) * (ctx.width + 240) - 120` 一致），走声明式 `tween`；粒子改回 **24 个点**、点半径恒定 **6px**，环半径 40 → 200 的同时整环旋转、整体淡出。这里的运动是「半径与角度同时随时间变化」的极坐标路径，用 `scale` 表达扩散会把点一起放大（原版点大小恒定），因此这一条**故意走 `ctx.onFrame` 逃生舱**逐帧只改位置——脚本仍只执行一次、元素树与位图缓存都不重建，正好演示逃生舱的适用边界（`p >= 1` 时把点 `visible=false`，让它们被摘除并擦净）。行为套件 `D7` 的示例副本与断言已同步更新（文字必须用 `tween`，粒子必须用 `onFrame` 且代码里不得出现 `scaleX`）。
+11. **内置示例合并为单条脚本（已落地）**。示例最初拆成两条条目（`demo-scroll-text` stime=1/duration=4、`demo-particles` stime=3/duration=5），与原版 M8 示例「一条脚本画完整个效果」的形态不一致。现合并为一条 `demo-m8-sample`（stime=1、duration=7，窗口 1~8s）：文字 `tween` 与粒子 `onFrame` 写在同一条脚本里——tween 挂在元素上、onFrame 挂在条目上，`advanceItem` 两者都会跑，互不冲突。两个落地要点：其一，窗口取原两条窗口的并集（1~8s），文字的 `lifeTime: 4` 仍经 `min(声明值, 窗口剩余)` 收紧到 1~5s，粒子无声明则吃满 1~8s（`p >= 1` 后不可见、窗口结束摘除）；其二，`ctx.onFrame` 回调只给 `elapsedMs`、**没有 delay 参数**（只有 tween 的轨道有 `delay`），粒子要晚 2 秒出现只能自行扣偏移（`var local = elapsedMs - 2000; if (local < 0) { return; }`），并在建点时就置 `visible = false`，避免出现前在原点闪一帧。逐帧核对（无头桩，0.5s 起按 60fps 步进）确认合并前后同一时刻的文字 x、粒子半径/透明度/可见性、以及收尾时刻（文字 5s 摘除、粒子 6s 隐去、8s 窗口结束画布无残留）完全一致；`D7` 用例已改为单条形态，并新增「必须用 `elapsedMs - 2000` 做起始偏移」的断言。
 
 测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、`ctx` 字段、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
 
@@ -277,7 +278,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 | D4 | 同屏有动画元素时，静止复合元素不重复重建整层 | 每帧重烘一次（60 帧 60 次） |
 | D5 | `fontsize` 补间后缓存尺寸随之变化，静止元素不被过度失效 | 缓存尺寸不变，字号补间不可见 |
 | D6 | 向后 seek 回窗口内：元素被重建、位置是插值结果、脚本不逐帧重跑 | 摘除后残影不擦、重建位置不对 |
-| D7 | 两条内置示例仍是声明式 tween，能渲染出画面且到点自然收尾 | 示例写的是立即模式，脚本跑完没有动画 |
+| D7 | 内置示例（单条）声明式 tween 与 onFrame 逃生舱并存，能渲染出画面且到点自然收尾 | 示例写的是立即模式，脚本跑完没有动画 |
 
 运行方式（默认宿主为仓库内 `BiliBili.UWP/Assets/script-danmaku-host.html`，可用参数或环境变量改指）：
 

@@ -731,22 +731,19 @@ test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、�
         + '，实际 ' + rebuilt.x.toFixed(1));
 });
 
-test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点自然收尾', () => {
+test('D7 内置示例（单条）声明式 tween 与逃生舱并存，能渲染出画面且到点自然收尾', () => {
     // 示例代码必须与 ScriptDanmakuService.GetBuiltInDemo() 逐字一致。
     // 它在 C# 里是字符串拼接，这里改写成等价字面量；两边的"事实来源"
     // 仍是那份 C#，本用例只保证示例确实能跑、且不是每帧重算坐标的写法。
     const demos = [
         {
-            id: 'demo-scroll-text', stime: 1, duration: 4, lang: 'js',
+            id: 'demo-m8-sample', stime: 1, duration: 7, lang: 'js',
             code: "var label = ctx.createText('脚本弹幕已生效', { font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
                 + 'label.y = Math.round(ctx.height / 2 - 19);'
                 + 'ctx.tween(label, {'
                 + "  x: { fromValue: ctx.width + 120, toValue: -120, easing: 'Linear' }"
                 + '}, { lifeTime: 4 });'
-        },
-        {
-            id: 'demo-particles', stime: 3, duration: 5, lang: 'js',
-            code: 'var count = 24;'
+                + 'var count = 24;'
                 + 'var cx = ctx.width / 2;'
                 + 'var cy = ctx.height / 2;'
                 + 'var dots = [];'
@@ -755,10 +752,13 @@ test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点�
                 + '  dot.graphics.beginFill(0xFF66CC, 1);'
                 + '  dot.graphics.drawCircle(0, 0, 6);'
                 + '  dot.graphics.endFill();'
+                + '  dot.visible = false;'
                 + '  dots.push(dot);'
                 + '}'
                 + 'ctx.onFrame(function (frameCtx, elapsedMs) {'
-                + '  var p = Math.min(1, elapsedMs / 3000);'
+                + '  var local = elapsedMs - 2000;'
+                + '  if (local < 0) { return; }'
+                + '  var p = Math.min(1, local / 3000);'
                 + '  var radius = 40 + p * 160;'
                 + '  for (var i = 0; i < count; i++) {'
                 + '    var angle = i / count * Math.PI * 2 + p * Math.PI * 2;'
@@ -782,19 +782,22 @@ test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点�
         assert.equal(demo.code.indexOf('ctx.g.'), -1, demo.id + ' 不得直接操作画布上下文');
     }
 
-    // 滚动文字走声明式 tween；粒子要恒定 6px 点半径，tween 表达不了
-    // （scale 会把点一起放大），因此走 ctx.onFrame 逃生舱逐帧只改位置。
-    assert.ok(demos[0].code.indexOf('ctx.tween(') >= 0, 'demo-scroll-text 必须用 ctx.tween 声明动画');
-    assert.ok(demos[1].code.indexOf('ctx.onFrame(') >= 0, 'demo-particles 必须用 ctx.onFrame 声明逐帧路径');
-    assert.equal(demos[1].code.indexOf('scaleX'), -1, 'demo-particles 不得用 scale 扩散：那会把点一起放大');
+    // 单条脚本里两种写法并存：文字走声明式 tween；粒子要恒定 6px 点半径，
+    // tween 表达不了（scale 会把点一起放大），因此走 ctx.onFrame 逃生舱逐帧只改位置。
+    assert.ok(demos[0].code.indexOf('ctx.tween(') >= 0, '示例必须用 ctx.tween 声明文字动画');
+    assert.ok(demos[0].code.indexOf('ctx.onFrame(') >= 0, '示例必须用 ctx.onFrame 声明粒子逐帧路径');
+    assert.equal(demos[0].code.indexOf('scaleX'), -1, '示例不得用 scale 扩散：那会把点一起放大');
+    assert.ok(
+        demos[0].code.indexOf('elapsedMs - 2000') >= 0,
+        '粒子晚于文字 2 秒出现，onFrame 没有 delay，须自行扣掉起始偏移');
 
-    // 跑到两条示例都进入窗口的中段：文字 1~5s、粒子 3~8s，3.8s 两条都在。
+    // 跑到两种效果同时在屏的中段：文字 1~5s、粒子 3~6s，3.8s 都在。
     host.runFrames(200);
     assert.equal(host.errors().length, 0, '示例不应产生任何错误上报：' + JSON.stringify(host.errors()));
     assert.equal(host.frameErrors.length, 0, '示例不应让帧回调抛错：' + host.frameErrors);
-    assert.ok(host.mainCanvas().__marks.length > 0, '3.8s 时两条示例都应已在画布上画出内容');
+    assert.ok(host.mainCanvas().__marks.length > 0, '3.8s 时文字与粒子都应已在画布上画出内容');
 
-    // 跑过两条示例的窗口末端（8s）后必须自然收尾：元素全部到期摘除、残影擦净。
+    // 跑过示例窗口末端（1+7=8s）后必须自然收尾：元素全部到期摘除、残影擦净。
     host.runFrames(400);
     assert.equal(
         unionRect(host.mainCanvas().__marks), null,

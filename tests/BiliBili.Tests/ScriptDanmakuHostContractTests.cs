@@ -797,10 +797,12 @@ namespace BiliBili.Tests
         public void BuiltInDemosAreWrittenInRetainedMode()
         {
             // 内置示例是「保留模式怎么写」的样板，不能退回每帧重算坐标。
+            // 单条脚本里同时演示声明式 tween（文字）与 onFrame 逃生舱（粒子）。
             var source = TestRepository.ReadFile("BiliBili.UWP/Helper/ScriptDanmakuService.cs");
             StringAssert.Contains(source, "ctx.createText(");
             StringAssert.Contains(source, "ctx.createShape()");
             StringAssert.Contains(source, "ctx.tween(");
+            StringAssert.Contains(source, "ctx.onFrame(");
             Assert.IsFalse(
                 source.Contains("ctx.progress"),
                 "保留模式示例不得再用 ctx.progress 逐帧重算坐标");

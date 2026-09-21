@@ -56,10 +56,12 @@ namespace BiliBili.UWP.Helper
         /// 之后逐帧由宿主插值（不要写成每帧重算坐标）。
         /// tween 的 lifeTime 声明的是补间时长；元素寿命取「声明值」与
         /// 「条目窗口剩余时间」的较小值，未声明 lifeTime 时等于窗口剩余时间。
-        /// demo-scroll-text 复刻原版 M8 示例的观感：文字从右侧屏幕外滑入、
-        /// 向左移出；demo-particles 复刻原版的 24 点旋转扩散环——点的半径
-        /// 要恒定 6px，用 scale 会把点一起放大，所以改用 ctx.onFrame 逃生舱
-        /// 逐帧只改位置（脚本仍只执行一次，元素树与缓存不重建）。
+        /// 单条脚本同时演示两种写法：文字走声明式 tween（复刻原版 M8 示例的
+        /// 观感，从右侧屏幕外滑入、向左移出）；粒子环复刻原版的 24 点旋转扩散
+        /// ——点的半径要恒定 6px，用 scale 会把点一起放大，所以改用 ctx.onFrame
+        /// 逃生舱逐帧只改位置（脚本仍只执行一次，元素树与缓存不重建）。
+        /// 粒子比文字晚 2 秒出现：onFrame 回调只给 elapsedMs、没有 delay 参数
+        /// （只有 tween 的轨道有 delay），因此自行扣掉 2000ms 的起始偏移。
         /// </summary>
         public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo()
         {
@@ -67,9 +69,11 @@ namespace BiliBili.UWP.Helper
             {
                 new ScriptDanmakuModel
                 {
-                    id = "demo-scroll-text",
+                    // 单条脚本：文字（tween）+ 粒子环（onFrame 逃生舱）写在一条里，
+                    // 与原版 M8 示例「一条脚本画完整个效果」的形态一致。
+                    id = "demo-m8-sample",
                     stime = 1,
-                    duration = 4,
+                    duration = 7,
                     lang = LangJs,
                     code = "var label = ctx.createText('脚本弹幕已生效', {"
                         + " font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
@@ -78,14 +82,7 @@ namespace BiliBili.UWP.Helper
                         + "  x: { fromValue: ctx.width + 120, toValue: -120,"
                         + "       easing: 'Linear' }"
                         + "}, { lifeTime: 4 });"
-                },
-                new ScriptDanmakuModel
-                {
-                    id = "demo-particles",
-                    stime = 3,
-                    duration = 5,
-                    lang = LangJs,
-                    code = "var count = 24;"
+                        + "var count = 24;"
                         + "var cx = ctx.width / 2;"
                         + "var cy = ctx.height / 2;"
                         + "var dots = [];"
@@ -94,10 +91,13 @@ namespace BiliBili.UWP.Helper
                         + "  dot.graphics.beginFill(0xFF66CC, 1);"
                         + "  dot.graphics.drawCircle(0, 0, 6);"
                         + "  dot.graphics.endFill();"
+                        + "  dot.visible = false;"
                         + "  dots.push(dot);"
                         + "}"
                         + "ctx.onFrame(function (frameCtx, elapsedMs) {"
-                        + "  var p = Math.min(1, elapsedMs / 3000);"
+                        + "  var local = elapsedMs - 2000;"
+                        + "  if (local < 0) { return; }"
+                        + "  var p = Math.min(1, local / 3000);"
                         + "  var radius = 40 + p * 160;"
                         + "  for (var i = 0; i < count; i++) {"
                         + "    var angle = i / count * Math.PI * 2 + p * Math.PI * 2;"
