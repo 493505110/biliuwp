@@ -740,18 +740,27 @@ test('D7 两条内置示例仍是声明式 tween，能渲染出画面且到点�
             id: 'demo-scroll-text', stime: 1, duration: 4, lang: 'js',
             code: "var label = ctx.createText('脚本弹幕已生效', { font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
                 + 'label.y = Math.round(ctx.height / 2 - 19);'
-                + "ctx.tween(label, {  x: { toValue: ctx.width, easing: 'Linear' }}, { lifeTime: 4 });"
+                + 'ctx.tween(label, {'
+                + "  x: { fromValue: ctx.width + 120, toValue: -120, easing: 'Linear' }"
+                + '}, { lifeTime: 4 });'
         },
         {
             id: 'demo-particles', stime: 3, duration: 5, lang: 'js',
-            code: 'var count = 12;var cx = ctx.width / 2;var cy = ctx.height / 2;for (var i = 0; i < count; i++) {'
-                + '  var angle = i / count * Math.PI * 2;  var dot = ctx.createShape();'
-                + '  dot.graphics.beginFill(0xFF66CC, 1);  dot.graphics.drawCircle(0, 0, 6);  dot.graphics.endFill();'
-                + '  dot.x = cx;  dot.y = cy;  ctx.tween(dot, {'
-                + "    x: { fromValue: cx, toValue: cx + Math.cos(angle) * 200,         easing: 'SineEaseOut' },"
-                + "    y: { fromValue: cy, toValue: cy + Math.sin(angle) * 200,         easing: 'SineEaseOut' },"
-                + '    alpha: { fromValue: 1, toValue: 0,         easing: \'QuadraticEaseIn\' }'
-                + '  }, { lifeTime: 3 });}'
+            code: 'var ring = ctx.createShape();'
+                + 'for (var i = 0; i < 24; i++) {'
+                + '  var angle = i / 24 * Math.PI * 2;'
+                + '  ring.graphics.beginFill(0xFF66CC, 1);'
+                + '  ring.graphics.drawCircle(Math.cos(angle) * 40, Math.sin(angle) * 40, 6);'
+                + '  ring.graphics.endFill();'
+                + '}'
+                + 'ring.x = ctx.width / 2;'
+                + 'ring.y = ctx.height / 2;'
+                + 'ctx.tween(ring, {'
+                + "  rotation: { fromValue: 0, toValue: 360, easing: 'Linear' },"
+                + "  scaleX: { fromValue: 1, toValue: 5, easing: 'Linear' },"
+                + "  scaleY: { fromValue: 1, toValue: 5, easing: 'Linear' },"
+                + "  alpha: { fromValue: 1, toValue: 0, easing: 'Linear' }"
+                + '}, { lifeTime: 3 });'
         }
     ];
 

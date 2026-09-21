@@ -263,6 +263,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
    - **D4 复合层**：静止复合元素每帧被重烘一整张视口大小的层（60 帧 60 次）。改为只在 `structural || compositeDirty || childrenChanged` 时重烘，并在重建后清掉 `needsCache` / `compositeDirty`。
    - **D5 缓存失效**：`fontsize` 等**内容类**属性被当成变换类复用缓存，字号补间完全不可见。改为按 `TRANSFORM_ONLY_KEYS` 白名单分流，未命中即 `invalidateElementCache`。
    - **D6 seek 与摘除顺序**：元素被整批释放后向后 seek 回窗口内不重建（画面空白），以及 `releaseItemElement` 先标 `expired` 导致最后一帧像素入不了擦除队列（永久残影）。改为 `rebuildItemElementsForSeek` 按进度重建（脚本仍只多跑一次、不逐帧重跑），并把摘除顺序固定为「先 `detachElement` 再标 `expired`」。
+10. **内置示例复刻原版 M8 观感（已落地）**。保留模式重写时两条示例的观感与原版 M8 示例走样，现已改回：`demo-scroll-text` 恢复**从右侧屏幕外滑入、向左移出**（`fromValue: ctx.width + 120` → `toValue: -120`，端点与原版 `(1 - progress) * (ctx.width + 240) - 120` 一致）；`demo-particles` 改回 **24 个点**，并把 24 个点画进**同一个 shape 的本地坐标**（环半径 40、点半径 6），用 `rotation` + `scaleX/scaleY` + `alpha` 三条补间同时表达旋转、扩散与淡出——一个元素、零逐帧计算。取舍：扩散由 `scale` 实现，所以点半径会随环一起放大（6 → 30px），原版是位置驱动、点大小恒定；要严格恒定需改用 `ctx.onFrame` 逃生舱。行为套件 `D7` 内嵌的示例副本已同步更新。
 
 测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、`ctx` 字段、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
 
