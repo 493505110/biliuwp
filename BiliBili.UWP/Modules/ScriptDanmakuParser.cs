@@ -10,8 +10,12 @@ namespace BiliBili.UWP.Modules
     /// </summary>
     public static class ScriptDanmakuParser
     {
-        /// <summary>脚本未声明 duration 时使用的默认时长（秒）。</summary>
-        public const double DefaultDurationSeconds = 3;
+        /// <summary>
+        /// duration 缺省或非正数时的取值：不设时间窗（秒）。
+        /// 原版 M8 没有条目窗口，元素寿命由脚本的 lifeTime 决定；
+        /// 宿主只保留一个防呆上限（<c>MAX_ITEM_WINDOW_MS</c>）。
+        /// </summary>
+        public const double UnboundedDurationSeconds = 0;
 
         /// <summary>支持的最大时长（秒），避免脚本声明超大值导致长期占位。</summary>
         public const double MaxDurationSeconds = 600;
@@ -74,7 +78,8 @@ namespace BiliBili.UWP.Modules
                 var duration = item.duration;
                 if (double.IsNaN(duration) || double.IsInfinity(duration) || duration <= 0)
                 {
-                    duration = DefaultDurationSeconds;
+                    // 缺省 / 非正数 = 不设时间窗，交给宿主按兜底上限处理。
+                    duration = UnboundedDurationSeconds;
                 }
                 else if (duration > MaxDurationSeconds)
                 {

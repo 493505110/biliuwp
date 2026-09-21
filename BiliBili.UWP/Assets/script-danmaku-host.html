@@ -44,7 +44,10 @@
             // 整屏 clearSurface() 只出现在「整幅画面作废」的三条路径上：tick 的隐藏分支、
             // stopRunning、以及 reset 整批替换条目时（被丢弃的元素不会再进擦除队列）。
 
-            var DEFAULT_DURATION_MS = 3000;
+            // 条目未声明 duration 时的兜底上限（毫秒）。duration 缺省或非正数
+            // 表示「不设时间窗」——原版 M8 没有条目窗口，元素寿命由脚本的
+            // lifeTime 决定，这里只留一个防呆上限，避免脚本永久占位。
+            var MAX_ITEM_WINDOW_MS = 600000;
             var DEFAULT_LIFE_TIME_SECONDS = 3;
             var MAX_COMPILE_ERROR_REPORTS = 8;
             var MAX_RUNTIME_ERROR_REPORTS = 8;
@@ -669,6 +672,13 @@
                 return isNaN(seconds) ? fallbackSeconds : Math.max(0, seconds);
             }
 
+            // lifeTime 的「声明值」：null = 未声明（调用方用默认 3 秒），
+            // 0 或负数原样返回（调用方按「常驻」处理，见 createTween）。
+            function readDeclaredSeconds(config, name) {
+                var seconds = readNumberMember(config, name);
+                return isNaN(seconds) ? null : seconds;
+            }
+
             function readTrackDurationMs(config, fallbackSeconds) {
                 var milliseconds = readNumberMember(config, "lifeTimeMs");
                 if (!isNaN(milliseconds)) {
@@ -837,14 +847,19 @@
                     throw new Error("tween 需要补间配置");
                 }
 
-                var lifeTimeSeconds = readSeconds(config, "lifeTime", DEFAULT_LIFE_TIME_SECONDS);
-                if (options && typeof options === "object") {
-                    lifeTimeSeconds = readSeconds(options, "lifeTime", lifeTimeSeconds);
+                // lifeTime 的两种语义（与 M8 对齐）：未声明 = 默认 3 秒；
+                // 声明 0 或负数 = 常驻（元素活到条目窗口兜底上限，由宿主回收）。
+                var declaredLifeTimeSeconds = readDeclaredSeconds(config, "lifeTime");
+                if (declaredLifeTimeSeconds === null && options && typeof options === "object") {
+                    declaredLifeTimeSeconds = readDeclaredSeconds(options, "lifeTime");
                 }
 
-                if (lifeTimeSeconds <= 0) {
-                    lifeTimeSeconds = 0.001;
-                }
+                var unboundedLifeTime = declaredLifeTimeSeconds !== null
+                    && declaredLifeTimeSeconds <= 0;
+                // 轨道补间时长仍要有有限值：常驻元素也得先把这次补间跑完。
+                var lifeTimeSeconds = declaredLifeTimeSeconds === null || unboundedLifeTime
+                    ? DEFAULT_LIFE_TIME_SECONDS
+                    : declaredLifeTimeSeconds;
 
                 var tracks = [];
                 for (var index = 0; index < TWEEN_KEYS.length; index++) {
@@ -877,7 +892,8 @@
                     tracks: tracks,
                     // 脚本声明的寿命（毫秒）。它只作声明记录，元素的真实寿命
                     // 还要受条目窗口剩余时间约束，见 resolveElementLifeTimeMs。
-                    lifeTimeMs: lifeTimeSeconds * 1000,
+                    // lifeTime: 0 表示常驻：声明值取 Infinity，元素活到窗口兜底上限。
+                    lifeTimeMs: unboundedLifeTime ? LIFE_TIME_UNBOUNDED : lifeTimeSeconds * 1000,
                     totalMs: totalMs,
                     lastElapsedMs: -1,
                     appliedOnce: false
@@ -2438,6 +2454,37 @@
                 return anyActive;
             }
 
+            // 「还有东西要动吗」：窗口内的条目里有逐帧回调（可能自管时间），
+            // 或有元素补间尚未跑完。播放中不看这个——播放本身就要持续出帧。
+            // duration 缺省（无界窗口）下条目会长时间停在窗口内，只看
+            // 「窗口内有没有条目」会让暂停后的帧循环一直空转。
+            function hasPendingAnimation(now) {
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    if (!isInWindow(item, now)) {
+                        continue;
+                    }
+
+                    if (item.usesOnFrame) {
+                        return true;
+                    }
+
+                    var elapsed = now - item.startMs;
+                    for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
+                        var element = item.elements[elementIndex];
+                        if (element.expired || !element.hasTween || !element.motion) {
+                            continue;
+                        }
+
+                        if (elapsed < element.motion.totalMs) {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
             function frame() {
                 if (!running) {
                     return;
@@ -2448,11 +2495,14 @@
                 // 实际已无排队回调，帧循环永久冻结且 ensureRunning 救不回来。
                 try {
                     var now = currentPositionMs();
-                    var anyActive = tick(now);
+                    tick(now);
 
+                    // 自停判据不能只看「窗口内有没有条目」：无界窗口（duration
+                    // 缺省）下条目会长时间停在窗口内，暂停后帧循环会一直空转。
+                    // 改成「不在播放且没有待推进的补间/逐帧回调」才停。
                     // 自停必须在这里决定并直接返回：若在 tick 内置 running=false
                     // 却仍无条件续帧，恢复播放时会与已排队的回调形成两条并行帧链。
-                    if (!anyActive && !state.playing) {
+                    if (!state.playing && !hasPendingAnimation(now) && !dirty) {
                         running = false;
                         frameHandle = 0;
                         return;
@@ -2537,7 +2587,8 @@
                 var startMs = Math.max(0, Number(model.stime) || 0) * 1000;
                 var durationSeconds = Number(model.duration);
                 if (!isFinite(durationSeconds) || durationSeconds <= 0) {
-                    durationSeconds = DEFAULT_DURATION_MS / 1000;
+                    // 不设时间窗：元素寿命交给脚本的 lifeTime，这里只留防呆上限。
+                    durationSeconds = MAX_ITEM_WINDOW_MS / 1000;
                 }
 
                 var item = {
@@ -2606,6 +2657,14 @@
                     duration: durationSeconds,
                     stime: item.model.stime,
                     id: item.model.id,
+                    // 播放头位置（毫秒），与 M8 的 Player.time 同单位，
+                    // 便于直接移植原版脚本；注意 ctx.duration / ctx.stime 仍是秒。
+                    // 脚本每条只执行一次，激活时这里是快照；逐帧读时间用
+                    // ctx.onFrame 回调里的 frameCtx.time。
+                    time: now,
+                    // M8 的 Player.state（playing / pause / stop）。宿主没有
+                    // 独立于可见性的停止态，弹幕层隐藏时给 stop。
+                    state: visible ? (state.playing ? "playing" : "pause") : "stop",
                     // 保留模式下脚本每条只执行一次，下面两个量恒定是 0 / 0——
                     // 它们不再有逐帧语义，也不得被用来驱动任何逐帧机制。
                     t: 0,

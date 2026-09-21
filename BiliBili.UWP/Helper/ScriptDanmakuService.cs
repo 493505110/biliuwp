@@ -14,8 +14,8 @@ namespace BiliBili.UWP.Helper
     /// </summary>
     public static class ScriptDanmakuService
     {
-        /// <summary>脚本未声明 duration 时使用的默认时长（秒）。</summary>
-        public const double DefaultDurationSeconds = ScriptDanmakuParser.DefaultDurationSeconds;
+        /// <summary>duration 缺省或非正数时的取值：不设时间窗（秒）。</summary>
+        public const double UnboundedDurationSeconds = ScriptDanmakuParser.UnboundedDurationSeconds;
 
         /// <summary>支持的最大时长（秒）。</summary>
         public const double MaxDurationSeconds = ScriptDanmakuParser.MaxDurationSeconds;

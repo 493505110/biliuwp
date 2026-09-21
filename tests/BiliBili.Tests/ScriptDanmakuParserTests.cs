@@ -149,7 +149,7 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void Normalize_ZeroOrMissingDuration_FallsBackToDefault()
+        public void Normalize_ZeroOrMissingDuration_MeansUnboundedWindow()
         {
             var items = ScriptDanmakuParser.Normalize(new[]
             {
@@ -162,7 +162,7 @@ namespace BiliBili.Tests
             foreach (var item in items)
             {
                 Assert.AreEqual(
-                    ScriptDanmakuParser.DefaultDurationSeconds,
+                    ScriptDanmakuParser.UnboundedDurationSeconds,
                     item.duration,
                     item.id);
             }
@@ -259,7 +259,7 @@ namespace BiliBili.Tests
             Assert.AreEqual(0, source.duration);
             Assert.AreEqual("ts", source.lang);
             Assert.AreEqual("item-1", items[0].id);
-            Assert.AreEqual(ScriptDanmakuParser.DefaultDurationSeconds, items[0].duration);
+            Assert.AreEqual(ScriptDanmakuParser.UnboundedDurationSeconds, items[0].duration);
         }
 
         [TestMethod]

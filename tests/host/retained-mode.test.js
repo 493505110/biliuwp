@@ -836,4 +836,81 @@ test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素',
     assert.ok(painted(), '第二批弹幕应能正常画出来');
 });
 
+test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、ctx.time / ctx.state 逐帧可读', () => {
+    // duration 缺省（0）在 Parser 与宿主两侧都表示「不设时间窗」：
+    // 原版 M8 没有条目窗口，元素寿命由脚本的 lifeTime 决定，宿主只留防呆上限。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('unbounded', 1, 0,
+            "var label = ctx.createText('U', { font: 'sans-serif', fontsize: 32, color: 0xFFFFFF });"
+            + 'label.x = 10;label.y = 10;'
+            + 'window.__probe = { startTime: ctx.time, startState: ctx.state, frames: 0, lastTime: 0, lastState: "" };'
+            + 'window.__probeTweened = label;'
+            + 'var dot = ctx.createShape();'
+            + 'dot.graphics.beginFill(0xFFFFFF, 1);'
+            + 'dot.graphics.drawCircle(0, 0, 4);'
+            + 'dot.graphics.endFill();'
+            + 'dot.x = 400;dot.y = 300;'
+            + 'window.__probePlain = dot;'
+            + "ctx.tween(label, { x: { fromValue: 10, toValue: 300, easing: 'Linear' } }, { lifeTime: 0 });"
+            + 'ctx.onFrame(function (frameCtx, elapsedMs) {'
+            + '  window.__probe.frames++;'
+            + '  window.__probe.lastTime = frameCtx.time;'
+            + '  window.__probe.lastState = frameCtx.state;'
+            + '});')
+    ]);
+    host.setState(0.5, true, 1);
+    host.runFrames(120);   // 跑到约 2.5s
+
+    const probe = host.sandbox.__probe;
+    assert.ok(probe, '脚本应写入探针');
+    assert.ok(
+        Math.abs(probe.startTime - 1000) < 50,
+        'ctx.time 应是激活那一刻的播放头位置（毫秒）：' + probe.startTime);
+    assert.equal(probe.startState, 'playing', 'ctx.state 在播放时应是 playing');
+    assert.ok(probe.frames > 0, 'onFrame 应被逐帧调用');
+    assert.ok(
+        Math.abs(probe.lastTime - 2500) < 100,
+        'frameCtx.time 应跟着播放头走（毫秒）：' + probe.lastTime);
+    assert.equal(probe.lastState, 'playing');
+
+    // 寿命语义：无界窗口下未声明寿命的元素吃满兜底上限（不再是 3 秒窗口），
+    // 声明 lifeTime: 0 的元素是常驻（声明值 Infinity，实际仍受兜底上限约束）。
+    const plain = host.sandbox.__probePlain;
+    const tweened = host.sandbox.__probeTweened;
+    assert.equal(plain.lifeTimeMs, 600000, '未声明寿命的元素应活到窗口兜底上限');
+    assert.equal(tweened.declaredLifeTimeMs, Infinity, 'lifeTime: 0 应记成常驻声明');
+    assert.equal(tweened.lifeTimeMs, 600000, '常驻元素的实际寿命受兜底上限约束');
+
+    // 越过原来 3 秒默认窗口的位置，元素仍在（旧的兜底会让它在这个位置消失）。
+    host.runFrames(120);   // 到约 4.5s
+    assert.ok(!plain.expired && !tweened.expired, '无界窗口下元素不应被窗口提前摘除');
+    assert.ok(host.mainCanvas().__marks.length > 0, '4.5s 时画面应仍有内容');
+    assert.equal(host.errors().length, 0, '不应产生错误上报');
+});
+
+test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后重新拉起', () => {
+    // 旧判据是「窗口内有没有条目」，无界窗口下条目会长时间停在窗口内，
+    // 暂停后帧循环就会一直空转；现在按「有没有待推进的补间/逐帧回调」自停。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('unbounded-static', 1, 0,
+            "var label = ctx.createText('S', { font: 'sans-serif', fontsize: 32, color: 0xFFFFFF });"
+            + 'label.x = 10;label.y = 10;'
+            + "ctx.tween(label, { x: { fromValue: 10, toValue: 200, easing: 'Linear' } }, { lifeTime: 1 });")
+    ]);
+    host.setState(0.5, true, 1);
+    host.runFrames(120);   // 到约 2.5s，1 秒的补间已跑完
+    assert.ok(host.pendingFrames() > 0, '播放中帧循环应在跑');
+
+    host.setState(2.5, false, 1);
+    host.runFrames(1);
+    assert.equal(host.pendingFrames(), 0, '暂停且无待推进动画时应自停，不能空转');
+
+    host.setState(2.5, true, 1);
+    assert.ok(host.pendingFrames() > 0, '恢复播放后帧循环应重新拉起');
+});
+
 run();

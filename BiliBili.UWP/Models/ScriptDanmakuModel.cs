@@ -12,7 +12,10 @@ namespace BiliBili.UWP.Models
         /// <summary>出现时间（秒）。</summary>
         public double stime { get; set; }
 
-        /// <summary>持续时长（秒）。</summary>
+        /// <summary>
+        /// 持续时长（秒）。缺省或非正数表示不设时间窗：元素寿命由脚本的 lifeTime
+        /// 决定，宿主只保留防呆上限（见宿主 MAX_ITEM_WINDOW_MS）。
+        /// </summary>
         public double duration { get; set; }
 
         /// <summary>脚本语言："js" 或 "ts"。缺省按 js 处理。</summary>

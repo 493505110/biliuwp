@@ -191,6 +191,9 @@ namespace BiliBili.Tests
                 "duration: durationSeconds",
                 "stime: item.model.stime",
                 "id: item.model.id",
+                // M8 的 Player.time / Player.state 等价物（只读）；time 是毫秒。
+                "time: now,",
+                "state: visible ?",
                 "pause: requestPause",
                 "seek: requestSeek",
                 "navigate: requestNavigate"
@@ -323,17 +326,19 @@ namespace BiliBili.Tests
         {
             // 自停若放在 tick 内部、frame() 又无条件续帧，
             // 恢复播放时会与已排队的回调形成两条并行帧链（每帧画两次）。
+            // 自停判据是「不在播放且没有待推进的补间/逐帧回调」：只看
+            // 「窗口内有没有条目」的话，无界窗口（duration 缺省）下暂停后会一直空转。
             var source = HostSource();
-            StringAssert.Contains(source, "var anyActive = tick(now);");
+            StringAssert.Contains(source, "function hasPendingAnimation(now) {");
             StringAssert.Contains(source, "running = false;");
             StringAssert.Contains(source, "frameHandle = 0;");
 
             var frameBody = TestRepository.MethodBody(source, "function frame() {");
             Assert.IsTrue(
-                frameBody.Contains("if (!anyActive && !state.playing) {"),
+                frameBody.Contains("if (!state.playing && !hasPendingAnimation(now) && !dirty) {"),
                 "自停条件必须写在 frame() 内部");
 
-            var stopIndex = frameBody.IndexOf("if (!anyActive && !state.playing) {", System.StringComparison.Ordinal);
+            var stopIndex = frameBody.IndexOf("if (!state.playing && !hasPendingAnimation(now) && !dirty) {", System.StringComparison.Ordinal);
             var scheduleIndex = frameBody.IndexOf(
                 "frameHandle = window.requestAnimationFrame(frame);",
                 System.StringComparison.Ordinal);
@@ -809,6 +814,37 @@ namespace BiliBili.Tests
             Assert.IsFalse(
                 source.Contains("ctx.g."),
                 "保留模式示例不得再直接操作画布上下文");
+        }
+
+        [TestMethod]
+        public void Host_TreatsMissingDurationAsUnboundedWindowWithCap()
+        {
+            // duration 缺省 / 非正数 = 不设时间窗（原版 M8 没有条目窗口，
+            // 元素寿命由脚本的 lifeTime 决定）：宿主只保留一个防呆上限。
+            var source = HostSource();
+            StringAssert.Contains(source, "var MAX_ITEM_WINDOW_MS = 600000;");
+
+            var addItemBody = TestRepository.MethodBody(
+                source,
+                "function addItem(model, itemGeneration) {");
+            StringAssert.Contains(addItemBody, "durationSeconds = MAX_ITEM_WINDOW_MS / 1000;");
+            StringAssert.Contains(addItemBody, "endMs: startMs + durationSeconds * 1000,");
+        }
+
+        [TestMethod]
+        public void Host_TreatsZeroLifeTimeAsUnbounded()
+        {
+            // lifeTime 未声明 = 默认 3 秒；声明 0 / 负数 = 常驻（对齐 M8 的 lifeTime:0）。
+            var source = HostSource();
+            StringAssert.Contains(source, "function readDeclaredSeconds(config, name) {");
+
+            var tweenBody = TestRepository.MethodBody(
+                source,
+                "function createTween(element, config, options) {");
+            StringAssert.Contains(tweenBody, "var unboundedLifeTime = declaredLifeTimeSeconds !== null");
+            StringAssert.Contains(
+                tweenBody,
+                "lifeTimeMs: unboundedLifeTime ? LIFE_TIME_UNBOUNDED : lifeTimeSeconds * 1000,");
         }
     }
 }
