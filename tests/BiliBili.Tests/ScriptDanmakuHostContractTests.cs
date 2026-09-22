@@ -22,10 +22,53 @@ namespace BiliBili.Tests
             return TestRepository.ReadFile(HostPath);
         }
 
-        /// <summary>取 createContext 的函数体，用于断言脚本上下文的能力边界。</summary>
-        private static string ContextBody()
+        /// <summary>
+        /// 脚本注入的作用域名单（M8 全局名）。宿主用 new Function(name…, code)
+        /// 把这些名字作为参数注入，脚本正文因此可以直接写 $ / Player / Tween…，
+        /// 不需要（也不存在）自研的 ctx。
+        /// </summary>
+        private static readonly string[] ScriptGlobalNames =
         {
-            return TestRepository.MethodBody(HostSource(), "function createContext(item, now) {");
+            "\"$\"",
+            "\"Player\"",
+            "\"$G\"",
+            "\"Global\"",
+            "\"Tween\"",
+            "\"Utils\"",
+            "\"ScriptManager\"",
+            "\"timer\"",
+            "\"interval\"",
+            "\"clearTimer\"",
+            "\"trace\"",
+            "\"tracex\"",
+            "\"stopExecution\"",
+            "\"foreach\"",
+            "\"clone\"",
+            "\"getTimer\""
+        };
+
+        /// <summary>取脚本作用域构造函数（createScriptArgs）的函数体。</summary>
+        private static string ScriptScopeBody()
+        {
+            return TestRepository.MethodBody(HostSource(), "function createScriptScope(item) {");
+        }
+
+        /// <summary>取 M8 元件工厂对象（$）的定义体。</summary>
+        private static string DisplayFactoryBody()
+        {
+            return TestRepository.MethodBody(HostSource(), "var M8Display = {");
+        }
+
+        /// <summary>取 createItemElement 的函数体（元素归属与创建参数的落点）。</summary>
+        private static string CreateItemElementBody()
+        {
+            return TestRepository.MethodBody(HostSource(), "function createItemElement(factory, options) {");
+        }
+
+        /// <summary>取 applyCreateOptions 的函数体（M8 创建参数的落点）。</summary>
+        private static string CreateOptionsBody()
+        {
+            return TestRepository.MethodBody(HostSource(), "function applyCreateOptions(element, options) {");
         }
 
         /// <summary>取 tick 的函数体，用于断言每帧流程与可见性拦截。</summary>
@@ -37,13 +80,14 @@ namespace BiliBili.Tests
         /// <summary>
         /// 取「带脏矩形擦除」的那版 paintDirtyElements 函数体。
         /// 文件里另有一处同名函数（无擦除的早期截面），只靠函数签名会取到前者，
-        /// 因此把锚点前移到它独有的 composeElement 定义之后。
+        /// 因此把锚点前移到它独有的 composeElement 定义之后（composeElement 以
+        /// recordElementRect 收尾，遮罩的裁剪包裹也在其中）。
         /// </summary>
         private static string PaintBody()
         {
             return TestRepository.MethodBody(
                 HostSource(),
-                "blitElement(context2d, element);\n                recordElementRect(element);\n            }\n\n            function paintDirtyElements() {");
+                "recordElementRect(element);\n            }\n\n            function paintDirtyElements() {");
         }
 
         [TestMethod]
@@ -69,7 +113,12 @@ namespace BiliBili.Tests
                 "endItem: function",
                 "seek: function",
                 "visible: function",
-                "resize: function"
+                "resize: function",
+                // C# → 宿主的弹幕数据链与输入链
+                "resetComments: function",
+                "appendComments: function",
+                "pushComment: function",
+                "pushKey: function"
             })
             {
                 StringAssert.Contains(source, command, command);
@@ -101,6 +150,132 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "action: \"seek\"");
             StringAssert.Contains(source, "action: \"navigate\"");
             StringAssert.Contains(source, "action: \"pause\"");
+            // play 是本轮补的：脚本可以恢复播放（此前是唯一被主动放弃的接口）。
+            StringAssert.Contains(source, "action: \"play\"");
+        }
+
+        [TestMethod]
+        public void Host_M8PlayerPlayPauseSeekJumpAllGoThroughTheActionBridge()
+        {
+            // 四个动作必须都走 action 通道，且 Player.* 的入参单位按 M8：
+            // seek 收毫秒、jump 收 av 号 + 分P。
+            var source = HostSource();
+            var body = TestRepository.MethodBody(source, "var Player = {");
+
+            StringAssert.Contains(body, "requestPlay();");
+            StringAssert.Contains(body, "requestPause();");
+            StringAssert.Contains(body, "return requestSeek(Math.max(0, offsetMs) / 1000);");
+            StringAssert.Contains(body, "return requestNavigate(");
+
+            StringAssert.Contains(source, "function requestPlay() {");
+            StringAssert.Contains(source, "post(\"action\", { action: \"play\" });");
+
+            // jump 的 av 号只接受 "av123" / "123"，且拼成 bilibili 视频页
+            // （PlayerPage 侧的白名单只放行 bilibili.com 的 https）。
+            StringAssert.Contains(source, "var AV_NUMBER_PATTERN = /^(?:av)?(\\d+)$/i;");
+            StringAssert.Contains(
+                source,
+                "\"https://www.bilibili.com/video/av\" + match[1] + \"/?p=\" + pageNumber");
+        }
+
+        [TestMethod]
+        public void Host_ExposesTheDanmakuDataChain()
+        {
+            var source = HostSource();
+
+            // Player.commentList 是**推入的快照**，不是写死的空数组。
+            StringAssert.Contains(source, "var commentSnapshot = [];");
+            StringAssert.Contains(source, "resetComments: function () {");
+            StringAssert.Contains(source, "commentSnapshot = [];");
+            StringAssert.Contains(source, "commentSnapshot.push(normalizeComment(list[index]));");
+            StringAssert.Contains(source, "return commentSnapshot;");
+
+            // 快照字段与 M8 的 CommentData 同名同义，缺省要补齐（脚本读到的形状必须完整）。
+            var normalizeBody = TestRepository.MethodBody(source, "function normalizeComment(raw) {");
+            foreach (var field in new[]
+            {
+                "txt:",
+                "time:",
+                "color: normalizeColor(source.color),",
+                "pool:",
+                "mode:",
+                "fontSize:"
+            })
+            {
+                StringAssert.Contains(normalizeBody, field, field);
+            }
+
+            // 触发器：登记在条目上、按条目已播放时间计时、消息驱动投递。
+            StringAssert.Contains(source, "function registerItemTrigger(kind, callback, timeoutMs, up) {");
+            StringAssert.Contains(source, "item.triggers.push(trigger);");
+            StringAssert.Contains(source, "function liveTriggers(item, kind, keyUp) {");
+            StringAssert.Contains(source, "function deliverCommentTrigger(comment) {");
+            StringAssert.Contains(source, "function deliverKeyTrigger(keyCode, keyUp) {");
+            StringAssert.Contains(source, "var DEFAULT_TRIGGER_TIMEOUT_MS = 1000;");
+
+            // Player 上的三个入口接到实现上，不再是占位。
+            var playerBody = TestRepository.MethodBody(source, "var Player = {");
+            StringAssert.Contains(playerBody, "return registerItemTrigger(\"comment\", f, timeout, false);");
+            StringAssert.Contains(playerBody, "return registerItemTrigger(\"key\", f, timeout, up);");
+
+            // 条目回收 / reset 时触发器必须一起清（与定时器同一条生命周期）。
+            var deactivateBody = TestRepository.MethodBody(source, "function deactivateItem(item) {");
+            StringAssert.Contains(deactivateBody, "clearItemTriggers(item);");
+            var clearAllBody = TestRepository.MethodBody(source, "function clearAllItems() {");
+            StringAssert.Contains(clearAllBody, "clearItemTriggers(item);");
+        }
+
+        [TestMethod]
+        public void Host_KeepsKeyTriggerToTheM8KeySet()
+        {
+            // M8 文档明确只监听数字键盘 0-9、方向键、Home/End/PgUp/PgDn、W/S/A/D。
+            // 这组键与 Windows VirtualKey / DOM keyCode 同值，因此 C# 侧可整数值透传。
+            var source = HostSource();
+            StringAssert.Contains(source, "var M8_TRIGGER_KEY_CODES = {");
+            var body = TestRepository.MethodBody(source, "function deliverKeyTrigger(keyCode, keyUp) {");
+            StringAssert.Contains(body, "if (!M8_TRIGGER_KEY_CODES[keyCode]) {");
+            StringAssert.Contains(body, "return;");
+
+            // 键值必须覆盖 M8 文档列出的那组（左/上/右/下、Home、End、PgUp、PgDn、W、A、S、D）。
+            var keyBody = TestRepository.MethodBody(source, "var M8_TRIGGER_KEY_CODES = {");
+            foreach (var code in new[] { "33", "34", "35", "36", "37", "38", "39", "40", "65", "68", "83", "87" })
+            {
+                StringAssert.Contains(keyBody, code + ": true", "缺少 M8 允许监听的键 " + code);
+            }
+        }
+
+        [TestMethod]
+        public void Host_ImplementsPlayerSetMaskAsCompositionClipping()
+        {
+            // setMask 走合成期裁剪：只影响画到主画布上的可见范围，
+            // 元素自己的离屏缓存不受影响（不因遮罩而重建位图）。
+            var source = HostSource();
+            StringAssert.Contains(source, "function setStageMask(element) {");
+            StringAssert.Contains(source, "function applyStageMask(target) {");
+            StringAssert.Contains(source, "function traceElementClipPath(target, element) {");
+            StringAssert.Contains(source, "var stageMaskElement = null;");
+
+            var playerBody = TestRepository.MethodBody(source, "var Player = {");
+            StringAssert.Contains(playerBody, "setMask: function (obj) {");
+            StringAssert.Contains(playerBody, "setStageMask(obj);");
+
+            // 裁剪必须在 composeElement（合成期）施加，且擦除 / 整屏清空不带裁剪。
+            var composeBody = TestRepository.MethodBody(source, "function composeElement(element) {");
+            StringAssert.Contains(composeBody, "var clipped = applyStageMask(context2d);");
+            StringAssert.Contains(composeBody, "if (clipped) {");
+            StringAssert.Contains(composeBody, "context2d.restore();");
+            var flushBody = TestRepository.MethodBody(source, "function flushEraseRects(rects) {");
+            Assert.IsFalse(
+                flushBody.Contains("applyStageMask"),
+                "擦除不得带裁剪：要抹掉的正是上一帧的像素");
+            var clearBody = TestRepository.MethodBody(source, "function clearSurface() {");
+            Assert.IsFalse(
+                clearBody.Contains("applyStageMask"),
+                "整屏清空不得带裁剪，否则遮罩外的旧像素永远擦不掉");
+
+            // reset 整批作废时遮罩也要摘掉，否则下一批弹幕会被上一批的遮罩裁掉。
+            var clearAllBody = TestRepository.MethodBody(source, "function clearAllItems() {");
+            StringAssert.Contains(clearAllBody, "stageMaskElement = null;");
         }
 
         // ---- 保留模式：脚本只执行一次 ----
@@ -111,15 +286,15 @@ namespace BiliBili.Tests
             // 保留模式的根契约：整份宿主里只允许一处 new Function，
             // 且它在 compileItem 里被调用，编译结果缓存到 item.run。
             var source = HostSource();
+
+            // 「只编译一次」的可观测落点：整份宿主只有一处 new Function，
+            // 且它在 compileItem 里执行、结果缓存到 item.run。
             var occurrences = 0;
-            var index = source.IndexOf("new Function(\"ctx\", code)", System.StringComparison.Ordinal);
+            var index = source.IndexOf("new Function(", System.StringComparison.Ordinal);
             while (index >= 0)
             {
                 occurrences++;
-                index = source.IndexOf(
-                    "new Function(\"ctx\", code)",
-                    index + 1,
-                    System.StringComparison.Ordinal);
+                index = source.IndexOf("new Function(", index + 1, System.StringComparison.Ordinal);
             }
 
             Assert.AreEqual(
@@ -127,6 +302,33 @@ namespace BiliBili.Tests
                 occurrences,
                 "宿主只应在 compileItem 里编译脚本，逐帧路径不得再出现 new Function");
             StringAssert.Contains(source, "item.run = compileItem(model);");
+
+            // 注入的是 M8 的全局名，不是自研的 ctx。
+            var compileBody = TestRepository.MethodBody(
+                source,
+                "function compileItem(model) {");
+            foreach (var name in ScriptGlobalNames)
+            {
+                StringAssert.Contains(compileBody, name, "compileItem 必须注入 M8 全局名 " + name);
+            }
+        }
+
+        [TestMethod]
+        public void Host_DoesNotInjectCtxIntoScripts()
+        {
+            // 本版的决定：放弃自研的 ctx 脚本 API 面，脚本环境直接提供 M8 的
+            // 全局名（$ / Player / $G / Global / Tween / Utils / ScriptManager /
+            // timer / interval / clearTimer / trace / tracex / stopExecution /
+            // foreach / clone / getTimer）。脚本正文里的 ctx.xxx 不再有任何意义。
+            var source = HostSource();
+            Assert.IsFalse(
+                source.Contains("\"ctx\""),
+                "宿主不得再把 ctx 作为注入名（脚本环境只有 M8 全局名）");
+            Assert.IsFalse(
+                source.Contains("ctx."),
+                "宿主源码与内置示例都不应再出现 ctx. 调用");
+            StringAssert.Contains(source, "new Function(");
+            StringAssert.Contains(source, "\"$\", \"Player\", \"$G\", \"Global\", \"Tween\", \"Utils\", \"ScriptManager\",");
         }
 
         [TestMethod]
@@ -135,7 +337,9 @@ namespace BiliBili.Tests
             // 脚本体的唯一执行点是 activateItem；它又只被 updateItems 里
             // 「首次进入时间窗」的分支调用，因此同一播放过程里不会重跑。
             var source = HostSource();
-            StringAssert.Contains(source, "item.run(createContext(item, now));");
+            // 脚本作用域按 M8 全局名的顺序建出来，再 apply 给编译好的函数。
+            StringAssert.Contains(source, "item.run.apply(null, scriptArgs);");
+            StringAssert.Contains(source, "var scriptArgs = createScriptScope(item);");
 
             // 执行一次就记一次数：这是「脚本只跑一次」的可观测落点。
             var activateBody = TestRepository.MethodBody(source, "function activateItem(item, now) {");
@@ -153,104 +357,169 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void Host_ContextHasNoPerFrameFields()
+        public void Host_ScriptScopeHasNoTimeSnapshot()
         {
-            // 保留模式下脚本执行时没有任何时间推进，t/progress 恒定是 0：
-            // 它们不得再被用来驱动逐帧机制。
-            var body = ContextBody();
-            StringAssert.Contains(body, "t: 0,");
-            StringAssert.Contains(body, "progress: 0,");
+            // 保留模式下脚本执行期间没有任何时间推进：作用域里不得再塞入
+            // 「激活时刻的时间快照」这类量。要读时间只有一个入口——
+            // Player.time（getter，实时读宿主外推时钟）。
+            var body = ScriptScopeBody();
+            Assert.IsFalse(
+                body.Contains("time:"),
+                "脚本作用域不得再注入时间快照（时间只能通过 Player.time 实时读）");
+            Assert.IsFalse(
+                body.Contains("progress"),
+                "progress 之类的逐帧量已废弃，不得出现在脚本作用域里");
         }
 
         [TestMethod]
-        public void Host_ContextDoesNotExposeImmediateModeCanvas()
+        public void Host_DoesNotExposeImmediateModeCanvas()
         {
-            // 立即模式的 ctx.g 已取消：脚本只能建保留元素，不能直接拿到画布逐帧画。
+            // 立即模式的画布上下文入口已取消：脚本只能建保留元件，
+            // 不能直接拿到主画布逐帧画（那会退回立即模式）。
             var source = HostSource();
             Assert.IsFalse(
-                ContextBody().Contains("g: context2d"),
-                "保留模式的 ctx 不应再暴露 ctx.g");
-            Assert.IsFalse(
-                source.Contains("ctx.g."),
-                "宿主与内置示例都不应再使用 ctx.g");
+                source.Contains("g: context2d"),
+                "脚本作用域不得暴露 2D 上下文");
+            StringAssert.Contains(
+                source,
+                "window.scriptDanmakuHost = {",
+                "主画布只应通过宿主命令对象暴露给控件，不进脚本作用域");
         }
 
         // ---- 保留模式的元素与 tween API ----
 
         [TestMethod]
-        public void Host_ExposesDocumentedContextFields()
+        public void Host_ExposesM8PlayerSurface()
         {
-            var body = ContextBody();
+            var source = HostSource();
+            var body = TestRepository.MethodBody(source, "var Player = {");
 
-            // 设计文档 §3 约定的只读上下文。改动这里等于破坏脚本 API 契约。
-            foreach (var field in new[]
+            // Player 的方法面（M8 文档 §Player）。
+            foreach (var member in new[]
             {
-                "width: viewportWidth",
-                "height: viewportHeight",
-                "dpr: devicePixelRatioValue",
-                "duration: durationSeconds",
-                "stime: item.model.stime",
-                "id: item.model.id",
-                // M8 的 Player.time / Player.state 等价物（只读）；time 是毫秒。
-                "time: now,",
-                "state: visible ?",
-                "pause: requestPause",
-                "seek: requestSeek",
-                "navigate: requestNavigate"
+                "play: function",
+                "pause: function",
+                "seek: function",
+                "jump: function",
+                "createSound: function",
+                "setMask: function",
+                "commentTrigger: function",
+                "keyTrigger: function"
             })
             {
-                StringAssert.Contains(body, field, field);
+                StringAssert.Contains(body, member, member);
             }
+
+            // 只读量必须是**实时 getter**：Player.time 要在 interval 回调里
+            // 读到当前播放头，激活时的快照会算错（脚本就是这么用的）。
+            foreach (var getter in new[]
+            {
+                "Object.defineProperty(Player, \"time\", {",
+                "Object.defineProperty(Player, \"state\", {",
+                "Object.defineProperty(Player, \"width\", {",
+                "Object.defineProperty(Player, \"height\", {",
+                "Object.defineProperty(Player, \"videoWidth\", {",
+                "Object.defineProperty(Player, \"videoHeight\", {",
+                "Object.defineProperty(Player, \"refreshRate\", {",
+                "Object.defineProperty(Player, \"commentList\", {"
+            })
+            {
+                StringAssert.Contains(source, getter, getter);
+            }
+
+            // time 取宿主的外推时钟（毫秒），state 取 playing / pause / stop。
+            StringAssert.Contains(source, "return currentPositionMs();");
+            StringAssert.Contains(source, "return currentPlayerState();");
+
+            // refreshRate 的取值区间（M8 文档：10-500，默认 170）。
+            StringAssert.Contains(source, "var DEFAULT_REFRESH_RATE = 170;");
+            StringAssert.Contains(source, "var MIN_REFRESH_RATE = 10;");
+            StringAssert.Contains(source, "var MAX_REFRESH_RATE = 500;");
+
+            // Player.seek 的入参是毫秒（M8 文档），转发给宿主动作通道时换成秒。
+            StringAssert.Contains(body, "return requestSeek(Math.max(0, offsetMs) / 1000);");
+            StringAssert.Contains(body, "requestPause();");
         }
 
         [TestMethod]
-        public void Host_ExposesRetainedModeElementFactories()
+        public void Host_ExposesM8ElementFactories()
         {
-            var body = ContextBody();
+            var body = DisplayFactoryBody();
             foreach (var factory in new[]
             {
+                "createComment: function",
                 "createText: function",
                 "createShape: function",
+                "createCanvas: function",
+                "createButton: function",
                 "createImage: function",
-                "createLayer: function",
-                "addChild: function",
-                "removeChild: function",
-                "tween: function",
-                "onFrame: function"
+                "toIntVector: function",
+                "toNumberVector: function"
             })
             {
                 StringAssert.Contains(body, factory, factory);
             }
 
-            // 元素创建后必须自动归属当前条目，否则到期无人回收。
-            StringAssert.Contains(body, "registerItemElement(item, createTextElement(text, style))");
-            StringAssert.Contains(body, "registerItemElement(item, createShapeElement())");
-            StringAssert.Contains(body, "registerItemElement(item, createImageElement(url))");
-            StringAssert.Contains(body, "registerItemElement(item, createLayerElement(width, height))");
+            // 创建参数（M8 把坐标 / 变换 / 寿命 / 父元件 / motion 都写在
+            // options 上）统一由 applyCreateOptions 处理。
+            var optionsBody = CreateOptionsBody();
+            foreach (var option in new[]
+            {
+                "normalizeStyle(source)",
+                "readDeclaredSeconds(source, \"lifeTime\")",
+                "applyElementLifeTime(",
+                "addChildToParent(element, source.parent)",
+                "normalizeMotionConfig(source.motion)"
+            })
+            {
+                StringAssert.Contains(optionsBody, option, option);
+            }
 
-            // tween 走 M8 语义的补间引擎。
-            StringAssert.Contains(body, "return createTween(element, config, options);");
+            // 声明式 motion 必须走 elapsed 驱动的声明式补间，不能走 Tween.* 句柄
+            // （句柄有自己的时间轴，seek 回窗口内重建时会从 0 重新开始）。
+            StringAssert.Contains(optionsBody, "createTween(element, motionConfig, source);");
+
+            // 元素创建必须**先注册再套创建参数**：registerItemElement 会把
+            // declaredLifeTimeMs 重置成「未声明」，反了会让寿命声明失效；
+            // 且声明式 motion 需要 element.ownerItem 才能挂到条目上。
+            var createBody = CreateItemElementBody();
+            Assert.IsTrue(
+                createBody.IndexOf("registerItemElement(item, factory(item))", System.StringComparison.Ordinal)
+                    < createBody.IndexOf("applyCreateOptions(element, options);", System.StringComparison.Ordinal),
+                "createItemElement 必须先 registerItemElement 再 applyCreateOptions");
         }
 
         [TestMethod]
-        public void Host_OnFrameIsDocumentedAsALastResort()
+        public void Host_KeepsTimersScopedToTheItem()
         {
-            // onFrame 是逃生舱，注册后该条目退回逐帧调用。
-            // 缺了这条约束，后来者会把它当成首选写法，单条脚本的每帧开销
-            // 就不再只与「脏元素数」相关。
-            var body = ContextBody();
-            StringAssert.Contains(body, "onFrame: function (fn) {");
-            StringAssert.Contains(body, "item.usesOnFrame = typeof fn === \"function\";");
-            StringAssert.Contains(body, "item.frameFn = item.usesOnFrame ? fn : null;");
+            // timer / interval 必须登记在条目上，条目回收 / reset / seek 越窗时
+            // 统一清掉。缺了这条，定时器会在条目销毁后继续跑——这正是 M8 用
+            // ScriptManager.clearTimer() 解决的问题。
+            var source = HostSource();
+            StringAssert.Contains(source, "function scheduleItemTimer(closure, delayMs, oneShot, times) {");
+            StringAssert.Contains(source, "item.scheduledTimers.push(timer);");
+            StringAssert.Contains(source, "function clearItemScheduledTimers(item) {");
+            StringAssert.Contains(source, "function runItemTimers(item, deltaMs) {");
 
-            // 逃生舱只应在 advanceItem 里被调用，且失败后要自行摘掉，
-            // 否则坏脚本会每帧抛错刷屏。
-            var advanceBody = TestRepository.MethodBody(
-                HostSource(),
-                "function advanceItem(item, now) {");
-            StringAssert.Contains(advanceBody, "if (item.usesOnFrame && typeof item.frameFn === \"function\") {");
-            StringAssert.Contains(advanceBody, "item.usesOnFrame = false;");
-            StringAssert.Contains(advanceBody, "item.frameFn = null;");
+            // 条目停用（窗口结束 / reset）必须清定时器。
+            var deactivateBody = TestRepository.MethodBody(
+                source,
+                "function deactivateItem(item) {");
+            StringAssert.Contains(deactivateBody, "clearItemTimers(item);");
+
+            // 整批作废（reset）同样要清。
+            var clearAllBody = TestRepository.MethodBody(source, "function clearAllItems() {");
+            StringAssert.Contains(clearAllBody, "clearItemTimers(item);");
+
+            // 还有定时器在跑时不得自停，否则暂停后定时器会被「冻住」。
+            var pendingBody = TestRepository.MethodBody(source, "function hasPendingAnimation(now) {");
+            StringAssert.Contains(pendingBody, "if (item.scheduledTimers.length > 0) {");
+
+            // ScriptManager 的三个方法都要在（clearTimer 是 M8 脚本依赖的收尾动作）。
+            var managerBody = TestRepository.MethodBody(source, "var ScriptManager = {");
+            StringAssert.Contains(managerBody, "clearTimer: function () {");
+            StringAssert.Contains(managerBody, "clearEl: function () {");
+            StringAssert.Contains(managerBody, "clearTrigger: function () {");
         }
 
         [TestMethod]
@@ -541,10 +810,11 @@ namespace BiliBili.Tests
                 flushIndex >= 0 && composeIndex > flushIndex,
                 "擦除必须早于本帧合成");
 
-            // 整屏 clearSurface 只允许出现在「整幅画面作废」的三条路径上：
-            // tick 的隐藏分支、stopRunning、以及 reset 整批替换条目时
-            // （被丢弃的元素不会再进擦除队列，必须靠 reset 自己清屏）。
-            // 逐帧路径不得整屏清空。
+            // 整屏 clearSurface 只允许出现在「整幅画面作废」的四条路径上：
+            // tick 的隐藏分支、stopRunning、reset 整批替换条目时（被丢弃的元素
+            // 不会再进擦除队列，必须靠 reset 自己清屏），以及换遮罩时
+            // （可见区域变了，已画像素全部作废）。
+            // 逐帧合成路径不得整屏清空。
             var callSites = new System.Collections.Generic.List<int>();
             var index = source.IndexOf("clearSurface();", System.StringComparison.Ordinal);
             while (index >= 0)
@@ -553,10 +823,12 @@ namespace BiliBili.Tests
                 index = source.IndexOf("clearSurface();", index + 1, System.StringComparison.Ordinal);
             }
 
+            // 第四条路径是本轮新增的：换遮罩（Player.setMask）改变了可见区域，
+            // 主画布上已有像素全部作废，必须整屏清掉再重合成。
             Assert.AreEqual(
-                3,
+                4,
                 callSites.Count,
-                "clearSurface() 应只有 tick 隐藏分支、stopRunning、reset 三处调用点");
+                "clearSurface() 应只有 tick 隐藏分支、stopRunning、reset、setStageMask 四处调用点");
 
             var resetStart = source.IndexOf("reset: function (", System.StringComparison.Ordinal);
             Assert.IsTrue(resetStart >= 0, "未找到 reset 命令");
@@ -569,13 +841,16 @@ namespace BiliBili.Tests
             var tickStart = source.IndexOf("function tick(now) {", System.StringComparison.Ordinal);
             var stopBody = TestRepository.MethodBody(source, "function stopRunning() {");
             var stopStart = source.IndexOf("function stopRunning() {", System.StringComparison.Ordinal);
+            var maskBody = TestRepository.MethodBody(source, "function setStageMask(element) {");
+            var maskStart = source.IndexOf("function setStageMask(element) {", System.StringComparison.Ordinal);
             foreach (var callSite in callSites)
             {
                 Assert.IsTrue(
                     (callSite > tickStart && callSite < tickStart + tickBody.Length)
                         || (callSite > stopStart && callSite < stopStart + stopBody.Length)
-                        || (callSite > resetStart && callSite < resetStart + 900),
-                    "clearSurface() 只允许出现在隐藏 / 停止 / reset 三条整幅作废的路径上");
+                        || (callSite > resetStart && callSite < resetStart + 900)
+                        || (callSite > maskStart && callSite < maskStart + maskBody.Length),
+                    "clearSurface() 只允许出现在隐藏 / 停止 / reset / 换遮罩四条整幅作废的路径上");
             }
         }
 
@@ -772,6 +1047,48 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "post(\"ready\");");
         }
 
+        // ---- 桥协议：宿主 ↔ 控件的动作与数据链（本轮新增）----
+
+        [TestMethod]
+        public void Control_ForwardsPlayActionToTheHostEvent()
+        {
+            // 宿主发 action: "play"，控件必须转成事件抛给 PlayerPage。
+            var source = TestRepository.ReadFile(ControlPath);
+            StringAssert.Contains(source, "case \"play\":");
+            StringAssert.Contains(source, "ScriptDanmakuActionKind.Play");
+            StringAssert.Contains(source, "Play,\n        Seek,");
+
+            // 事件参数注释也要跟上（动作集合变了）。
+            StringAssert.Contains(source, "暂停 / 播放 / 定位 / 导航");
+        }
+
+        [TestMethod]
+        public void Control_PushesDanmakuSnapshotWithTheDocumentedCommands()
+        {
+            // C# → 宿主的弹幕数据链命令名必须与宿主逐一对应。
+            var source = TestRepository.ReadFile(ControlPath);
+            StringAssert.Contains(source, "public Task PushDanmakuBatchAsync(");
+            StringAssert.Contains(source, "public Task PushSentCommentAsync(");
+            StringAssert.Contains(source, "public Task PushKeyEventAsync(int keyCode, bool isKeyUp)");
+
+            StringAssert.Contains(source, "window.scriptDanmakuHost.resetComments();");
+            StringAssert.Contains(source, "window.scriptDanmakuHost.appendComments([");
+            StringAssert.Contains(source, "window.scriptDanmakuHost.pushComment(");
+            StringAssert.Contains(source, "window.scriptDanmakuHost.pushKey(");
+
+            // 分块上限：按字节预算切分，单次载荷不能无限大（与 append 分块同一口径）。
+            // 不按固定条数切：单条弹幕长度可以差一个量级。
+            StringAssert.Contains(source, "private const string CommentBatchPrefix = \"window.scriptDanmakuHost.appendComments([\";");
+            StringAssert.Contains(source, "builder.Length + json.Length + CommentBatchSuffix.Length > MaxChunkPayloadLength");
+
+            // 快照要保留并在 reset 之后补投：脚本可能是后于弹幕池加载的。
+            StringAssert.Contains(source, "private readonly List<ScriptDanmakuComment> danmakuSnapshot =");
+            StringAssert.Contains(source, "await PushDanmakuSnapshotAsync(version);");
+
+            // 池子没变时跳过重复投递（分页加载会反复走 SetDanmakuPool）。
+            StringAssert.Contains(source, "ReferenceEquals(list, lastPushedComments)");
+        }
+
         [TestMethod]
         public void Control_KeepsWebViewLazyUntilContentExists()
         {
@@ -799,21 +1116,28 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void BuiltInDemosAreWrittenInRetainedMode()
+        public void BuiltInDemosAreWrittenAgainstTheM8Api()
         {
-            // 内置示例是「保留模式怎么写」的样板，不能退回每帧重算坐标。
-            // 单条脚本里同时演示声明式 tween（文字）与 onFrame 逃生舱（粒子）。
+            // 内置示例是「M8 脚本怎么写」的样板：脚本只执行一次、动画交给
+            // 声明式 motion 或 M8 的 interval 驱动，不能退回每帧重算坐标。
             var source = TestRepository.ReadFile("BiliBili.UWP/Helper/ScriptDanmakuService.cs");
-            StringAssert.Contains(source, "ctx.createText(");
-            StringAssert.Contains(source, "ctx.createShape()");
-            StringAssert.Contains(source, "ctx.tween(");
-            StringAssert.Contains(source, "ctx.onFrame(");
+
+            // 必须写在 M8 的 API 面上。
+            StringAssert.Contains(source, "$.createComment(");
+            StringAssert.Contains(source, "$.createShape(");
+            StringAssert.Contains(source, "motion: {");
+            StringAssert.Contains(source, "interval(function () {");
+            StringAssert.Contains(source, "Player.time");
+            StringAssert.Contains(source, "Player.width");
+            StringAssert.Contains(source, "Player.height");
+
+            // 不得再用自研 ctx / 立即模式 / scale 扩散（那会把点一起放大）。
+            Assert.IsFalse(source.Contains("ctx."), "内置示例不得再用自研的 ctx API");
+            Assert.IsFalse(source.Contains("ctx.onFrame"), "onFrame 逃生舱已取消，逐帧走 M8 的 interval");
+            Assert.IsFalse(source.Contains("scaleX"), "示例不得用 scale 扩散：那会把点一起放大");
             Assert.IsFalse(
                 source.Contains("ctx.progress"),
-                "保留模式示例不得再用 ctx.progress 逐帧重算坐标");
-            Assert.IsFalse(
-                source.Contains("ctx.g."),
-                "保留模式示例不得再直接操作画布上下文");
+                "保留模式示例不得再用逐帧 progress 重算坐标");
         }
 
         [TestMethod]
@@ -834,17 +1158,26 @@ namespace BiliBili.Tests
         [TestMethod]
         public void Host_TreatsZeroLifeTimeAsUnbounded()
         {
-            // lifeTime 未声明 = 默认 3 秒；声明 0 / 负数 = 常驻（对齐 M8 的 lifeTime:0）。
+            // lifeTime 未声明 = 不动元素寿命（活到条目窗口兜底上限）；
+            // 声明 0 / 负数 = 常驻（对齐 M8 的 lifeTime: 0）。
             var source = HostSource();
             StringAssert.Contains(source, "function readDeclaredSeconds(config, name) {");
 
             var tweenBody = TestRepository.MethodBody(
                 source,
                 "function createTween(element, config, options) {");
-            StringAssert.Contains(tweenBody, "var unboundedLifeTime = declaredLifeTimeSeconds !== null");
+            StringAssert.Contains(tweenBody, "var unboundedLifeTime = declaredSeconds !== null && declaredSeconds <= 0;");
             StringAssert.Contains(
                 tweenBody,
-                "lifeTimeMs: unboundedLifeTime ? LIFE_TIME_UNBOUNDED : lifeTimeSeconds * 1000,");
+                "lifeTimeMs: unboundedLifeTime\n                        ? LIFE_TIME_UNBOUNDED");
+
+            // 「没有声明」时绝不能把补间时长的缺省 3 秒当成寿命声明写进去：
+            // applyElementLifeTime 取声明最大值，会把脚本真正声明的 lifeTime: 2
+            // 顶成 3000ms（见 tests/host/retained-mode.test.js 的 D3 第二例）。
+            StringAssert.Contains(
+                tweenBody,
+                "if (motion.lifeTimeMs !== null) {",
+                "未声明寿命时不得调用 applyElementLifeTime");
         }
     }
 }

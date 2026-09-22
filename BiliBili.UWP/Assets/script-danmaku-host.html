@@ -33,7 +33,7 @@
             "use strict";
 
             // 渲染模型：保留模式（设计文档 §3.1）。
-            // 每条脚本只执行一次，执行期间用 ctx.create* 建出保留元素树并声明 tween；
+            // 每条脚本只执行一次，执行期间用 M8 的 $ / Player / Tween 建出保留元素树并声明补间；
             // 之后每帧只推进 tween 插值、更新属性、重绘脏元素。
             // 禁止每帧重跑脚本绘制：真实 M8 作品脚本里没有逐帧重绘代码，
             // 立即模式只会让画面停在第一帧（理由见设计文档 §3.1）。
@@ -61,6 +61,20 @@
             var DIRTY_RECT_PADDING = 2;
             // 元素寿命的「不设上限」取值：条目窗口剩余时间才是真正的上限。
             var LIFE_TIME_UNBOUNDED = Infinity;
+            // 声明式 motion 里 repeat: 0 / 负数按无限重复处理，展开时用它兜住；
+            // 真正的收口是元素寿命（元素到期时补间随之停止）。
+            var MAX_REPEAT_EXPANSION = 1000;
+            // 单帧最多推进多少「播放时间」。暂停 / seek / 长卡顿后帧增量可能极大，
+            // 不钳制会让 Tween.* 句柄的时间轴一步跳完（与 M8 的逐帧推进语义不符）。
+            var MAX_FRAME_DELTA_MS = 250;
+            // Player.refreshRate 的取值区间（M8 文档：10-500，默认 170，精度 0.1 秒）。
+            var DEFAULT_REFRESH_RATE = 170;
+            var MIN_REFRESH_RATE = 10;
+            var MAX_REFRESH_RATE = 500;
+            // Player.jump 的 av 号解析：只接受 "av123" / "123" 两种写法。
+            var AV_NUMBER_PATTERN = /^(?:av)?(\d+)$/i;
+            // commentTrigger / keyTrigger 的默认监听时长（M8 文档：1000ms）。
+            var DEFAULT_TRIGGER_TIMEOUT_MS = 1000;
 
             var state = {
                 positionMs: 0,
@@ -76,6 +90,14 @@
             var elements = [];
             var rootElement = createRetainedElement("group");
             var generation = 0;
+            // 当前正在执行脚本 / 定时器回调 / 触发器回调的条目：$、interval、
+            // commentTrigger 等全局函数靠它归属元素、定时器与触发器。
+            var activeItem = null;
+            // 弹幕快照（Player.commentList）。由 C# 侧推入，resetComments/appendComments 维护。
+            var commentSnapshot = [];
+            var nextTriggerId = 0;
+            // 舞台遮罩（M8 的 Player.setMask）：非空时整块画布裁剪到该元件的形状里。
+            var stageMaskElement = null;
             var visible = true;
             var running = false;
             var frameHandle = 0;
@@ -216,6 +238,13 @@
 
             function requestPause() {
                 post("action", { action: "pause" });
+                return true;
+            }
+
+            // 播放动作：与 pause / seek / navigate 走同一条宿主→C# 的 action 通道。
+            // 由 PlayerPage 决定是恢复播放还是被拦截链拦下。
+            function requestPlay() {
+                post("action", { action: "play" });
                 return true;
             }
 
@@ -502,8 +531,13 @@
                         matrix: null,
                         filters: null
                     },
-                    children: [],
-                    parent: null,
+                    // treeParent / childList 是元素树的真实字段；对脚本暴露的
+                    // element.parent / element.children 是它们的读写访问器
+                    // （见 defineTreeProperties）。不能直接用 parent/children 存树，
+                    // 否则 attachElement 里 element.parent = target 会触发访问器
+                    // 递归调用 addChildToParent。
+                    childList: [],
+                    treeParent: null,
                     ownerItem: null,
                     expired: false,
                     // 逐属性记脏：元素被整体标脏（例如 insertItem 时）后，
@@ -521,6 +555,8 @@
                     // 之后整体作为一个元素做变换合成，子树不再逐帧绘制。
                     composite: null,
                     compositeDirty: false,
+                    // 复合层位图在元素本地坐标系里的原点与尺寸（子树内容决定）。
+                    compositeBounds: null,
                     // 元素在主画布上「上一帧画到哪」的包围盒。脏矩形擦除、以及
                     // 元素到期/隐藏时的残影清理都依赖它（没有它就只能整屏清屏）。
                     lastPaintedRect: null,
@@ -537,8 +573,7 @@
                     declaredLifeTimeMs: LIFE_TIME_UNBOUNDED,
                     // 寿命上限（毫秒）= min(declaredLifeTimeMs, 条目窗口剩余时间)。
                     lifeTimeMs: LIFE_TIME_UNBOUNDED,
-                    motion: null,
-                    onFrame: null
+                    motion: null
                 };
 
                 var names = ["x", "y", "z", "alpha", "scaleX", "scaleY",
@@ -548,6 +583,9 @@
                     Object.defineProperty(element, names[index], propertyDescriptor(names[index]));
                 }
 
+                // M8 元素 API：remove / setStyle 与 parent / children 访问器。
+                attachElementApi(element);
+                defineTreeProperties(element);
                 return element;
             }
 
@@ -645,11 +683,20 @@
 
             // ---- tween 补间 ----
             //
-            // 语义对齐 M8 移植层（Scripting/M8Motion.cs 的 CreateSegment）：
-            //   { x: { fromValue: -50, toValue: 320, easing: "Linear", lifeTime: 4, startDelay: 0 }, alpha: {...} }
+            // 补间统一成「段（segment）列表」模型：每段有自己的起始偏移与时长，
+            // 段内按属性记一条轨道 { key, from, to, easing }。M8 的 ITween 组合子
+            // （serial / parallel / delay / scale / reverse / repeat / slice）都是
+            // 在这个列表上做变换，最终仍由同一条逐帧插值路径推进。
+            //
+            // 为什么不用「每条属性一条轨道」的模型：serial 需要同一属性先后跑两段，
+            // 老模型在第二段尚未开始时会把它自己的起始值写回去（同帧内后者覆盖前者）。
+            // 现在按「取最后一个已开始的段」取值，串行/并行都自然成立。
+            //
+            // 声明式 motion（M8 的 `motion: {x: {fromValue, toValue, lifeTime, ...}}`）
+            // 会被展开成等价的段列表：repeat 展开成连续多段，startDelay 变成段的偏移。
             // 外层 lifeTime 是补间时长（秒）的缺省值，同时也是元素的寿命；
             // 属性级 lifeTime 覆盖外层；startDelay / startDelayMs 是延迟。
-            // 属性级 fromValue 必填（缺省即报错禁用该条），toValue 缺省等于 fromValue。
+            // 属性级 fromValue 缺省时从元素当前值出发。
             var TWEEN_KEYS = ["x", "y", "z", "alpha", "rotation", "rotationX", "rotationY",
                 "rotationZ", "scaleX", "scaleY", "fontsize"];
 
@@ -697,10 +744,16 @@
                 return Math.max(0, readSeconds(config, "startDelay", 0) * 1000);
             }
 
-            function readRepeat(config) {
+            // repeat 的次数：缺省 1；0 或负数按「无限重复」处理（由元素寿命收口，
+            // 与 M8 的 ITween 组合子语义一致），实际展开时用 MAX_REPEAT_EXPANSION 兜住。
+            function readRepeatCount(config) {
                 var repeat = readNumberMember(config, "repeat");
-                if (isNaN(repeat) || repeat <= 0) {
+                if (isNaN(repeat)) {
                     return 1;
+                }
+
+                if (repeat <= 0) {
+                    return Infinity;
                 }
 
                 return Math.floor(repeat);
@@ -732,7 +785,7 @@
             function invalidateElementCache(element) {
                 element.needsCache = true;
                 element.painted = false;
-                var parent = element.parent;
+                var parent = element.treeParent;
                 if (parent && parent !== rootElement) {
                     parent.needsCache = true;
                 }
@@ -760,7 +813,7 @@
             }
 
             // fromValue 缺省时按元素的当前值推导（原版 M8 的常见写法
-            // { toValue: ctx.width } 没有 fromValue）。fontsize 取文本样式上的值，
+            // { toValue: Player.width } 没有 fromValue）。fontsize 取文本样式上的值，
             // 其余属性取元素自己的属性；元素上本来就没有该属性时视为 0。
             function readTweenTargetValue(element, key) {
                 if (key === "fontsize") {
@@ -771,39 +824,7 @@
                 return value === undefined || value === null ? 0 : value;
             }
 
-            function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element) {
-                if (!propertyConfig || typeof propertyConfig !== "object") {
-                    return null;
-                }
-
-                var fromValue = propertyConfig.fromValue;
-                if (fromValue === undefined || fromValue === null) {
-                    // 缺省即从元素当前值出发，不再报错禁用该条。
-                    fromValue = readTweenTargetValue(element, key);
-                }
-
-                var toValue = propertyConfig.toValue;
-                if (toValue === undefined || toValue === null) {
-                    toValue = fromValue;
-                }
-
-                var from = Number(fromValue);
-                var to = Number(toValue);
-                if (!isFinite(from) || !isFinite(to)) {
-                    throw new Error("tween " + key + " 的 fromValue/toValue 不是有效数字");
-                }
-
-                var durationMs = readTrackDurationMs(propertyConfig, lifeTimeSeconds);
-                return {
-                    key: key,
-                    from: from,
-                    to: to,
-                    durationMs: durationMs > 0 ? durationMs : 1,
-                    delayMs: readTrackDelayMs(propertyConfig),
-                    repeat: readRepeat(propertyConfig),
-                    easing: resolveEasing(propertyConfig.easing)
-                };
-            }
+            // ---- 段（segment）模型 ----
 
             // 元素寿命 = min(脚本声明的寿命, 条目窗口剩余时间)。
             // 没有任何 tween 声明 lifeTime 时，寿命就等于窗口剩余时间——
@@ -838,17 +859,83 @@
                 element.lifeTimeMs = item ? resolveElementLifeTimeMs(item, declared) : declared;
             }
 
-            function createTween(element, config, options) {
-                if (!element) {
-                    throw new Error("tween 需要一个元素");
+            // 段：{ offsetMs, durationMs, repeat, tracks: [{key, from, to, easing}] }。
+            // 元素当前值 = 「已开始的段里最后一个」在本地时间上的插值结果。
+            // 串行补间因此只要把后一段的 offset 排到前一段之后即可。
+            function createSegment(offsetMs, durationMs, tracks) {
+                var offset = Math.max(0, toFiniteNumber(offsetMs, 0));
+                var duration = Math.max(1, toFiniteNumber(durationMs, 1));
+                return {
+                    offsetMs: offset,
+                    durationMs: duration,
+                    repeat: 1,
+                    tracks: tracks,
+                    totalMs: offset + duration
+                };
+            }
+
+            // 深拷贝段列表：句柄之间会互相派生（repeat / reverse / delay / serial…），
+            // 共享同一批段对象会让派生操作改到源句柄（repeat 会重复插值、
+            // reverse 会把源句柄的 from/to 一起换掉）。
+            function cloneSegments(segments) {
+                var cloned = [];
+                for (var index = 0; index < segments.length; index++) {
+                    var segment = segments[index];
+                    var tracks = [];
+                    for (var trackIndex = 0; trackIndex < segment.tracks.length; trackIndex++) {
+                        var track = segment.tracks[trackIndex];
+                        tracks.push({
+                            key: track.key,
+                            from: track.from,
+                            to: track.to,
+                            easing: track.easing
+                        });
+                    }
+
+                    var copy = createSegment(segment.offsetMs, segment.durationMs, tracks);
+                    copy.repeat = segment.repeat;
+                    cloned.push(copy);
                 }
 
-                if (!config || typeof config !== "object") {
-                    throw new Error("tween 需要补间配置");
+                return cloned;
+            }
+
+            function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element) {
+                if (!propertyConfig || typeof propertyConfig !== "object") {
+                    return null;
                 }
 
-                // lifeTime 的两种语义（与 M8 对齐）：未声明 = 默认 3 秒；
-                // 声明 0 或负数 = 常驻（元素活到条目窗口兜底上限，由宿主回收）。
+                var fromValue = propertyConfig.fromValue;
+                if (fromValue === undefined || fromValue === null) {
+                    // 缺省即从元素当前值出发，不再报错禁用该条。
+                    fromValue = readTweenTargetValue(element, key);
+                }
+
+                var toValue = propertyConfig.toValue;
+                if (toValue === undefined || toValue === null) {
+                    toValue = fromValue;
+                }
+
+                var from = Number(fromValue);
+                var to = Number(toValue);
+                if (!isFinite(from) || !isFinite(to)) {
+                    throw new Error("tween " + key + " 的 fromValue/toValue 不是有效数字");
+                }
+
+                return {
+                    key: key,
+                    from: from,
+                    to: to,
+                    easing: resolveEasing(propertyConfig.easing)
+                };
+            }
+
+            // 把声明式 motion 展开成段列表。
+            //  - 每条属性一条轨道；同一属性的 repeat 展开成连续多段
+            //    （M8 的 `repeat` 是「整条补间重复」，因此每段都从 fromValue 重新开始）。
+            //  - startDelay 只作用于第一段。
+            //  - 一条属性都没有时返回空列表：调用方（createTween）据此判定配置无效。
+            function buildMotionSegments(config, options, element) {
                 var declaredLifeTimeSeconds = readDeclaredSeconds(config, "lifeTime");
                 if (declaredLifeTimeSeconds === null && options && typeof options === "object") {
                     declaredLifeTimeSeconds = readDeclaredSeconds(options, "lifeTime");
@@ -861,8 +948,9 @@
                     ? DEFAULT_LIFE_TIME_SECONDS
                     : declaredLifeTimeSeconds;
 
-                var tracks = [];
-                for (var index = 0; index < TWEEN_KEYS.length; index++) {
+                var segments = [];
+                var index;
+                for (index = 0; index < TWEEN_KEYS.length; index++) {
                     var key = TWEEN_KEYS[index];
                     var propertyConfig = config[key];
                     if (propertyConfig === undefined || propertyConfig === null) {
@@ -870,39 +958,377 @@
                     }
 
                     var track = createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element);
-                    if (track) {
-                        tracks.push(track);
+                    if (!track) {
+                        continue;
+                    }
+
+                    var durationMs = readTrackDurationMs(propertyConfig, lifeTimeSeconds);
+                    var delayMs = readTrackDelayMs(propertyConfig);
+                    var repeat = readRepeatCount(propertyConfig);
+                    // 无限重复展开成有限段：元素寿命是真正的收口（MAX_REPEAT_EXPANSION 兜底）。
+                    var count = isFinite(repeat) ? repeat : MAX_REPEAT_EXPANSION;
+                    if (count > MAX_REPEAT_EXPANSION) {
+                        count = MAX_REPEAT_EXPANSION;
+                    }
+
+                    for (var repeatIndex = 0; repeatIndex < count; repeatIndex++) {
+                        segments.push(createSegment(
+                            repeatIndex === 0 ? delayMs : 0,
+                            durationMs,
+                            [track]));
                     }
                 }
 
-                if (tracks.length === 0) {
+                return {
+                    segments: segments,
+                    unboundedLifeTime: unboundedLifeTime,
+                    lifeTimeSeconds: lifeTimeSeconds,
+                    declaredLifeTimeSeconds: declaredLifeTimeSeconds
+                };
+            }
+
+            // 声明式 motion 的时间轴长度（元素寿命要用它）。
+            function motionTotalMs(segments) {
+                var total = 0;
+                for (var index = 0; index < segments.length; index++) {
+                    if (segments[index].totalMs > total) {
+                        total = segments[index].totalMs;
+                    }
+                }
+
+                return total;
+            }
+
+            // ---- tween 对象（M8 的 ITween 控制句柄）----
+            //
+            // 控制句柄只做「时间轴换算」：所有补间仍由 advanceElementMotion 逐帧
+            // 插值，句柄不引入第二条驱动路径。速度/延迟/反向/截取都是把源时间轴
+            // 映射成一条新的段列表；串行/并行则是段的拼接。
+            function createTweenHandle(segments, durationMs, elements) {
+                var handle = {
+                    segments: segments,
+                    durationMs: Math.max(0, toFiniteNumber(durationMs, 0)),
+                    // 这条补间作用在哪些元件上：createDrivenHandle 给单个元件，
+                    // 组合子沿用来源句柄的元件集合（serial(t1, reverse(t1)) 是同一元件）。
+                    elements: elements || [],
+                    state: "idle",
+                    // 句柄自己的时间轴（毫秒），由宿主逐帧推进。play() 起算。
+                    timeMs: 0,
+                    // M8 的 stopOnComplete：true = 跑完即停（不循环）。
+                    stopOnComplete: true,
+                    // 是否已经把自己的段列表装到 element.motion 上（见 installTweenHandle）。
+                    installed: false,
+                    // 推进到 durationMs 时是否需要把「段末值」精确落定一次。
+                    needsFinalApply: false,
+                    // ownerItem 由 installTweenHandle 按元件归属补上。
+                    ownerItem: null,
+                    play: function () {
+                        // 组合子的结果可能还没装到元件上（组合子是纯时间轴运算），
+                        // 这里在开始播放时统一安装：接管来源句柄的元件。
+                        installTweenHandle(handle);
+                        handle.state = "playing";
+                        handle.needsFinalApply = false;
+                        handle.ownerItem = firstHandleItem(handle) || handle.ownerItem;
+                        dirty = true;
+                        if (handle.ownerItem) {
+                            ensureRunning();
+                        }
+
+                        return handle;
+                    },
+                    stop: function () {
+                        handle.state = "stopped";
+                        return handle;
+                    },
+                    togglePause: function () {
+                        if (handle.state === "playing") {
+                            handle.state = "paused";
+                        } else if (handle.state === "paused") {
+                            handle.state = "playing";
+                        }
+
+                        return handle;
+                    },
+                    gotoAndPlay: function (timeSeconds) {
+                        installTweenHandle(handle);
+                        handle.timeMs = normalizeHandleTime(handle, timeSeconds);
+                        handle.state = "playing";
+                        handle.needsFinalApply = true;
+                        dirty = true;
+                        if (handle.ownerItem) {
+                            ensureRunning();
+                        }
+
+                        return handle;
+                    },
+                    gotoAndStop: function (timeSeconds) {
+                        installTweenHandle(handle);
+                        handle.timeMs = normalizeHandleTime(handle, timeSeconds);
+                        handle.state = "stopped";
+                        handle.needsFinalApply = true;
+                        dirty = true;
+                        if (handle.ownerItem) {
+                            ensureRunning();
+                        }
+
+                        return handle;
+                    }
+                };
+
+                return handle;
+            }
+
+            function firstHandleItem(handle) {
+                for (var index = 0; index < handle.elements.length; index++) {
+                    if (handle.elements[index].ownerItem) {
+                        return handle.elements[index].ownerItem;
+                    }
+                }
+
+                return null;
+            }
+
+            // 把句柄的段列表装到它作用的元件上。
+            //
+            // 组合子（serial / parallel / delay / …）只做时间轴运算，结果一开始
+            // 没有元件；等 play() / gotoAndPlay() 时才在这里接管：
+            //  - 先把这些元件上**原有的句柄驱动**停掉（来源句柄的段已被合并进
+            //    新的段列表），否则两条句柄会各自写同一批属性；
+            //  - 再把合并后的段列表挂成该元件的 motion，让逐帧路径统一插值。
+            function installTweenHandle(handle) {
+                if (handle.installed || handle.elements.length === 0) {
+                    return handle;
+                }
+
+                handle.installed = true;
+                for (var index = 0; index < handle.elements.length; index++) {
+                    var element = handle.elements[index];
+                    if (!element || !element.kind) {
+                        continue;
+                    }
+
+                    supersedeElementHandle(element, handle);
+                    element.motion = {
+                        segments: handle.segments,
+                        // 句柄补间的时长由句柄自己收口，不改元素寿命
+                        // （元素寿命仍由创建参数的 lifeTime / 条目窗口决定）。
+                        lifeTimeMs: null,
+                        totalMs: handle.durationMs,
+                        lastElapsedMs: -1,
+                        appliedOnce: false,
+                        persistent: false,
+                        handle: handle
+                    };
+                    element.hasTween = true;
+                    if (element.ownerItem) {
+                        element.ownerItem.hasTween = true;
+                        if (element.ownerItem.tweenHandles.indexOf(handle) < 0) {
+                            element.ownerItem.tweenHandles.push(handle);
+                        }
+
+                        handle.ownerItem = element.ownerItem;
+                    }
+                }
+
+                return handle;
+            }
+
+            // 元件被新句柄接管：旧句柄停在原地并退出逐帧推进表，
+            // 否则它会继续按自己的时间轴写同一批属性。
+            function supersedeElementHandle(element, nextHandle) {
+                var motion = element.motion;
+                if (!motion || !motion.handle || motion.handle === nextHandle) {
+                    return;
+                }
+
+                motion.handle.state = "stopped";
+                var item = element.ownerItem;
+                if (!item) {
+                    return;
+                }
+
+                var index = item.tweenHandles.indexOf(motion.handle);
+                if (index >= 0) {
+                    item.tweenHandles.splice(index, 1);
+                }
+            }
+
+            // gotoAndPlay / gotoAndStop 的入参是「秒」，超出范围按 M8 的钳制行为处理。
+            function normalizeHandleTime(handle, timeSeconds) {
+                var milliseconds = toFiniteNumber(timeSeconds, 0) * 1000;
+                if (milliseconds < 0) {
+                    return 0;
+                }
+
+                if (milliseconds > handle.durationMs) {
+                    return handle.durationMs;
+                }
+
+                return milliseconds;
+            }
+
+            function registerHandle(ownerItem, handle) {
+                if (ownerItem && ownerItem.tweenHandles.indexOf(handle) < 0) {
+                    ownerItem.tweenHandles.push(handle);
+                }
+
+                return handle;
+            }
+
+            // 组合子沿用来源句柄的元件集合：serial(t1, reverse(t1)) 是同一元件，
+            // parallel(t1, t2) 可能是两个元件，取其并集。
+            function unionHandleElements() {
+                var result = [];
+                for (var index = 0; index < arguments.length; index++) {
+                    var handle = arguments[index];
+                    if (!handle || !handle.elements) {
+                        continue;
+                    }
+
+                    for (var elementIndex = 0; elementIndex < handle.elements.length; elementIndex++) {
+                        var element = handle.elements[elementIndex];
+                        if (result.indexOf(element) < 0) {
+                            result.push(element);
+                        }
+                    }
+                }
+
+                return result;
+            }
+
+            // 逐帧推进句柄：只走时间轴，真正改元素属性仍在 applyMotion 里。
+            function advanceTweenHandle(handle, deltaMs) {
+                if (handle.state !== "playing") {
+                    return false;
+                }
+
+                if (handle.timeMs >= handle.durationMs) {
+                    if (handle.stopOnComplete) {
+                        handle.state = "stopped";
+                    } else {
+                        handle.timeMs = 0;
+                    }
+
+                    return false;
+                }
+
+                handle.timeMs += deltaMs;
+                if (handle.timeMs >= handle.durationMs) {
+                    handle.timeMs = handle.durationMs;
+                    handle.needsFinalApply = true;
+                    if (handle.stopOnComplete) {
+                        handle.state = "stopped";
+                    }
+                }
+
+                return true;
+            }
+
+            // 句柄的时间轴映射到段列表：offset 统一按 scale 缩放，时长按 scale 拉伸。
+            // 先深拷贝：派生句柄绝不能改到源句柄的段对象。
+            function mapSegments(segments, scale, offsetMs) {
+                var mapped = cloneSegments(segments);
+                var offset = Math.max(0, toFiniteNumber(offsetMs, 0));
+                var factor = toFiniteNumber(scale, 1);
+                if (factor === 0) {
+                    factor = 1;
+                }
+
+                for (var index = 0; index < mapped.length; index++) {
+                    var segment = mapped[index];
+                    segment.offsetMs = segment.offsetMs * factor + offset;
+                    segment.durationMs = segment.durationMs * factor;
+                    segment.totalMs = segment.offsetMs + segment.durationMs;
+                }
+
+                return mapped;
+            }
+
+            // 反向：段序倒转、时间轴镜像，且段内 from/to 互换。
+            // M8 的 reverse 把整条效果倒着放，所以时间轴要一起镜像。
+            function reverseSegments(segments, durationMs) {
+                var reversed = [];
+                for (var index = segments.length - 1; index >= 0; index--) {
+                    var segment = segments[index];
+                    var tracks = [];
+                    for (var trackIndex = 0; trackIndex < segment.tracks.length; trackIndex++) {
+                        var track = segment.tracks[trackIndex];
+                        tracks.push({
+                            key: track.key,
+                            from: track.to,
+                            to: track.from,
+                            easing: track.easing
+                        });
+                    }
+
+                    var offset = durationMs - (segment.offsetMs + segment.durationMs);
+                    var copy = createSegment(offset, segment.durationMs, tracks);
+                    copy.repeat = segment.repeat;
+                    reversed.push(copy);
+                }
+
+                return reversed;
+            }
+
+            function createTween(element, config, options) {
+                if (!element) {
+                    throw new Error("tween 需要一个元素");
+                }
+
+                if (!config || typeof config !== "object") {
+                    throw new Error("tween 需要补间配置");
+                }
+
+                var built = buildMotionSegments(config, options, element);
+                if (built.segments.length === 0) {
                     throw new Error("tween 配置里没有任何可补间的属性");
                 }
 
-                var totalMs = 0;
-                for (var trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
-                    var trackTotal = tracks[trackIndex].delayMs
-                        + tracks[trackIndex].durationMs * tracks[trackIndex].repeat;
-                    if (trackTotal > totalMs) {
-                        totalMs = trackTotal;
-                    }
+                // 寿命声明值的来源，按优先级：外层（create 参数 / options）→
+                // motion 各属性上声明值的最大值。
+                // 两处都没有声明时**不动元素寿命**：元素活到条目窗口兜底上限
+                // （由 applyCreateOptions 或 registerItemElement 决定），补间时长
+                // 照旧用缺省 3 秒。这里绝不能把「补间时长的缺省 3 秒」当成
+                // 寿命声明写进去——applyElementLifeTime 取声明的最大值，
+                // 会把脚本真正声明的 lifeTime: 2 顶成 3000ms（D3 的第二例）。
+                var declaredSeconds = readDeclaredSeconds(config, "lifeTime");
+                if (declaredSeconds === null && options && typeof options === "object") {
+                    declaredSeconds = readDeclaredSeconds(options, "lifeTime");
                 }
 
+                if (declaredSeconds === null) {
+                    declaredSeconds = readMotionDeclaredSeconds(config);
+                }
+
+                var unboundedLifeTime = declaredSeconds !== null && declaredSeconds <= 0;
+
                 var motion = {
-                    tracks: tracks,
+                    segments: built.segments,
                     // 脚本声明的寿命（毫秒）。它只作声明记录，元素的真实寿命
                     // 还要受条目窗口剩余时间约束，见 resolveElementLifeTimeMs。
                     // lifeTime: 0 表示常驻：声明值取 Infinity，元素活到窗口兜底上限。
-                    lifeTimeMs: unboundedLifeTime ? LIFE_TIME_UNBOUNDED : lifeTimeSeconds * 1000,
-                    totalMs: totalMs,
+                    lifeTimeMs: unboundedLifeTime
+                        ? LIFE_TIME_UNBOUNDED
+                        : (declaredSeconds === null
+                            ? null
+                            : declaredSeconds * 1000),
+                    totalMs: motionTotalMs(built.segments),
                     lastElapsedMs: -1,
-                    appliedOnce: false
+                    appliedOnce: false,
+                    // 「常驻」声明（M8 的 lifeTime: 0）：元素活到条目窗口兜底上限，
+                    // 而不是补间跑完就到期。
+                    persistent: unboundedLifeTime
                 };
 
                 element.motion = motion;
                 element.hasTween = true;
                 element.ownerItem.hasTween = true;
-                applyElementLifeTime(element, motion.lifeTimeMs);
+
+                // lifeTimeMs 为 null = 本次补间没有声明寿命，保留元素已有的寿命
+                // （创建参数声明的值、或条目窗口剩余时间）。
+                if (motion.lifeTimeMs !== null) {
+                    applyElementLifeTime(element, motion.lifeTimeMs);
+                }
 
                 // 立即套用 t=0 的插值：脚本执行完那一刻元素就应在起始位置，
                 // 且此时属性尚未被脚本赋值覆盖（先建元素再 tween 的写法两者一致）。
@@ -910,31 +1336,78 @@
                 return motion;
             }
 
+            // 取「最早开始」的段：所有段都还没开始时（延迟期间）用它落位起始值。
+            function findEarliestSegment(segments) {
+                var earliest = null;
+                for (var index = 0; index < segments.length; index++) {
+                    if (!earliest || segments[index].offsetMs < earliest.offsetMs) {
+                        earliest = segments[index];
+                    }
+                }
+
+                return earliest;
+            }
+
+            // 把 tween 在 elapsedMs 时刻的值写到元素上。
+            //
+            // 取值规则：**每个属性各认一个段**——从最后一段往前找，第一个
+            // 「已开始且含该属性」的段胜出（串行补间里后一段的起点值才是当前值），
+            // 同一属性只写一次。
+            //
+            // 不能只取「最后一个已开始的段」：并行补间（parallel，或声明式 motion
+            // 里多条属性各自带 duration）会让多个段共享同一个 offset，
+            // 只取最后一个的话，先声明的属性永远不会被写（D13 的 parallel 用例）。
             function applyMotion(motion, element, elapsedMs) {
-                for (var index = 0; index < motion.tracks.length; index++) {
-                    var track = motion.tracks[index];
-                    var local = elapsedMs - track.delayMs;
-                    if (local < 0) {
-                        local = 0;
+                var segments = motion.segments;
+                var appliedKeys = null;
+                var applied = false;
+                var index;
+                var trackIndex;
+
+                for (index = segments.length - 1; index >= 0; index--) {
+                    var segment = segments[index];
+                    if (elapsedMs < segment.offsetMs) {
+                        continue;
                     }
 
-                    var total = track.durationMs * track.repeat;
-                    if (local > total) {
-                        local = total;
+                    var local = elapsedMs - segment.offsetMs;
+                    if (local > segment.durationMs) {
+                        local = segment.durationMs;
                     }
 
-                    var withinRepeat = local % track.durationMs;
-                    if (local >= total && total > 0) {
-                        withinRepeat = track.durationMs;
+                    for (trackIndex = 0; trackIndex < segment.tracks.length; trackIndex++) {
+                        var track = segment.tracks[trackIndex];
+                        if (appliedKeys && appliedKeys[track.key]) {
+                            continue;
+                        }
+
+                        if (!appliedKeys) {
+                            appliedKeys = {};
+                        }
+
+                        appliedKeys[track.key] = true;
+                        applyTweenValue(element, track.key, track.easing(
+                            local,
+                            track.from,
+                            track.to - track.from,
+                            segment.durationMs));
+                        markTweenKeyDirty(element, track.key);
+                        applied = true;
+                    }
+                }
+
+                if (!applied) {
+                    // 全部段都还没开始（延迟期间）：按最早那段的起始值落位，
+                    // 否则元素会停在上一次写入的值上。
+                    var first = findEarliestSegment(segments);
+                    if (!first) {
+                        return;
                     }
 
-                    var value = track.easing(
-                        withinRepeat,
-                        track.from,
-                        track.to - track.from,
-                        track.durationMs);
-                    applyTweenValue(element, track.key, value);
-                    markTweenKeyDirty(element, track.key);
+                    for (trackIndex = 0; trackIndex < first.tracks.length; trackIndex++) {
+                        applyTweenValue(element, first.tracks[trackIndex].key, first.tracks[trackIndex].from);
+                        markTweenKeyDirty(element, first.tracks[trackIndex].key);
+                    }
                 }
 
                 markItemDirty(element.ownerItem);
@@ -957,6 +1430,261 @@
                 }
 
                 return advanceMotion(element.motion, element, elapsedMs);
+            }
+
+            // ---- Tween.* 句柄的逐帧驱动 ----
+
+            // 宿主逐帧推进本条目所有句柄；被句柄驱动的 motion 由句柄写回元素。
+            function advanceItemHandles(item, deltaMs) {
+                var handles = item.tweenHandles;
+                if (!handles || handles.length === 0) {
+                    return;
+                }
+
+                for (var index = 0; index < handles.length; index++) {
+                    var handle = handles[index];
+                    var before = handle.timeMs;
+                    advanceTweenHandle(handle, deltaMs);
+                    // 首次 play() 之前不写元素属性（M8 语义）。
+                    if (handle.state === "idle") {
+                        continue;
+                    }
+
+                    if (handle.timeMs === before && !handle.needsFinalApply) {
+                        continue;
+                    }
+
+                    // 一条句柄可能作用在多个元件上（parallel 复用同一元件时不会，
+                    // 但组合子可能把不同元件的段并到一起）。
+                    for (var elementIndex = 0; elementIndex < handle.elements.length; elementIndex++) {
+                        var element = handle.elements[elementIndex];
+                        if (!element || !element.motion || element.motion.handle !== handle) {
+                            continue;
+                        }
+
+                        element.motion.lastElapsedMs = -1;
+                        advanceMotion(element.motion, element, handle.timeMs);
+                    }
+
+                    handle.needsFinalApply = false;
+                }
+            }
+
+            // 被句柄驱动的元素不再按条目进度插值，避免两套时间轴互相打架。
+            function isMotionHandleDriven(element) {
+                return !!(element.motion && element.motion.handle);
+            }
+
+            // ---- Tween.* 组合子 ----
+
+            function handleSegments(value) {
+                if (!value || !value.segments) {
+                    throw new Error("Tween 组合子需要一个补间对象");
+                }
+
+                return value.segments;
+            }
+
+            function handleDuration(value) {
+                return value && isFinite(value.durationMs) ? value.durationMs : 0;
+            }
+
+            // 把段列表截到 [fromMs, toMs] 区间内（slice 用）。
+            // 段被从中间切开时，端点值要按原缓动在该时刻的取值重算，
+            // 否则截出来的效果会从错误的起点开始。
+            function clipSegments(segments, fromMs, toMs) {
+                var clipped = [];
+                for (var index = 0; index < segments.length; index++) {
+                    var segment = segments[index];
+                    var start = segment.offsetMs;
+                    var end = segment.offsetMs + segment.durationMs;
+                    if (end <= fromMs || start >= toMs) {
+                        continue;
+                    }
+
+                    var localFrom = Math.max(start, fromMs) - start;
+                    var localTo = Math.min(end, toMs) - start;
+                    if (localTo <= localFrom) {
+                        continue;
+                    }
+
+                    var tracks = [];
+                    for (var trackIndex = 0; trackIndex < segment.tracks.length; trackIndex++) {
+                        var track = segment.tracks[trackIndex];
+                        tracks.push({
+                            key: track.key,
+                            from: track.easing(localFrom, track.from, track.to - track.from, segment.durationMs),
+                            to: track.easing(localTo, track.from, track.to - track.from, segment.durationMs),
+                            easing: track.easing
+                        });
+                    }
+
+                    var copy = createSegment(
+                        Math.max(start, fromMs) - fromMs,
+                        localTo - localFrom,
+                        tracks);
+                    copy.repeat = segment.repeat;
+                    clipped.push(copy);
+                }
+
+                return clipped;
+            }
+
+            var Tween = {
+                // 与 M8 文档同签名；src 为空时等价于 to()。
+                tween: function (object, dest, src, duration, easing) {
+                    return createDrivenHandle(object, buildTweenConfig(dest, src, easing), duration);
+                },
+                to: function (object, dest, duration, easing) {
+                    var config = buildTweenConfig(dest, null, easing);
+                    return createDrivenHandle(object, config, duration);
+                },
+                // ---- 组合子 ----
+                //
+                // 组合子只做「段列表的时间轴运算」，返回的句柄**不带元件**：
+                // 元件集合沿用来源句柄（见 unionHandleElements），等 play() 时
+                // 由 installTweenHandle 统一装到元件上。这样 serial(t1, reverse(t1))
+                // 这类写法不会让两条句柄同时写同一批属性。
+                delay: function (src, delaySeconds) {
+                    var delayMs = Math.max(0, toFiniteNumber(delaySeconds, 0) * 1000);
+                    return createTweenHandle(
+                        mapSegments(handleSegments(src), 1, delayMs),
+                        handleDuration(src) + delayMs,
+                        unionHandleElements(src));
+                },
+                scale: function (src, scale) {
+                    var factor = toFiniteNumber(scale, 1);
+                    if (factor <= 0) {
+                        factor = 1;
+                    }
+
+                    return createTweenHandle(
+                        mapSegments(handleSegments(src), factor, 0),
+                        handleDuration(src) * factor,
+                        unionHandleElements(src));
+                },
+                reverse: function (src) {
+                    // 时间轴镜像 + 段内取反：整条效果倒着放（深拷贝，不动源句柄）。
+                    var duration = handleDuration(src);
+                    return createTweenHandle(
+                        reverseSegments(cloneSegments(handleSegments(src)), duration),
+                        duration,
+                        unionHandleElements(src));
+                },
+                repeat: function (src, times) {
+                    var count = toFiniteNumber(times, 1);
+                    if (count <= 0) {
+                        count = 1;
+                    }
+
+                    // 深拷贝源段列表：句柄之间会互相派生，共享段对象会让
+                    // repeat / reverse 之类的操作改到源句柄（详见 cloneSegments）。
+                    var source = cloneSegments(handleSegments(src));
+                    var duration = handleDuration(src);
+                    var segments = [];
+                    for (var index = 0; index < count; index++) {
+                        segments = segments.concat(mapSegments(source, 1, duration * index));
+                    }
+
+                    return createTweenHandle(segments, duration * count, unionHandleElements(src));
+                },
+                slice: function (src, from, to) {
+                    var duration = handleDuration(src);
+                    var fromMs = Math.max(0, toFiniteNumber(from, 0) * 1000);
+                    var toMs = Math.max(fromMs, toFiniteNumber(to, 0) * 1000);
+                    if (toMs > duration) {
+                        toMs = duration;
+                    }
+
+                    return createTweenHandle(
+                        clipSegments(cloneSegments(handleSegments(src)), fromMs, toMs),
+                        toMs - fromMs,
+                        unionHandleElements(src));
+                },
+                serial: function () {
+                    var segments = [];
+                    var cursor = 0;
+                    for (var index = 0; index < arguments.length; index++) {
+                        // 深拷贝：串行句柄不能与源句柄共享段对象（见 cloneSegments）。
+                        segments = segments.concat(
+                            mapSegments(cloneSegments(handleSegments(arguments[index])), 1, cursor));
+                        cursor += handleDuration(arguments[index]);
+                    }
+
+                    return createTweenHandle(segments, cursor, unionHandleElements.apply(null, arguments));
+                },
+                parallel: function () {
+                    var segments = [];
+                    var longest = 0;
+                    for (var index = 0; index < arguments.length; index++) {
+                        // 深拷贝：并行句柄不能与源句柄共享段对象（见 cloneSegments）。
+                        segments = segments.concat(cloneSegments(handleSegments(arguments[index])));
+                        var duration = handleDuration(arguments[index]);
+                        if (duration > longest) {
+                            longest = duration;
+                        }
+                    }
+
+                    return createTweenHandle(segments, longest, unionHandleElements.apply(null, arguments));
+                }
+            };
+
+            // 把 M8 的 (dest, src, easing) 形式转成宿主内部的 motion 配置。
+            function buildTweenConfig(dest, src, easing) {
+                var config = {};
+                var name;
+                if (dest && typeof dest === "object") {
+                    for (name in dest) {
+                        if (Object.prototype.hasOwnProperty.call(dest, name)) {
+                            config[name] = { fromValue: undefined, toValue: dest[name] };
+                        }
+                    }
+                }
+
+                if (src && typeof src === "object") {
+                    for (name in src) {
+                        if (Object.prototype.hasOwnProperty.call(src, name)) {
+                            if (!config[name]) {
+                                config[name] = { toValue: undefined };
+                            }
+
+                            config[name].fromValue = src[name];
+                        }
+                    }
+                }
+
+                if (easing !== undefined && easing !== null) {
+                    for (name in config) {
+                        if (Object.prototype.hasOwnProperty.call(config, name)) {
+                            config[name].easing = easing;
+                        }
+                    }
+                }
+
+                return config;
+            }
+
+            // Tween.tween / Tween.to：用声明式配置建段，再交给句柄驱动。
+            function createDrivenHandle(object, config, duration) {
+                var built = buildMotionSegments(config, null, object);
+                if (built.segments.length === 0) {
+                    throw new Error("Tween 需要至少一个可补间的属性");
+                }
+
+                var durationMs = motionTotalMs(built.segments);
+                // M8 的 duration 单位是秒；未给或非正数时用补间自身推导出的时长。
+                var declaredMs = toFiniteNumber(duration, 0) * 1000;
+                if (declaredMs > 0 && Math.abs(declaredMs - durationMs) > 1) {
+                    built.segments = mapSegments(built.segments, declaredMs / durationMs, 0);
+                    durationMs = declaredMs;
+                }
+
+                var handle = createTweenHandle(built.segments, durationMs, object ? [object] : []);
+                // 句柄在创建时装到元件上（但 state 仍是 idle，逐帧路径不写属性），
+                // 这样 ownerItem / 元素寿命的归属在创建那一刻就确定了；
+                // play() 负责把 timeMs 的时间轴跑起来。
+                installTweenHandle(handle);
+                return handle;
             }
 
             // ---- 元素工厂 ----
@@ -998,6 +1726,173 @@
                 return result;
             }
 
+            // ---- M8 元素 API：remove / setStyle / parent / children / length ----
+            //
+            // 这些是 M8 脚本正文里直接用的成员（`el.remove()`、`b.setStyle("fillColors",…)`、
+            // `oTxt.length`、`$.createCanvas({parent: box})`），必须挂在元素本身上，
+            // 而不是宿主内部的另一个包装对象上。
+            function attachElementApi(element) {
+                // 从渲染中摘除（M8 的 remove）：等价于宿主内部的 detachElement，
+                // 但元素仍在条目登记表里，条目结束时不会被重复释放。
+                element.remove = function () {
+                    removeElementFromItem(element);
+                    return element;
+                };
+
+                // M8 的 setStyle：按名字设一个「样式」属性。文本的 color/fontsize/bold
+                // 落在 style 上，其余（按钮的 fillColors 等）落在元素属性上。
+                element.setStyle = function (name, value) {
+                    if (!name) {
+                        return element;
+                    }
+
+                    if (element.style && (name === "color" || name === "fontsize"
+                        || name === "font" || name === "bold" || name === "border"
+                        || name === "borderColor")) {
+                        if (name === "color" || name === "borderColor") {
+                            element.style[name] = normalizeColor(value);
+                        } else if (name === "bold" || name === "border") {
+                            element.style[name] = !!value;
+                        } else if (name === "fontsize") {
+                            element.style.fontsize = toFiniteNumber(value, element.style.fontsize);
+                        } else {
+                            element.style[name] = String(value);
+                        }
+
+                        element.propertyDirty["*"] = true;
+                        invalidateElementCache(element);
+                        dirty = true;
+                        return element;
+                    }
+
+                    setPropertyInternal(element, name, value, true);
+                    markPropertyDirty(element, name);
+                    dirty = true;
+                    return element;
+                };
+
+                return element;
+            }
+
+            // 元素的内容/样式类可写属性：直接赋值即让位图缓存失效。
+            // M8 脚本大量使用 `el.text = ...`、`el.fontsize = ...`、`el.color = ...`，
+            // 这些属性此前只能通过 setStyle 改，脚本原样移植会静默不生效。
+            var CONTENT_PROPERTY_NAMES = ["text", "font", "fontsize", "color", "bold",
+                "border", "borderColor", "url"];
+
+            function contentPropertyDescriptor(name) {
+                return {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        if (name === "text" || name === "url") {
+                            return readElementMember(this, name);
+                        }
+
+                        return this.style ? this.style[name] : undefined;
+                    },
+                    set: function (value) {
+                        var target = this;
+                        if (name === "text" || name === "url") {
+                            setElementMember(target, name, value);
+                        } else if (target.style) {
+                            if (name === "color" || name === "borderColor") {
+                                target.style[name] = normalizeColor(value);
+                            } else if (name === "bold" || name === "border") {
+                                target.style[name] = !!value;
+                            } else if (name === "fontsize") {
+                                target.style.fontsize = toFiniteNumber(value, target.style.fontsize);
+                            } else {
+                                target.style[name] = String(value);
+                            }
+
+                            // 改的是位图内容，必须重建缓存。
+                            target.propertyDirty["*"] = true;
+                            invalidateElementCache(target);
+                            dirty = true;
+                            return;
+                        }
+
+                        if (name === "url") {
+                            // 换图：重新走一遍加载（旧位图在 onload 之前继续显示）。
+                            loadImageElement(target);
+                        }
+
+                        target.propertyDirty["*"] = true;
+                        invalidateElementCache(target);
+                        dirty = true;
+                    }
+                };
+            }
+
+            // 文本/图片元素的内容成员存在元素自身上（text / url）。
+            function readElementMember(element, name) {
+                return element[name + "Value"];
+            }
+
+            function setElementMember(element, name, value) {
+                var normalized = name === "text"
+                    ? (value === undefined || value === null ? "" : String(value))
+                    : String(value || "");
+                if (element[name + "Value"] === normalized) {
+                    return;
+                }
+
+                element[name + "Value"] = normalized;
+            }
+
+            function defineContentProperties(element) {
+                var names = element.kind === "image"
+                    ? ["url"]
+                    : (element.kind === "text" ? CONTENT_PROPERTY_NAMES : []);
+                for (var index = 0; index < names.length; index++) {
+                    Object.defineProperty(
+                        element,
+                        names[index],
+                        contentPropertyDescriptor(names[index]));
+                }
+
+                return element;
+            }
+
+            // M8 的 parent / children 是普通可写成员：赋值即换父节点。
+            function defineTreeProperties(element) {
+                Object.defineProperty(element, "parent", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.treeParent;
+                    },
+                    set: function (value) {
+                        addChildToParent(element, value || null);
+                    }
+                });
+
+                Object.defineProperty(element, "children", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.childList;
+                    }
+                });
+
+                return element;
+            }
+
+            // 文本元素的 length（M8 里是文本字段的字符数）。
+            function defineTextProperties(element) {
+                Object.defineProperty(element, "length", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        var text = element.textValue;
+                        return text === undefined || text === null ? 0 : String(text).length;
+                    }
+                });
+
+                return element;
+            }
+
             function createTextStyle(style) {
                 var source = style && typeof style === "object" ? style : {};
                 return {
@@ -1022,9 +1917,9 @@
                 var style = element.style;
                 var metrics = ensureMeasureContext();
                 metrics.font = textFontCss(style);
-                var text = element.text === undefined || element.text === null
+                var text = element.textValue === undefined || element.textValue === null
                     ? ""
-                    : String(element.text);
+                    : String(element.textValue);
                 return {
                     text: text,
                     width: metrics.measureText(text).width,
@@ -1219,46 +2114,98 @@
 
             function createTextElement(text, style) {
                 var element = createRetainedElement("text");
-                element.text = text === undefined || text === null ? "" : String(text);
+                // 内容存在 textValue 上；对脚本暴露的 element.text 是访问器
+                // （赋值即让位图缓存失效，见 defineContentProperties）。
+                element.textValue = text === undefined || text === null ? "" : String(text);
                 element.style = createTextStyle(style);
+                defineTextProperties(element);
+                defineContentProperties(element);
                 applyInitialValues(element, normalizeStyle(style));
                 element.autoCached = true;
                 return element;
             }
 
+            // M8 的 createButton：当前是「带底色的文本 + 可选 onclick」的近似实现。
+            // 按钮交互（命中测试 / hover 状态 / fillColors 渐变）待接入输入链后补齐。
+            function createButtonElement(options) {
+                var source = options && typeof options === "object" ? options : {};
+                var element = createRetainedElement("group");
+                var width = toFiniteNumber(source.width, 0);
+                var height = toFiniteNumber(source.height, toFiniteNumber(source.fontsize, 20) + 12);
+                var background = createShapeElement();
+                background.graphics.beginFill(
+                    source.fillColor === undefined || source.fillColor === null
+                        ? 0x336699
+                        : source.fillColor,
+                    1);
+                background.graphics.drawRect(0, 0, width > 0 ? width : 1, height);
+                background.graphics.endFill();
+                addChildToParent(background, element);
+                var label = createTextElement(source.text === undefined ? "" : source.text, source);
+                label.x = 8;
+                label.y = Math.round(height / 2 - toFiniteNumber(source.fontsize, DEFAULT_TEXT_FONTSIZE) / 2);
+                addChildToParent(label, element);
+                element.buttonWidth = width > 0 ? width : 1;
+                element.buttonHeight = height;
+                element.fillColors = null;
+                element.onclick = typeof source.onclick === "function" ? source.onclick : null;
+                return element;
+            }
+
             function createImageElement(url) {
                 var element = createRetainedElement("image");
-                element.url = String(url || "");
-                element.image = null;
+                // 与文本一致：内容存在 urlValue / imageValue 上，脚本看到的
+                // element.url 是访问器（改 URL 会重新加载）。
+                element.urlValue = String(url || "");
+                element.imageValue = null;
                 element.loaded = false;
                 element.failed = false;
                 element.width = 0;
                 element.height = 0;
                 element.autoCached = true;
+                defineContentProperties(element);
 
-                if (element.url) {
-                    var bitmap = new Image();
-                    bitmap.onload = function () {
-                        element.image = bitmap;
-                        element.loaded = true;
-                        element.width = bitmap.naturalWidth || bitmap.width;
-                        element.height = bitmap.naturalHeight || bitmap.height;
-                        element.needsCache = true;
-                        element.painted = false;
-                        markElementDirty(element);
-                    };
-                    bitmap.onerror = function () {
-                        element.failed = true;
-                        element.needsCache = true;
-                        element.painted = false;
-                        markElementDirty(element);
-                    };
-                    bitmap.src = element.url;
-                }
-
+                loadImageElement(element);
                 return element;
             }
 
+            function loadImageElement(element) {
+                if (!element.urlValue) {
+                    return;
+                }
+
+                var source = element.urlValue;
+                var bitmap = new Image();
+                bitmap.onload = function () {
+                    // 异步加载期间脚本可能已经改了 url：过期的结果直接丢弃。
+                    if (element.urlValue !== source) {
+                        return;
+                    }
+
+                    element.imageValue = bitmap;
+                    element.loaded = true;
+                    element.width = bitmap.naturalWidth || bitmap.width;
+                    element.height = bitmap.naturalHeight || bitmap.height;
+                    element.needsCache = true;
+                    element.painted = false;
+                    markElementDirty(element);
+                };
+                bitmap.onerror = function () {
+                    if (element.urlValue !== source) {
+                        return;
+                    }
+
+                    element.failed = true;
+                    element.needsCache = true;
+                    element.painted = false;
+                    markElementDirty(element);
+                };
+                bitmap.src = source;
+            }
+
+            // 脚本自绘的离屏 canvas 层（M8 里对应 Display.createGraphic 的用法）。
+            // 当前 M8 API 面没有对应的工厂入口，保留内部实现供后续接入
+            // （例如 $.createCanvas({draw: function(g){...}}) 形态）。
             function createLayerElement(width, height) {
                 var element = createRetainedElement("layer");
                 element.layerWidth = Math.max(1, Math.round(toFiniteNumber(width, viewportWidth || 1)));
@@ -1290,13 +2237,16 @@
 
             function attachElement(element, parent) {
                 var target = parent || rootElement;
-                element.parent = target;
-                target.children.push(element);
+                element.treeParent = target;
+                target.childList.push(element);
                 registerElement(element);
-                target.composite = null;
                 // 挂到复合元素下的新子节点要先烘进父元素的复合层。
+                // 注意这里**不能**清 target.composite：复合层是父元件自己的
+                // 位图缓存，清掉后它会重新分配一张视口大小的画布，
+                // 且「静止复合元素不重复重建」的判据会失效（见 D4）。
+                // 子树变化只标 compositeDirty，由 prepareElement 决定是否重烘。
                 if (target !== rootElement) {
-                    target.needsCache = true;
+                    target.compositeDirty = true;
                 }
 
                 dirty = true;
@@ -1307,7 +2257,12 @@
                     return element;
                 }
 
-                if (element.parent) {
+                // 自引用或挂到自己的子树里会让绘制无限递归，直接拒绝。
+                if (element === parent || isAncestorOf(element, parent)) {
+                    return element;
+                }
+
+                if (element.treeParent) {
                     removeChildFromParent(element);
                 }
 
@@ -1315,25 +2270,46 @@
                 return element;
             }
 
+            function isAncestorOf(element, candidate) {
+                var current = candidate;
+                while (current) {
+                    if (current === element) {
+                        return true;
+                    }
+
+                    current = current.treeParent;
+                }
+
+                return false;
+            }
+
+            // 与 removeChildFromParent 的区别：从条目登记表里也摘掉。
+            // 脚本调 el.remove() 后元素不再由宿主回收，所以必须自己退出登记表，
+            // 否则 markAllDirty() 还会去给已释放的缓存置位。
+            function removeElementFromItem(element) {
+                removeChildFromParent(element);
+                unregisterSubtree(element);
+                return element;
+            }
+
             function removeChildFromParent(element) {
-                if (!element || !element.parent) {
+                if (!element || !element.treeParent) {
                     return element;
                 }
 
-                var parent = element.parent;
+                var parent = element.treeParent;
                 // 从复合层里摘出来的子元素，旧像素还在父层的复合缓存里：
                 // 擦除它的主画布矩形并让父层重烘。
                 markElementMoved(element);
-                parent.needsCache = true;
-                var siblings = parent.children;
+                parent.compositeDirty = true;
+                var siblings = parent.childList;
                 var index = siblings.indexOf(element);
                 if (index >= 0) {
                     siblings.splice(index, 1);
                 }
 
-                parent.composite = null;
                 parent.compositeDirty = true;
-                element.parent = null;
+                element.treeParent = null;
                 unregisterElement(element);
                 dirty = true;
                 return element;
@@ -1346,25 +2322,25 @@
                 element.cacheCtx = null;
                 element.cacheBounds = null;
                 element.composite = null;
+                element.compositeBounds = null;
                 element.propertyDirty = {};
 
-                for (var index = 0; index < element.children.length; index++) {
-                    releaseElementCaches(element.children[index]);
+                for (var index = 0; index < element.childList.length; index++) {
+                    releaseElementCaches(element.childList[index]);
                 }
             }
 
             function detachElement(element) {
-                if (element.parent) {
-                    var parent = element.parent;
-                    var siblings = parent.children;
+                if (element.treeParent) {
+                    var parent = element.treeParent;
+                    var siblings = parent.childList;
                     var index = siblings.indexOf(element);
                     if (index >= 0) {
                         siblings.splice(index, 1);
                     }
 
-                    parent.composite = null;
                     parent.compositeDirty = true;
-                    element.parent = null;
+                    element.treeParent = null;
                 }
 
                 // 摘除前先把主画布上的旧像素入队擦除，否则移动元素到期后
@@ -1379,8 +2355,8 @@
             // markAllDirty() 还会去给已释放的缓存置位。
             function unregisterSubtree(element) {
                 unregisterElement(element);
-                for (var index = 0; index < element.children.length; index++) {
-                    unregisterSubtree(element.children[index]);
+                for (var index = 0; index < element.childList.length; index++) {
+                    unregisterSubtree(element.childList[index]);
                 }
             }
 
@@ -1726,8 +2702,8 @@
                     drawShapeElement(target, element, 0, 0);
                 } else if (element.kind === "text") {
                     drawTextElement(target, element, 0, 0);
-                } else if (element.kind === "image" && element.image) {
-                    target.drawImage(element.image, 0, 0);
+                } else if (element.kind === "image" && element.imageValue) {
+                    target.drawImage(element.imageValue, 0, 0);
                 } else if (element.kind === "layer") {
                     target.drawImage(element.layerCanvas, 0, 0);
                 }
@@ -1747,8 +2723,8 @@
                     drawShapeElement(target, element, 0, 0);
                 } else if (element.kind === "text") {
                     drawTextElement(target, element, 0, 0);
-                } else if (element.kind === "image" && element.image) {
-                    target.drawImage(element.image, 0, 0);
+                } else if (element.kind === "image" && element.imageValue) {
+                    target.drawImage(element.imageValue, 0, 0);
                 }
             }
 
@@ -1799,10 +2775,105 @@
 
             // 复合元素的子树烘焙。子元素走 blitElement（用自己的缓存），
             // 所以重建复合层是 N 次位图拷贝，而不是 N 份绘制代码。
+            // 复合层的实际尺寸取决于子树内容（子元素坐标相对父元件注册点）。
+            // 返回 null 表示子树当前没有可绘制内容（空容器首帧不建复合层）。
+            function computeCompositeBounds(element) {
+                boundsReset();
+                for (var index = 0; index < element.childList.length; index++) {
+                    var child = element.childList[index];
+                    if (child.expired || child.props.visible === false) {
+                        continue;
+                    }
+
+                    if (child.childList.length > 0) {
+                        var childBounds = computeCompositeBounds(child);
+                        if (!childBounds) {
+                            continue;
+                        }
+
+                        var childTransform = compositeChildBounds(child, childBounds);
+                        boundsAdd(childTransform.x, childTransform.y);
+                        boundsAdd(
+                            childTransform.x + childTransform.width,
+                            childTransform.y + childTransform.height);
+                        continue;
+                    }
+
+                    var bounds = elementLocalBounds(child);
+                    if (!bounds) {
+                        continue;
+                    }
+
+                    var transformed = compositeChildBounds(child, bounds);
+                    boundsAdd(transformed.x, transformed.y);
+                    boundsAdd(
+                        transformed.x + transformed.width,
+                        transformed.y + transformed.height);
+                }
+
+                return boundsResult(0);
+            }
+
+            // 子元素在父元件坐标系里的外接矩形（缩放 → 旋转 → 平移，
+            // 与 applyElementTransform 同序）。
+            function compositeChildBounds(child, bounds) {
+                var props = child.props;
+                var scaleX = toFiniteNumber(props.scaleX, 1);
+                var scaleY = toFiniteNumber(props.scaleY, 1);
+                var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
+                var cos = Math.cos(rotation);
+                var sin = Math.sin(rotation);
+                var corners = [
+                    [bounds.x, bounds.y],
+                    [bounds.x + bounds.width, bounds.y],
+                    [bounds.x + bounds.width, bounds.y + bounds.height],
+                    [bounds.x, bounds.y + bounds.height]
+                ];
+
+                var minX = Infinity;
+                var minY = Infinity;
+                var maxX = -Infinity;
+                var maxY = -Infinity;
+                for (var index = 0; index < corners.length; index++) {
+                    var localX = corners[index][0] * scaleX;
+                    var localY = corners[index][1] * scaleY;
+                    var pageX = localX * cos - localY * sin + props.x;
+                    var pageY = localX * sin + localY * cos + props.y;
+                    if (pageX < minX) {
+                        minX = pageX;
+                    }
+
+                    if (pageY < minY) {
+                        minY = pageY;
+                    }
+
+                    if (pageX > maxX) {
+                        maxX = pageX;
+                    }
+
+                    if (pageY > maxY) {
+                        maxY = pageY;
+                    }
+                }
+
+                return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+            }
+
             function rebuildComposite(element) {
+                var bounds = computeCompositeBounds(element);
+                element.compositeDirty = false;
+                if (!bounds) {
+                    // 子树当前没有内容：不建/不重建复合层。保留已有位图（若有），
+                    // 位置也不改——空容器在屏幕上本来就不占像素。
+                    return;
+                }
+
+                // 子元素坐标相对父元件注册点：烘焙时把 bounds 原点平移到
+                // (padding, padding)，blit 时再按 bounds 的偏移取用，
+                // 这样父元件自己移动/缩放/旋转时子树不必重绘（见 D4）。
                 var ratio = window.devicePixelRatio || 1;
-                var width = Math.max(1, Math.ceil((viewportWidth || 1) * ratio));
-                var height = Math.max(1, Math.ceil((viewportHeight || 1) * ratio));
+                var width = Math.max(1, Math.ceil(bounds.width * ratio));
+                var height = Math.max(1, Math.ceil(bounds.height * ratio));
                 if (!element.composite) {
                     element.composite = document.createElement("canvas");
                 }
@@ -1816,13 +2887,12 @@
                 target.setTransform(1, 0, 0, 1, 0, 0);
                 target.clearRect(0, 0, width, height);
                 target.setTransform(ratio, 0, 0, ratio, 0, 0);
-                // 子元素坐标是页面坐标：复合层按页面坐标 1:1 烘焙，
-                // 之后对父元素做的任何变换都作用在这张已烘好的位图上。
-                for (var index = 0; index < element.children.length; index++) {
-                    blitElement(target, element.children[index]);
+                target.translate(-bounds.x, -bounds.y);
+                for (var index = 0; index < element.childList.length; index++) {
+                    blitElement(target, element.childList[index]);
                 }
 
-                element.compositeDirty = false;
+                element.compositeBounds = bounds;
                 element.painted = true;
                 paintCount++;
             }
@@ -1832,7 +2902,7 @@
                     return;
                 }
 
-                if (element.children.length > 0) {
+                if (element.childList.length > 0) {
                     if (!element.composite) {
                         rebuildComposite(element);
                     }
@@ -1843,12 +2913,18 @@
 
                     target.save();
                     applyElementTransform(target, element);
+                    var compositeBoundsValue = element.compositeBounds || {
+                        x: 0,
+                        y: 0,
+                        width: element.composite.width / (window.devicePixelRatio || 1),
+                        height: element.composite.height / (window.devicePixelRatio || 1)
+                    };
                     target.drawImage(
                         element.composite,
-                        0,
-                        0,
-                        element.composite.width / (window.devicePixelRatio || 1),
-                        element.composite.height / (window.devicePixelRatio || 1));
+                        compositeBoundsValue.x,
+                        compositeBoundsValue.y,
+                        compositeBoundsValue.width,
+                        compositeBoundsValue.height);
                     target.restore();
                     return;
                 }
@@ -1886,8 +2962,8 @@
                     return true;
                 }
 
-                for (var index = 0; index < element.children.length; index++) {
-                    if (isSubtreeDirty(element.children[index])) {
+                for (var index = 0; index < element.childList.length; index++) {
+                    if (isSubtreeDirty(element.childList[index])) {
                         return true;
                     }
                 }
@@ -1898,8 +2974,8 @@
             function clearSubtreeDirty(element) {
                 element.propertyDirty = {};
                 element.compositeDirty = false;
-                for (var index = 0; index < element.children.length; index++) {
-                    clearSubtreeDirty(element.children[index]);
+                for (var index = 0; index < element.childList.length; index++) {
+                    clearSubtreeDirty(element.childList[index]);
                 }
             }
 
@@ -1918,25 +2994,222 @@
                 element.lifeTimeMs = resolveElementLifeTimeMs(item, LIFE_TIME_UNBOUNDED);
 
                 item.elements.push(element);
-                // 元素创建后立即进入元素树（与 M8 的 SetupMotionElement 一致）。
-                attachElement(element, null);
+                // parent 由创建参数决定；未指定时挂到条目 Canvas（M8 的默认父元件）。
+                if (element.treeParent === null) {
+                    attachElement(element, element.createParent || null);
+                }
+
+                element.createParent = null;
                 return element;
+            }
+
+            // 条目级内容重置：ScriptManager.clearEl / clearTimer / clearTrigger 用。
+            // clearEl 只摘元素（元素的 tween 与定时器随之失效），不重置整个条目。
+            function clearItemElements(item) {
+                for (var index = item.elements.length - 1; index >= 0; index--) {
+                    releaseItemElement(item, index);
+                }
+
+                dirty = true;
+            }
+
+            function clearItemTimers(item) {
+                clearItemScheduledTimers(item);
+                item.tweenHandles = [];
+            }
+
+            function clearItemTriggers(item) {
+                item.triggers = [];
+            }
+
+            // ---- commentTrigger / keyTrigger ----
+            //
+            // 触发器登记在条目上，与定时器共用同一条生命周期：条目回收 / reset /
+            // seek 越窗时由 clearItemTriggers 统一清掉，触发器绝不会活过条目。
+            //
+            // timeout 用「条目已播放时间」计量（与画面同一时钟），因此暂停时不推进、
+            // 不会莫名其妙过期。注意这与 M8 文档「不会因播放器暂停而终止执行」不同：
+            // 本宿主的一切都挂在这条时钟上，混用两套时钟会让触发时机与画面错位。
+            //
+            // 投递是**消息驱动**的（pushComment / pushKey 到达时同步调用），
+            // 不依赖帧循环，所以暂停时收到的事件也会立即送达回调。
+            function itemElapsedMs(item) {
+                return Math.max(0, currentPositionMs() - item.startMs);
+            }
+
+            // M8 的 keyTrigger 只监听这一组键（文档明确列出），其余按键不投递。
+            // 键值与 DOM/Flash 的 keyCode 同源，C# 侧直接透传 VirtualKey 的整数值。
+            var M8_TRIGGER_KEY_CODES = {
+                33: true, 34: true, 35: true, 36: true, 37: true, 38: true, 39: true, 40: true,
+                65: true, 68: true, 83: true, 87: true,
+                96: true, 97: true, 98: true, 99: true, 100: true,
+                101: true, 102: true, 103: true, 104: true, 105: true
+            };
+
+            function normalizeTriggerTimeout(timeoutMs) {
+                var value = toFiniteNumber(timeoutMs, DEFAULT_TRIGGER_TIMEOUT_MS);
+                return value > 0 ? value : DEFAULT_TRIGGER_TIMEOUT_MS;
+            }
+
+            function registerItemTrigger(kind, callback, timeoutMs, up) {
+                if (typeof callback !== "function") {
+                    return 0;
+                }
+
+                var item = currentItem();
+                if (!item) {
+                    return 0;
+                }
+
+                var trigger = {
+                    id: ++nextTriggerId,
+                    kind: kind,
+                    callback: callback,
+                    up: !!up,
+                    ownerItem: item,
+                    registeredAtMs: itemElapsedMs(item),
+                    timeoutMs: normalizeTriggerTimeout(timeoutMs)
+                };
+                item.triggers.push(trigger);
+                return trigger.id;
+            }
+
+            // 取出该条目上该类型「未过期」的触发器，顺手回收已过期的。
+            function liveTriggers(item, kind, keyUp) {
+                var elapsed = itemElapsedMs(item);
+                var live = [];
+                for (var index = item.triggers.length - 1; index >= 0; index--) {
+                    var trigger = item.triggers[index];
+                    if (trigger.kind !== kind) {
+                        continue;
+                    }
+
+                    if (kind === "key" && trigger.up !== keyUp) {
+                        continue;
+                    }
+
+                    if (elapsed - trigger.registeredAtMs >= trigger.timeoutMs) {
+                        item.triggers.splice(index, 1);
+                        continue;
+                    }
+
+                    live.push(trigger);
+                }
+
+                return live;
+            }
+
+            function removeTrigger(item, trigger) {
+                var index = item.triggers.indexOf(trigger);
+                if (index >= 0) {
+                    item.triggers.splice(index, 1);
+                }
+            }
+
+            // 触发器回调在「该条目」的上下文里执行：回调里可以照常建元件、开定时器。
+            function invokeTrigger(trigger, argument) {
+                var item = trigger.ownerItem;
+                var previous = activeItem;
+                activeItem = item;
+                item.activeNow = currentPositionMs();
+                try {
+                    trigger.callback(argument);
+                } catch (error) {
+                    // 回调抛错只摘掉这一个触发器，不影响其它触发器与整帧。
+                    removeTrigger(item, trigger);
+                    reportRuntimeError(error, item.model.id);
+                } finally {
+                    activeItem = previous;
+                    item.createParent = null;
+                }
+
+                dirty = true;
+                ensureRunning();
+            }
+
+            function forEachTriggerItem(callback) {
+                var now = currentPositionMs();
+                for (var index = 0; index < items.length; index++) {
+                    var item = items[index];
+                    // 只有「已激活、在窗口内、没失败」的条目才收事件：窗口外的条目
+                    // 已经被 deactivateItem 清过触发器，这里再挡一道防边界竞态。
+                    if (!item.activated || item.failed || !isInWindow(item, now)) {
+                        continue;
+                    }
+
+                    callback(item);
+                }
+            }
+
+            function deliverCommentTrigger(comment) {
+                forEachTriggerItem(function (item) {
+                    var triggers = liveTriggers(item, "comment", false);
+                    for (var index = 0; index < triggers.length; index++) {
+                        invokeTrigger(triggers[index], comment);
+                    }
+                });
+            }
+
+            function deliverKeyTrigger(keyCode, keyUp) {
+                if (!M8_TRIGGER_KEY_CODES[keyCode]) {
+                    return;
+                }
+
+                forEachTriggerItem(function (item) {
+                    var triggers = liveTriggers(item, "key", keyUp);
+                    for (var index = 0; index < triggers.length; index++) {
+                        invokeTrigger(triggers[index], keyCode);
+                    }
+                });
+            }
+
+            // ---- 弹幕快照（M8 的 Player.commentList）----
+            //
+            // 由 C# 侧推入：resetComments() 清空、appendComments([...]) 追加。
+            // 字段与 M8 的 CommentData 同名同义（txt / time / color / pool / mode /
+            // fontSize），宿主只做缺省填充，不做重命名，脚本拿到的就是 M8 的形状。
+            function normalizeComment(raw) {
+                var source = raw && typeof raw === "object" ? raw : {};
+                return {
+                    txt: source.txt === undefined || source.txt === null ? "" : String(source.txt),
+                    // M8 的 CommentData.time 是**秒**（Player.time 才是毫秒）。
+                    time: toFiniteNumber(source.time, 0),
+                    color: normalizeColor(source.color),
+                    pool: Math.trunc(toFiniteNumber(source.pool, 0)),
+                    mode: Math.trunc(toFiniteNumber(source.mode, 1)),
+                    fontSize: toFiniteNumber(source.fontSize, DEFAULT_TEXT_FONTSIZE)
+                };
             }
 
             function activateItem(item, now) {
                 item.activated = true;
                 item.removed = false;
                 item.failed = false;
+                // 重跑脚本前先把上一次的定时器 / 句柄清掉，避免重建后两份并存。
+                clearItemTimers(item);
+                clearItemTriggers(item);
                 // 脚本在这里、也只在这里执行一次。之后每帧只推进 tween。
                 item.runCount++;
                 totalRunCount++;
                 try {
-                    item.run(createContext(item, now));
+                    var scriptArgs = createScriptScope(item);
+                    activeItem = item;
+                    item.run.apply(null, scriptArgs);
                 } catch (error) {
-                    // 脚本自己抛错：该条目停用（不再推进它的补间），
-                    // 但不影响同一帧里其它条目的渲染。
-                    item.failed = true;
-                    reportRuntimeError(error, item.model.id);
+                    if (error === STOP_EXECUTION_SIGNAL) {
+                        // 脚本自己调了 stopExecution()：正常终止，不计为错误。
+                        item.removed = false;
+                    } else {
+                        // 脚本自己抛错：该条目停用（不再推进它的补间），
+                        // 但不影响同一帧里其它条目的渲染。
+                        item.failed = true;
+                        reportRuntimeError(error, item.model.id);
+                    }
+                } finally {
+                    activeItem = null;
+                    // clearEl / clearTimer 之类的清理要发生在脚本执行之后、
+                    // 下一帧推进之前，否则被清掉的元素还会被推进一帧。
+                    item.createParent = null;
                 }
             }
 
@@ -1965,6 +3238,10 @@
             function deactivateItem(item) {
                 item.activated = false;
                 item.removed = true;
+                // 定时器必须随条目一起清掉：M8 用 ScriptManager.clearTimer 解决的
+                // 正是「条目销毁后 interval 还在跑」——这里由宿主兜底，脚本不必自己清。
+                clearItemTimers(item);
+                clearItemTriggers(item);
                 for (var index = item.elements.length - 1; index >= 0; index--) {
                     releaseItemElement(item, index);
                 }
@@ -1972,15 +3249,45 @@
 
             function advanceItem(item, now) {
                 var elapsed = now - item.startMs;
+
+                // 本帧推进了多少「播放时间」：句柄自己的时间轴与元素寿命都按它走，
+                // 这样暂停时两者都停（与 M8 的「暂停不推进效果」一致）。
+                var delta = elapsed - item.lastAdvanceMs;
+                if (delta < 0 || delta > MAX_FRAME_DELTA_MS) {
+                    delta = 0;
+                }
+
+                item.lastAdvanceMs = elapsed;
+
+                // 脚本执行期间可能又注册定时器 / 创建元素，所以先把这一帧的
+                // 定时器到期项跑掉，再推进补间。
+                activeItem = item;
+                item.activeNow = now;
+                try {
+                    runItemTimers(item, delta);
+                } catch (error) {
+                    failItem(item, error);
+                } finally {
+                    activeItem = null;
+                }
+
+                try {
+                    advanceItemHandles(item, delta);
+                } catch (error) {
+                    failItem(item, error);
+                }
+
                 for (var index = item.elements.length - 1; index >= 0; index--) {
                     var element = item.elements[index];
                     if (element.expired) {
                         continue;
                     }
 
+                    // 被 Tween.* 句柄驱动的元素由句柄写回，不再按条目进度插值：
+                    // 否则两套时间轴会互相覆盖（先句柄后条目，句柄结果当场被冲掉）。
                     // 单个元素出错不拖垮整条条目，更不拖垮整帧：
                     // 只把该元素标成已失败，后续帧不再推进它。
-                    if (element.hasTween) {
+                    if (element.hasTween && !isMotionHandleDriven(element)) {
                         try {
                             advanceElementMotion(element, elapsed);
                         } catch (error) {
@@ -1994,16 +3301,6 @@
                     }
                 }
 
-                if (item.usesOnFrame && typeof item.frameFn === "function") {
-                    // 逃生舱：只有 tween 表达不了的效果才该走这里。
-                    try {
-                        item.frameFn(createContext(item, now), elapsed);
-                    } catch (error) {
-                        item.usesOnFrame = false;
-                        item.frameFn = null;
-                        failItem(item, error);
-                    }
-                }
             }
 
             function updateItems(now) {
@@ -2055,6 +3352,20 @@
 
                     rebuildItemElementsForSeek(item, now);
 
+                    // 重建后句柄时间轴要跟着新位置走：补间是按「播放进度」
+                    // 重算的，句柄留在旧时间上会让两套时间轴立刻对不上。
+                    item.lastAdvanceMs = -1;
+                    for (var handleIndex = 0; handleIndex < item.tweenHandles.length; handleIndex++) {
+                        var handle = item.tweenHandles[handleIndex];
+                        if (handle.state !== "playing") {
+                            continue;
+                        }
+
+                        handle.timeMs = handle.durationMs > 0
+                            ? Math.min(handle.durationMs, Math.max(0, now - item.startMs))
+                            : 0;
+                    }
+
                     for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
                         var element = item.elements[elementIndex];
                         if (element.motion) {
@@ -2104,6 +3415,9 @@
                     var item = items[index];
                     item.activated = false;
                     item.removed = true;
+                    // 整批作废同样要清定时器与句柄：条目被丢弃后它们不能再跑。
+                    clearItemTimers(item);
+                    clearItemTriggers(item);
                     for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
                         releaseElementCaches(item.elements[elementIndex]);
                     }
@@ -2112,7 +3426,12 @@
                 }
 
                 items = [];
-                rootElement.children = [];
+                // reset 时清空 $G：M8 的全局变量只在一次播放/一批脚本内共享。
+                globalStore = {};
+                // 遮罩元件随整批条目一起作废，遮罩本身也要摘掉，否则下一批
+                // 弹幕会被上一批的遮罩裁掉。
+                stageMaskElement = null;
+                rootElement.childList = [];
                 rootElement.composite = null;
                 elements = [];
             }
@@ -2131,7 +3450,7 @@
             }
 
             function paintDirtyElements() {
-                var topLevel = rootElement.children;
+                var topLevel = rootElement.childList;
                 for (var index = 0; index < topLevel.length; index++) {
                     var element = topLevel[index];
                     if (element.expired || element.props.visible === false) {
@@ -2155,19 +3474,13 @@
                 }
 
                 var bounds;
-                if (element.children.length > 0) {
-                    if (!element.composite) {
+                if (element.childList.length > 0) {
+                    if (!element.composite || !element.compositeBounds) {
                         return null;
                     }
 
-                    // 复合层是按页面坐标 1:1 烘的，所以它的本地原点就是 (0, 0)。
-                    var compositeRatio = window.devicePixelRatio || 1;
-                    bounds = {
-                        x: 0,
-                        y: 0,
-                        width: element.composite.width / compositeRatio,
-                        height: element.composite.height / compositeRatio
-                    };
+                    // 复合层的本地原点就是它自己的 compositeBounds 原点。
+                    bounds = element.compositeBounds;
                 } else if (element.kind === "layer") {
                     bounds = { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
                 } else if (element.cacheBounds) {
@@ -2238,8 +3551,8 @@
                     element.lastPaintedRect = null;
                 }
 
-                for (var index = 0; index < element.children.length; index++) {
-                    retireElementRect(element.children[index]);
+                for (var index = 0; index < element.childList.length; index++) {
+                    retireElementRect(element.childList[index]);
                 }
             }
 
@@ -2293,19 +3606,187 @@
                 }
 
                 dirty = true;
-                var parent = element.parent;
+                var parent = element.treeParent;
                 if (parent && parent !== rootElement) {
-                    parent.needsCache = true;
+                    // 子元素动了，父复合层要重烘；这里只标 compositeDirty，
+                    // 不动 parent.needsCache（后者会连带重建父元件的叶子缓存）。
+                    parent.compositeDirty = true;
+                }
+            }
+
+            // ---- 舞台遮罩（M8 的 Player.setMask）----
+            //
+            // 语义：把整块脚本弹幕画布裁剪到 mask 元件的形状里（M8 里 setMask 设置的是
+            // 「播放器遮罩」，即视频区域的可见形状，弹幕只在其中出现）。
+            //
+            // 落点只有一个：composeElement。裁剪是**合成期**行为，元素自己的离屏缓存
+            // 不受影响，所以遮罩不会让任何元素重建位图（缓存只在内容变化时失效）。
+            // 擦除（flushEraseRects）与整屏清空（clearSurface）都**不带裁剪**：
+            // 它们要抹掉的是上一帧的像素，带上裁剪反而会留下旧内容。
+            function setStageMask(element) {
+                var next = element && element.kind ? element : null;
+                if (stageMaskElement === next) {
+                    return;
+                }
+
+                stageMaskElement = next;
+                // 遮罩元件本身不参与渲染（M8 的遮罩对象不在显示列表里）。
+                // 只从渲染树摘除，仍留在条目元素表里：它的变换照旧可用，
+                // 条目回收时也会被一起释放。
+                if (next && next.treeParent) {
+                    removeChildFromParent(next);
+                }
+
+                if (!context2d || !canvas) {
+                    return;
+                }
+
+                // 可见区域变了，主画布上已有像素全部作废：整屏清掉，
+                // 再把所有元素标脏重合成一次（内容缓存不动，只重合成）。
+                pendingEraseRects = [];
+                clearSurface();
+                markAllComposited();
+            }
+
+            // 把已登记元素的「上一帧呈现记录」作废，强制重合成一次。
+            // 只标脏、不清 needsCache：元素自身的位图没变，重建纯属浪费。
+            function markAllComposited() {
+                for (var index = 0; index < elements.length; index++) {
+                    var element = elements[index];
+                    element.propertyDirty["*"] = true;
+                    element.lastPaintedRect = null;
+                }
+
+                dirty = true;
+                if (visible) {
+                    ensureRunning();
+                }
+            }
+
+            // 按 mask 元件的形状给 target 加上裁剪区。返回 true 表示加过 save，
+            // 调用方必须 restore。
+            function applyStageMask(target) {
+                if (!stageMaskElement
+                    || stageMaskElement.expired
+                    || stageMaskElement.props.visible === false) {
+                    return false;
+                }
+
+                target.save();
+                applyElementTransform(target, stageMaskElement);
+                if (!traceElementClipPath(target, stageMaskElement)) {
+                    target.restore();
+                    return false;
+                }
+
+                target.clip();
+                return true;
+            }
+
+            // 把元件的形状描进当前路径（只建路径，不填充不描边），供 clip() 使用。
+            // 形状类元件按它自己的图元描；文本 / 图片 / 复合元件退化成它的外接矩形
+            // （M8 里能用文本当遮罩，这里按矩形近似，见文档 §3 的说明）。
+            function traceElementClipPath(target, element) {
+                var items = element.kind === "shape" ? element.shapeItems : null;
+                if (!items || items.length === 0) {
+                    var bounds = elementLocalBounds(element);
+                    if (!bounds) {
+                        return false;
+                    }
+
+                    target.beginPath();
+                    target.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+                    return true;
+                }
+
+                target.beginPath();
+                var traced = false;
+                for (var index = 0; index < items.length; index++) {
+                    if (traceShapeItemClipPath(target, items[index])) {
+                        traced = true;
+                    }
+                }
+
+                return traced;
+            }
+
+            // 与 drawShapeItem 的几何部分一一对应，只是不落笔。
+            function traceShapeItemClipPath(target, item) {
+                switch (item.kind) {
+                    case "line":
+                    case "fill":
+                        if (!item.path || !item.path.points || item.path.points.length < 2) {
+                            return false;
+                        }
+
+                        tracePolygon(target, item.path, 0, 0);
+                        return true;
+                    case "rect":
+                        target.rect(item.x, item.y, item.width, item.height);
+                        return true;
+                    case "roundRect":
+                        roundedRectPath(
+                            target,
+                            item.x,
+                            item.y,
+                            item.width,
+                            item.height,
+                            item.rx,
+                            item.ry);
+                        return true;
+                    case "circle":
+                        target.moveTo(item.x + Math.abs(item.radius), item.y);
+                        target.arc(item.x, item.y, Math.abs(item.radius), 0, Math.PI * 2);
+                        return true;
+                    case "ellipse":
+                        target.moveTo(item.x + Math.abs(item.width) / 2, item.y);
+                        target.ellipse(
+                            item.x,
+                            item.y,
+                            Math.abs(item.width) / 2,
+                            Math.abs(item.height) / 2,
+                            0,
+                            0,
+                            Math.PI * 2);
+                        return true;
+                    case "wedge":
+                        target.moveTo(item.x, item.y);
+                        target.arc(item.x, item.y, Math.abs(item.radius), item.startAngle, item.startAngle + item.arc);
+                        target.closePath();
+                        return true;
+                    case "polygon":
+                        if (!item.points || item.points.length < 4) {
+                            return false;
+                        }
+
+                        target.moveTo(item.points[0], item.points[1]);
+                        var pointIndex = 2;
+                        while (pointIndex < item.points.length) {
+                            target.lineTo(item.points[pointIndex], item.points[pointIndex + 1]);
+                            pointIndex += 2;
+                        }
+
+                        target.closePath();
+                        return true;
+                    default:
+                        return false;
                 }
             }
 
             function composeElement(element) {
+                // 遮罩在合成期施加：只影响「这一帧画到主画布上的可见范围」，
+                // 元素自己的离屏缓存与包围盒都不变。
+                var clipped = applyStageMask(context2d);
                 blitElement(context2d, element);
+                if (clipped) {
+                    context2d.restore();
+                }
+
                 recordElementRect(element);
             }
 
             function paintDirtyElements() {
-                var topLevel = rootElement.children;
+                var topLevel = rootElement.childList;
                 var candidates = [];
                 var index;
                 for (index = 0; index < topLevel.length; index++) {
@@ -2392,8 +3873,8 @@
                 }
 
                 var childrenChanged = false;
-                for (var index = 0; index < element.children.length; index++) {
-                    if (prepareElement(element.children[index])) {
+                for (var index = 0; index < element.childList.length; index++) {
+                    if (prepareElement(element.childList[index])) {
                         childrenChanged = true;
                     }
                 }
@@ -2403,7 +3884,7 @@
                 element.propertyDirty = {};
                 element.needsCache = false;
 
-                if (element.children.length > 0) {
+                if (element.childList.length > 0) {
                     // 复合元素只在结构真变时重烘：重建后 needsCache 必须清掉，
                     // 否则它下一帧又会被判为结构脏，每帧白烘一整张视口层。
                     if (structural || element.compositeDirty || childrenChanged) {
@@ -2454,8 +3935,10 @@
                 return anyActive;
             }
 
-            // 「还有东西要动吗」：窗口内的条目里有逐帧回调（可能自管时间），
-            // 或有元素补间尚未跑完。播放中不看这个——播放本身就要持续出帧。
+            // 「还有东西要动吗」：窗口内的条目里有登记在册的定时器
+            // （M8 的 interval —— 逐帧回调只有这一条路径）、有未跑完的
+            // Tween.* 句柄，或有元素补间尚未跑完。
+            // 播放中不看这个——播放本身就要持续出帧。
             // duration 缺省（无界窗口）下条目会长时间停在窗口内，只看
             // 「窗口内有没有条目」会让暂停后的帧循环一直空转。
             function hasPendingAnimation(now) {
@@ -2465,14 +3948,28 @@
                         continue;
                     }
 
-                    if (item.usesOnFrame) {
+                    // 还有在跑的定时器（interval(…, 0) 这类无界回调）就必须继续出帧，
+                    // 否则暂停后定时器会被自停判据「冻住」。
+                    if (item.scheduledTimers.length > 0) {
                         return true;
+                    }
+
+                    var handleIndex;
+                    for (handleIndex = 0; handleIndex < item.tweenHandles.length; handleIndex++) {
+                        if (item.tweenHandles[handleIndex].state === "playing") {
+                            return true;
+                        }
                     }
 
                     var elapsed = now - item.startMs;
                     for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
                         var element = item.elements[elementIndex];
                         if (element.expired || !element.hasTween || !element.motion) {
+                            continue;
+                        }
+
+                        // 被句柄驱动的补间由句柄判定（上面已覆盖），这里只看声明式补间。
+                        if (isMotionHandleDriven(element)) {
                             continue;
                         }
 
@@ -2580,7 +4077,16 @@
                 }
 
                 // 整个宿主里只有这一处 new Function，且每条脚本只编译一次。
-                return new Function("ctx", code);
+                // 脚本环境直接提供 M8 的全局名（$ / Player / $G / Tween / Utils /
+                // ScriptManager / timer / interval / clearTimer / trace / tracex /
+                // stopExecution / foreach / clone / getTimer），不再注入自研的 ctx。
+                // 用参数注入而不是给 window 挂属性：脚本里对 $ / Tween 的赋值
+                // 只影响它自己那一次执行，不会污染其它条目。
+                return new Function(
+                    "$", "Player", "$G", "Global", "Tween", "Utils", "ScriptManager",
+                    "timer", "interval", "clearTimer", "trace", "tracex",
+                    "stopExecution", "foreach", "clone", "getTimer",
+                    code);
             }
 
             function addItem(model, itemGeneration) {
@@ -2603,9 +4109,22 @@
                     // 条目级失败：脚本或补间抛错后置位，后续帧跳过它的推进。
                     failed: false,
                     hasTween: false,
-                    usesOnFrame: false,
-                    frameFn: null,
                     elements: [],
+                    // Tween.* 返回的 ITween 句柄（组合子形态的补间）。
+                    tweenHandles: [],
+                    // 上一次推进用的条目内时间（毫秒）：帧增量 = 本帧 - 上一次。
+                    // 句柄时间轴与元素寿命都按它走，暂停时自然停住。
+                    lastAdvanceMs: -1,
+                    // timer / interval 登记表（条目回收 / reset / seek 越窗时统一清掉）。
+                    scheduledTimers: [],
+                    // commentTrigger / keyTrigger 登记表（阶段 2-4 的数据链占位）。
+                    triggers: [],
+                    // 当前正在执行的脚本：全局函数（$.create* / interval / foreach…）
+                    // 要知道自己属于哪条条目——脚本执行期间由宿主指向它。
+                    activeItem: null,
+                    activeNow: 0,
+                    // 脚本执行期间处于最前端（$.create* 的 parent 缺省值）。
+                    createParent: null,
                     runCount: 0
                 };
 
@@ -2643,75 +4162,863 @@
                 }
             }
 
-            // ---- 脚本上下文（保留模式）----
+            // ---- M8 脚本运行时（原版 API 面）----
+            //
+            // 这里不再有自研的 ctx：脚本拿到的就是原版 M8 的全局名
+            // （$ / Player / $G / Tween / Utils / ScriptManager / timer /
+            // interval / clearTimer / trace / tracex / stopExecution /
+            // foreach / clone / getTimer，见 compileItem）。
+            //
+            // 冲突处理：M8 的 `$.createCanvas({width, height})` 与
+            // `$.createShape({...})` 语义相同（都返回可承载子元件的保留元件），
+            // 本宿主统一映射到「容器」元素；`$.createText` 映射到 M8 的文本元件。
+            // 没有对应实现的 createVector / createMatrix / createColorTransform /
+            // createGlowFilter 等工厂见文件末尾的占位说明。
 
-            // ctx 只提供「建元素 + 声明 tween + 登记元素树」的能力。
-            // 脚本执行期间创建的所有元素都自动归属当前条目：到期时由宿主统一摘除。
-            function createContext(item, now) {
-                var durationSeconds = item.durationMs / 1000;
-                var context = {
-                    // 只读量。dpr 由宿主处理，脚本拿到的坐标一律是 CSS 像素。
-                    width: viewportWidth,
-                    height: viewportHeight,
-                    dpr: devicePixelRatioValue,
-                    duration: durationSeconds,
-                    stime: item.model.stime,
-                    id: item.model.id,
-                    // 播放头位置（毫秒），与 M8 的 Player.time 同单位，
-                    // 便于直接移植原版脚本；注意 ctx.duration / ctx.stime 仍是秒。
-                    // 脚本每条只执行一次，激活时这里是快照；逐帧读时间用
-                    // ctx.onFrame 回调里的 frameCtx.time。
-                    time: now,
-                    // M8 的 Player.state（playing / pause / stop）。宿主没有
-                    // 独立于可见性的停止态，弹幕层隐藏时给 stop。
-                    state: visible ? (state.playing ? "playing" : "pause") : "stop",
-                    // 保留模式下脚本每条只执行一次，下面两个量恒定是 0 / 0——
-                    // 它们不再有逐帧语义，也不得被用来驱动任何逐帧机制。
-                    t: 0,
-                    progress: 0,
-                    pause: requestPause,
-                    seek: requestSeek,
-                    navigate: requestNavigate,
+            // 脚本执行期间宿主指向当前条目：全局函数靠它归属元素与定时器。
+            function currentItem() {
+                return activeItem;
+            }
 
-                    createText: function (text, style) {
-                        return registerItemElement(item, createTextElement(text, style));
+            // 脚本执行期间处于最前端（$.create* 的 parent 缺省值）。
+            // 目前恒为 null（= 条目根），保留它是为了后续 $.createCanvas 的
+            // 「新元件默认挂在当前元件下」语义（阶段 2-4）。
+            function currentCreateParent() {
+                return activeItem ? activeItem.createParent : null;
+            }
+
+            // 元素工厂的公共参数：坐标 / 变换 / 可见性 / 寿命 / 父元件。
+            // M8 的创建参数直接写在 options 上，不再是 ctx 时代的第二个参数。
+            function applyCreateOptions(element, options) {
+                var source = options && typeof options === "object" ? options : {};
+                applyInitialValues(element, normalizeStyle(source));
+
+                if (source.alpha !== undefined && source.alpha !== null) {
+                    setPropertyInternal(element, "alpha", toFiniteNumber(source.alpha, 1), false);
+                }
+
+                if (source.visible !== undefined && source.visible !== null) {
+                    setPropertyInternal(element, "visible", !!source.visible, false);
+                }
+
+                // 寿命：M8 的 lifeTime 未声明时按宿主默认（3 秒）算，
+                // 声明 0 / 负数表示常驻（声明值 Infinity，实际仍受窗口兜底约束）。
+                // 声明值可能写在外层，也可能写在 motion 的某条属性上
+                // （`motion: {x: {…, lifeTime: 4}}`），后者在 M8 脚本里更常见，
+                // 取两者的最大值——与「同一元素多个 tween 取最大声明值」一致。
+                var declared = readDeclaredSeconds(source, "lifeTime");
+                var motionConfig = source.motion ? normalizeMotionConfig(source.motion) : null;
+                var motionDeclared = motionConfig ? readMotionDeclaredSeconds(motionConfig) : null;
+                if (motionDeclared !== null && (declared === null || motionDeclared > declared)) {
+                    declared = motionDeclared;
+                }
+
+                if (declared !== null) {
+                    applyElementLifeTime(
+                        element,
+                        declared <= 0 ? LIFE_TIME_UNBOUNDED : declared * 1000);
+                }
+
+                // 父元件：M8 的 parent 是「创建时挂到谁下面」的普通参数。
+                if (source.parent) {
+                    addChildToParent(element, source.parent);
+                } else {
+                    element.createParent = currentCreateParent();
+                }
+
+                // 声明式 motion：M8 的 `motion: {x: {fromValue, toValue, lifeTime}}`。
+                //
+                // 必须走**声明式**补间（按条目进度 elapsed 插值），不能走 Tween.* 的
+                // 句柄路径：句柄有自己的时间轴（play() 起算），seek 回窗口内重建时
+                // 会从 0 重新开始，而保留模式的契约是「重建后的位置按新播放位置重算」。
+                // 只有脚本显式调用 Tween.tween/to/... 时才是句柄语义（play() 起算）。
+                if (motionConfig) {
+                    createTween(element, motionConfig, source);
+                }
+
+                return element;
+            }
+
+            // motion 里声明的 lifeTime（秒）最大值；未声明返回 null。
+            function readMotionDeclaredSeconds(config) {
+                var declared = null;
+                for (var name in config) {
+                    if (!Object.prototype.hasOwnProperty.call(config, name)) {
+                        continue;
+                    }
+
+                    var seconds = readDeclaredSeconds(config[name], "lifeTime");
+                    if (seconds === null) {
+                        continue;
+                    }
+
+                    if (declared === null || seconds > declared) {
+                        declared = seconds;
+                    }
+                }
+
+                return declared;
+            }
+
+            // M8 的 motion 写法允许省略 fromValue / toValue 这类包装：
+            //   motion: { x: { fromValue: 0, toValue: 320, lifeTime: 4 } }   ← 与本宿主 tween 同形
+            //   motion: { x: { to: 320, start: 0, time: 4 } }                ← M8 简写
+            // 两种都归一成宿主内部的属性配置。
+            function normalizeMotionConfig(motion) {
+                var config = {};
+                for (var name in motion) {
+                    if (!Object.prototype.hasOwnProperty.call(motion, name)) {
+                        continue;
+                    }
+
+                    var value = motion[name];
+                    if (value && typeof value === "object") {
+                        config[name] = {
+                            fromValue: value.fromValue !== undefined ? value.fromValue : value.start,
+                            toValue: value.toValue !== undefined ? value.toValue : value.to,
+                            lifeTime: value.lifeTime !== undefined ? value.lifeTime : value.time,
+                            startDelay: value.startDelay,
+                            startDelayMs: value.startDelayMs,
+                            lifeTimeMs: value.lifeTimeMs,
+                            easing: value.easing,
+                            repeat: value.repeat
+                        };
+                    } else {
+                        config[name] = { toValue: value };
+                    }
+                }
+
+                return config;
+            }
+
+            // M8 的 `$`：元件工厂。
+            var M8Display = {
+                createComment: function (text, options) {
+                    return createItemElement(function () {
+                        return createTextElement(
+                            text === undefined || text === null ? "" : text,
+                            options);
+                    }, options);
+                },
+                createText: function (text, options) {
+                    return M8Display.createComment(text, options);
+                },
+                createShape: function (options) {
+                    return createItemElement(createShapeElement, options);
+                },
+                // M8 的 createCanvas 与 createShape 同义（都是可承载子元件的保留元件）。
+                createCanvas: function (options) {
+                    return M8Display.createShape(options);
+                },
+                createSprite: function (options) {
+                    return M8Display.createShape(options);
+                },
+                createButton: function (options) {
+                    return createItemElement(function () {
+                        return createButtonElement(options);
+                    }, options);
+                },
+                // 图片元件：M8 用 External.Bitmap.createBitmap，这里额外提供一个
+                // 直连 URL 的 convenience 工厂（脚本可用 ES6 模板字符串拼 data: URI）。
+                createImage: function (url, options) {
+                    return createItemElement(function () {
+                        return createImageElement(url);
+                    }, options);
+                },
+                // 脚本自绘层：宿主扩展（M8 无对应工厂），保留内部离屏 canvas 能力。
+                createLayer: function (width, height, options) {
+                    return createItemElement(function () {
+                        return createLayerElement(width, height);
+                    }, options);
+                },
+                // M8 的 toIntVector / toNumberVector：把 JS 数组转成 Vector。
+                // 本宿主里 Vector 就是普通数组（元素是数值），保留是为了让
+                // 使用它们的脚本（字体数据等）原样可跑。
+                toIntVector: function (list) {
+                    return toNumberArray(list, true);
+                },
+                toNumberVector: function (list) {
+                    return toNumberArray(list, false);
+                },
+                // M8 的 Global：`$.Global` 与 `$G` 指向同一个对象。
+                Global: null,
+                // ---- 以下为占位：Flash 元件模型 / 外部库依赖，当前不生效 ----
+                // 待接数据链（阶段 2-4）：需要完整 Flash DisplayObject 模型或
+                // 位图/字体外部库，当前返回 null 让脚本不抛错继续执行。
+                createVector: function () {
+                    return toNumberArray(arguments[0], false);
+                },
+                createMatrix: function () {
+                    return createPlaceholderMatrix();
+                },
+                createColorTransform: function () {
+                    return null;
+                },
+                createGlowFilter: function () {
+                    return createPlaceholderFilter("GlowFilter", arguments);
+                },
+                createBlurFilter: function () {
+                    return createPlaceholderFilter("BlurFilter", arguments);
+                },
+                createDropShadowFilter: function () {
+                    return createPlaceholderFilter("DropShadowFilter", arguments);
+                },
+                createBevelFilter: function () {
+                    return createPlaceholderFilter("BevelFilter", arguments);
+                },
+                createGradientBox: function () {
+                    return null;
+                },
+                createBitmapData: function () {
+                    return null;
+                },
+                createRectangle: function (x, y, width, height) {
+                    return {
+                        x: toFiniteNumber(x, 0),
+                        y: toFiniteNumber(y, 0),
+                        width: toFiniteNumber(width, 0),
+                        height: toFiniteNumber(height, 0)
+                    };
+                },
+                createPoint: function (x, y) {
+                    return { x: toFiniteNumber(x, 0), y: toFiniteNumber(y, 0) };
+                },
+                createColor: function (value) {
+                    return toFiniteNumber(value, 0);
+                },
+                hasOwnProperty: function (name) {
+                    return Object.prototype.hasOwnProperty.call(M8Display, name);
+                }
+            };
+
+            function toNumberArray(list, truncate) {
+                var result = [];
+                if (list === undefined || list === null) {
+                    return result;
+                }
+
+                var length = toFiniteNumber(list.length, 0);
+                for (var index = 0; index < length; index++) {
+                    var value = toFiniteNumber(list[index], 0);
+                    result.push(truncate ? Math.trunc(value) : value);
+                }
+
+                return result;
+            }
+
+            // 矩阵占位：M8 的 $.createMatrix() 返回可参与变换的矩阵对象，
+            // 本宿主支持 a/b/c/d/tx/ty 六个分量（与 canvas transform 同序），
+            // 其余（createGradientBox 等 Flash 专用方法）是 no-op。
+            function createPlaceholderMatrix() {
+                return {
+                    a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0,
+                    createBox: function () { return this; },
+                    createGradientBox: function () { return this; },
+                    identity: function () {
+                        this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.tx = 0; this.ty = 0;
+                        return this;
                     },
-                    createShape: function () {
-                        return registerItemElement(item, createShapeElement());
+                    translate: function (x, y) {
+                        this.tx += toFiniteNumber(x, 0);
+                        this.ty += toFiniteNumber(y, 0);
+                        return this;
                     },
-                    createImage: function (url) {
-                        return registerItemElement(item, createImageElement(url));
+                    scale: function (x, y) {
+                        this.a *= toFiniteNumber(x, 1);
+                        this.d *= toFiniteNumber(y, 1);
+                        return this;
                     },
-                    createLayer: function (width, height) {
-                        return registerItemElement(item, createLayerElement(width, height));
-                    },
-                    addChild: function (element, parent) {
-                        return addChildToParent(element, parent);
-                    },
-                    removeChild: function (element) {
-                        return removeChildFromParent(element);
-                    },
-                    tween: function (element, config, options) {
-                        return createTween(element, config, options);
-                    },
-                    // 逃生舱：只有 tween 表达不了的效果（物理演算等）才该用它。
-                    // 能写成 tween 的不要用 onFrame——注册后该条目会退回逐帧调用，
-                    // 单条脚本的每帧开销不再只与「脏元素数」相关。
-                    onFrame: function (fn) {
-                        item.usesOnFrame = typeof fn === "function";
-                        item.frameFn = item.usesOnFrame ? fn : null;
-                        if (item.usesOnFrame) {
-                            dirty = true;
-                            ensureRunning();
+                    rotate: function (radians) {
+                        var cos = Math.cos(toFiniteNumber(radians, 0));
+                        var sin = Math.sin(toFiniteNumber(radians, 0));
+                        var a = this.a;
+                        var b = this.b;
+                        this.a = a * cos - b * sin;
+                        this.b = a * sin + b * cos;
+                        return this;
+                    }
+                };
+            }
+
+            // 滤镜占位：仅保留「有名字、能赋值、不抛错」。
+            // 元素的 filters 属性只识别 GlowFilter（缓存期近似发光），其余不生效。
+            function createPlaceholderFilter(kind, args) {
+                return {
+                    type: kind,
+                    kind: kind,
+                    // Flash 滤镜的参数顺序（color/alpha/blur/strength/quality…）
+                    // 本宿主不做完整移植，只保留最常用的两个值供脚本读取。
+                    color: args.length > 0 ? toFiniteNumber(args[0], 0) : 0,
+                    alpha: args.length > 1 ? toFiniteNumber(args[1], 1) : 1,
+                    blurX: args.length > 2 ? toFiniteNumber(args[2], 0) : 0,
+                    blurY: args.length > 3 ? toFiniteNumber(args[3], 0) : 0
+                };
+            }
+
+            // 元素工厂的统一入口：**先**接进元素树、**再**套用创建参数。
+            //
+            // 顺序不能反（踩过的坑）：applyCreateOptions 会声明元素寿命
+            // （applyElementLifeTime）并建立声明式 motion（createDrivenHandle
+            // 要把句柄登记到 element.ownerItem.tweenHandles）。而
+            // registerItemElement 会把 declaredLifeTimeMs 重置成「未声明」，
+            // 并在更早的时刻把 ownerItem 从 null 设成当前条目。因此
+            //  「先套参数再注册」会让寿命声明被覆盖、句柄挂到 null 上永不推进。
+            function createItemElement(factory, options) {
+                var item = currentItem();
+                if (!item) {
+                    // 定时器回调与脚本正文都在 activeItem 下执行；
+                    // 真正落到这里说明宿主内部有调用点漏了 activeItem 赋值。
+                    throw new Error("脚本元件只能在脚本执行或定时器回调中创建");
+                }
+
+                var element = registerItemElement(item, factory(item));
+                applyCreateOptions(element, options);
+                return element;
+            }
+
+            // ---- Player：实时读宿主的外推时钟与播放状态 ----
+
+            function currentPlayerState() {
+                if (!visible) {
+                    // 宿主没有独立于可见性的停止态：弹幕层隐藏时给 stop。
+                    return "stop";
+                }
+
+                return state.playing ? "playing" : "pause";
+            }
+
+            var refreshRateValue = DEFAULT_REFRESH_RATE;
+
+            var Player = {
+                play: function () {
+                    // 恢复播放：走 action 通道交给 PlayerPage（与 pause / seek / jump 同一条路）。
+                    requestPlay();
+                },
+                pause: function () {
+                    requestPause();
+                },
+                seek: function (offset) {
+                    var offsetMs = toFiniteNumber(offset, 0);
+                    return requestSeek(Math.max(0, offsetMs) / 1000);
+                },
+                jump: function (av, page, newwindow) {
+                    var match = AV_NUMBER_PATTERN.exec(String(av === undefined || av === null ? "" : av));
+                    if (!match) {
+                        return false;
+                    }
+
+                    var pageNumber = Math.max(1, Math.floor(toFiniteNumber(page, 1)));
+                    return requestNavigate(
+                        "https://www.bilibili.com/video/av" + match[1] + "/?p=" + pageNumber);
+                },
+                createSound: function () {
+                    // 待接数据链（阶段 2-4）：声音元件需要媒体资源链与宿主播放通道。
+                    return { play: function () { }, stop: function () { }, close: function () { } };
+                },
+                // 设置播放器遮罩：整块脚本弹幕画布裁剪到该元件的形状里。
+                setMask: function (obj) {
+                    setStageMask(obj);
+                },
+                // 监听「用户发送弹幕」：回调收到一条 CommentData 形状的对象。
+                // PlayerPage 在发送成功后经 pushComment 推入，本函数只登记。
+                commentTrigger: function (f, timeout) {
+                    return registerItemTrigger("comment", f, timeout, false);
+                },
+                // 监听键盘输入。up = true 时监听 keyUp。只投递 M8 文档列出的那组键。
+                keyTrigger: function (f, timeout, up) {
+                    return registerItemTrigger("key", f, timeout, up);
+                }
+            };
+
+            // 只读 / 实时量用 getter：Player.time 必须在 interval 回调里
+            // 实时读到当前播放头，激活时的快照会算错（脚本就是这么用的）。
+            Object.defineProperty(Player, "time", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return currentPositionMs();
+                }
+            });
+
+            Object.defineProperty(Player, "state", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return currentPlayerState();
+                }
+            });
+
+            Object.defineProperty(Player, "width", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportWidth;
+                }
+            });
+
+            Object.defineProperty(Player, "height", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportHeight;
+                }
+            });
+
+            Object.defineProperty(Player, "videoWidth", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportWidth;
+                }
+            });
+
+            Object.defineProperty(Player, "videoHeight", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportHeight;
+                }
+            });
+
+            // refreshRate：可读写，取值区间 10-500（M8 文档，默认 170）。
+            Object.defineProperty(Player, "refreshRate", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return refreshRateValue;
+                },
+                set: function (value) {
+                    var rate = Math.round(toFiniteNumber(value, DEFAULT_REFRESH_RATE));
+                    if (rate < MIN_REFRESH_RATE) {
+                        rate = MIN_REFRESH_RATE;
+                    }
+
+                    if (rate > MAX_REFRESH_RATE) {
+                        rate = MAX_REFRESH_RATE;
+                    }
+
+                    refreshRateValue = rate;
+                }
+            });
+
+            Object.defineProperty(Player, "commentList", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    // 当前弹幕列表快照，每条为 M8 的 CommentData 形状
+                    // （txt / time / color / pool / mode / fontSize）。
+                    // 由 C# 侧推入（见宿主命令 resetComments / appendComments）。
+                    return commentSnapshot;
+                }
+            });
+
+            // ---- $G / Global：跨条目共享变量 ----
+
+            // 全局变量的「当前代」对象。reset 时换成新对象而不是清空旧对象：
+            // 上一代脚本仍可能持有 $G 的引用并继续读写（元素还会活若干帧），
+            // 换成新对象后它们的写入不会污染新一代。
+            var globalStore = {};
+
+            function createGlobalApi() {
+                var api = {
+                    _set: function (key, value) {
+                        if (key === undefined || key === null) {
+                            return;
                         }
 
-                        return item.usesOnFrame;
+                        globalStore[String(key)] = value;
+                    },
+                    _get: function (key) {
+                        if (key === undefined || key === null) {
+                            return undefined;
+                        }
+
+                        return globalStore[String(key)];
+                    },
+                    _remove: function (key) {
+                        delete globalStore[String(key)];
                     }
                 };
 
-                // 立即模式遗留的 ctx.g 不再提供：保留模式必须走 createShape/createText
-                // 的保留对象，否则又会退回每帧重跑绘制代码。
-                return context;
+                // 文档写明 $G 的别名是 `_`，Galgame 示例里两种写法都在用。
+                api._ = api._get;
+                return api;
+            }
+
+            var Global = createGlobalApi();
+            // `$.Global`（M8 文档里的别名之一）与 `$G` 必须是同一个对象。
+            M8Display.Global = Global;
+
+            // ---- Utils ----
+
+            function hueToColor(value) {
+                var hue = toFiniteNumber(value, 0) % 360;
+                if (hue < 0) {
+                    hue += 360;
+                }
+
+                // M8 文档给的映射：0→0x0000ff、120→0xff0000、240→0x00ff00。
+                var sector = hue / 60;
+                var up = Math.round(255 * (sector % 1));
+                var down = 255 - up;
+                if (sector < 1) {
+                    return (up << 16) | (0 << 8) | 0xFF;
+                }
+
+                if (sector < 2) {
+                    return (0xFF << 16) | (0 << 8) | down;
+                }
+
+                if (sector < 3) {
+                    return (0xFF << 16) | (up << 8) | 0;
+                }
+
+                if (sector < 4) {
+                    return (down << 16) | (0xFF << 8) | 0;
+                }
+
+                if (sector < 5) {
+                    return (0 << 16) | (0xFF << 8) | up;
+                }
+
+                return (0 << 16) | (down << 8) | 0xFF;
+            }
+
+            function formatPlaybackTime(seconds) {
+                var total = Math.max(0, Math.floor(toFiniteNumber(seconds, 0)));
+                var minutes = Math.floor(total / 60);
+                var rest = total % 60;
+                return minutes + ":" + (rest < 10 ? "0" : "") + rest;
+            }
+
+            var Utils = {
+                hue: hueToColor,
+                rgb: function (r, g, b) {
+                    var red = Math.max(0, Math.min(255, Math.round(toFiniteNumber(r, 0))));
+                    var green = Math.max(0, Math.min(255, Math.round(toFiniteNumber(g, 0))));
+                    var blue = Math.max(0, Math.min(255, Math.round(toFiniteNumber(b, 0))));
+                    return (red << 16) | (green << 8) | blue;
+                },
+                formatTimes: formatPlaybackTime,
+                distance: function (x1, y1, x2, y2) {
+                    var dx = toFiniteNumber(x2, 0) - toFiniteNumber(x1, 0);
+                    var dy = toFiniteNumber(y2, 0) - toFiniteNumber(y1, 0);
+                    return Math.sqrt(dx * dx + dy * dy);
+                },
+                rand: function (min, max) {
+                    var low = toFiniteNumber(min, 0);
+                    var high = toFiniteNumber(max, 0);
+                    return low + Math.random() * (high - low);
+                },
+                // Utils.delay / Utils.interval 是全局 timer / interval 的别名。
+                delay: function (closure, time) {
+                    return scheduleItemTimer(closure, time, false, 1);
+                },
+                interval: function (closure, time, times) {
+                    return scheduleItemTimer(closure, time, false, times);
+                }
+            };
+
+            // ---- timer / interval（登记在条目上，随条目回收统一清理）----
+            //
+            // 重点：定时器绝不能活过条目。登记表由 deactivateItem / reset /
+            // seek 越窗统一清空，脚本不必自己清（M8 用 ScriptManager.clearTimer
+            // 解决的正是这个问题）。
+            function scheduleItemTimer(closure, delayMs, oneShot, times) {
+                if (typeof closure !== "function") {
+                    return 0;
+                }
+
+                var item = currentItem();
+                if (!item) {
+                    return 0;
+                }
+
+                var period = Math.max(1, toFiniteNumber(delayMs, 1000));
+                var timer = {
+                    id: ++nextTimerId,
+                    callback: closure,
+                    intervalMs: period,
+                    // times: 0 表示无限次；oneShot（timer()）固定为 1 次。
+                    remaining: oneShot ? 1 : normalizeTimerTimes(times),
+                    elapsedMs: 0,
+                    running: true,
+                    ownerItem: item,
+                    stop: function () {
+                        timer.running = false;
+                    }
+                };
+
+                item.scheduledTimers.push(timer);
+                dirty = true;
+                ensureRunning();
+                return timer;
+            }
+
+            function normalizeTimerTimes(times) {
+                if (times === undefined || times === null) {
+                    return 1;
+                }
+
+                if (times <= 0) {
+                    return Infinity;
+                }
+
+                return Math.floor(toFiniteNumber(times, 1));
+            }
+
+            var nextTimerId = 0;
+
+            function runItemTimers(item, deltaMs) {
+                var timers = item.scheduledTimers;
+                if (!timers || timers.length === 0) {
+                    return;
+                }
+
+                for (var index = timers.length - 1; index >= 0; index--) {
+                    var timer = timers[index];
+                    if (!timer.running || item.removed) {
+                        timers.splice(index, 1);
+                        continue;
+                    }
+
+                    timer.elapsedMs += deltaMs;
+                    if (timer.elapsedMs < timer.intervalMs) {
+                        continue;
+                    }
+
+                    timer.elapsedMs = 0;
+                    timer.remaining--;
+                    try {
+                        timer.callback();
+                    } catch (error) {
+                        // 回调抛错只停这一个定时器，不影响同条目其它定时器。
+                        timer.running = false;
+                        reportRuntimeError(error, item.model.id);
+                    }
+
+                    if (timer.remaining <= 0) {
+                        timer.running = false;
+                        timers.splice(index, 1);
+                    }
+                }
+            }
+
+            function clearItemScheduledTimers(item) {
+                if (!item || !item.scheduledTimers) {
+                    return;
+                }
+
+                for (var index = 0; index < item.scheduledTimers.length; index++) {
+                    item.scheduledTimers[index].running = false;
+                }
+
+                item.scheduledTimers = [];
+            }
+
+            function clearTimerById(id) {
+                var found = false;
+                var itemList = allItems();
+                for (var itemIndex = 0; itemIndex < itemList.length; itemIndex++) {
+                    var item = itemList[itemIndex];
+                    for (var index = item.scheduledTimers.length - 1; index >= 0; index--) {
+                        if (item.scheduledTimers[index].id === id) {
+                            item.scheduledTimers[index].running = false;
+                            item.scheduledTimers.splice(index, 1);
+                            found = true;
+                        }
+                    }
+                }
+
+                return found;
+            }
+
+            // 脚本可调用 clearTimer(timer) / clearTimer(id)：两种形态都接受。
+            function clearTimer(target) {
+                if (target && typeof target === "object" && typeof target.stop === "function") {
+                    target.stop();
+                    return;
+                }
+
+                if (target === undefined || target === null) {
+                    clearItemScheduledTimers(currentItem());
+                    return;
+                }
+
+                clearTimerById(toFiniteNumber(target, -1));
+            }
+
+            function allItems() {
+                return items;
+            }
+
+            // ---- ScriptManager ----
+
+            var ScriptManager = {
+                clearTimer: function () {
+                    clearItemScheduledTimers(currentItem());
+                },
+                clearEl: function () {
+                    var item = currentItem();
+                    if (item) {
+                        clearItemElements(item);
+                    }
+                },
+                clearTrigger: function () {
+                    // 清掉当前条目上所有 commentTrigger / keyTrigger 登记。
+                    var item = currentItem();
+                    if (item) {
+                        clearItemTriggers(item);
+                    }
+                },
+                // M8 移植层里的 popEl（entry_08 真实脚本在用）：把元素从渲染中摘除。
+                popEl: function (element) {
+                    if (element && typeof element.remove === "function") {
+                        element.remove();
+                    }
+
+                    return element;
+                }
+            };
+
+            // ---- 全局函数：trace / foreach / clone / getTimer / stopExecution ----
+
+            // getTimer 的基准：脚本开始运行的那一刻（M8 里是「启动播放器到现在」）。
+            var scriptClockOrigin = performance.now();
+
+            function writeTrace(values) {                var parts = [];
+                for (var index = 0; index < values.length; index++) {
+                    parts.push(stringifyTraceValue(values[index]));
+                }
+
+                var text = parts.join(" ");
+                try {
+                    if (window.console && typeof window.console.log === "function") {
+                        window.console.log("[script-danmaku] " + text);
+                    }
+                } catch (error) {
+                    // 回显失败不影响脚本执行。
+                }
+
+                return text;
+            }
+
+            function stringifyTraceValue(value) {
+                if (value === undefined) {
+                    return "undefined";
+                }
+
+                if (value === null) {
+                    return "null";
+                }
+
+                if (typeof value === "object") {
+                    try {
+                        return JSON.stringify(value);
+                    } catch (error) {
+                        return String(value);
+                    }
+                }
+
+                return String(value);
+            }
+
+            function trace() {
+                return writeTrace(arguments);
+            }
+
+            // M8 的 tracex 只接受一个字符串参数，语义与 trace 相同。
+            function tracex(text) {
+                return writeTrace([text]);
+            }
+
+            function foreach(loop, callback) {
+                if (typeof callback !== "function" || loop === undefined || loop === null) {
+                    return;
+                }
+
+                if (Array.isArray(loop)) {
+                    for (var index = 0; index < loop.length; index++) {
+                        callback(index, loop[index]);
+                    }
+
+                    return;
+                }
+
+                for (var key in loop) {
+                    if (Object.prototype.hasOwnProperty.call(loop, key)) {
+                        callback(key, loop[key]);
+                    }
+                }
+            }
+
+            // M8 的 clone 是浅拷贝，且文档明确「无法复制函数」。
+            function clone(object) {
+                if (object === null || typeof object !== "object") {
+                    return object;
+                }
+
+                if (Array.isArray(object)) {
+                    return object.slice();
+                }
+
+                var result = {};
+                for (var key in object) {
+                    if (Object.prototype.hasOwnProperty.call(object, key)
+                        && typeof object[key] !== "function") {
+                        result[key] = object[key];
+                    }
+                }
+
+                return result;
+            }
+
+            function getTimer() {
+                return Math.max(0, performance.now() - scriptClockOrigin);
+            }
+
+            function stopExecution() {
+                // M8 用 stopExecution() 终止当前脚本：抛出内部信号，
+                // 由 activateItem 捕获后按「脚本主动终止」处理（不计为错误）。
+                throw STOP_EXECUTION_SIGNAL;
+            }
+
+            var STOP_EXECUTION_SIGNAL = { stopExecution: true };
+
+            // ---- 脚本作用域 ----
+
+            // 命中 setState / resize 等后用 tick(now) 重绘一次也没有额外代价。
+            function createScriptScope(item) {
+                // 把该条目设为「当前条目」：脚本正文里的 $ / interval / trace
+                // 都靠它归属元素与定时器。
+                item.activeNow = state.positionMs;
+                item.createParent = null;
+                item.lastAdvanceMs = -1;
+                return [
+                    M8Display,
+                    Player,
+                    Global,
+                    // `Global` 是 $G 在 M8 文档里的另一个名字；真实脚本两种都在用
+                    // （av2669196 的脚本里 Global 出现 90 次、$G 若干次），
+                    // 因此两个名字注入同一个对象。
+                    Global,
+                    Tween,
+                    Utils,
+                    ScriptManager,
+                    function timer(closure, delay) {
+                        return scheduleItemTimer(closure, delay, true, 1);
+                    },
+                    function interval(closure, delay, times) {
+                        return scheduleItemTimer(closure, delay, false, times);
+                    },
+                    clearTimer,
+                    trace,
+                    tracex,
+                    stopExecution,
+                    foreach,
+                    clone,
+                    getTimer
+                ];
             }
 
             // ---- 宿主命令对象（控件通过 ExecuteScriptAsync 逐字调用）----
@@ -2789,6 +5096,30 @@
                     if (visible) {
                         ensureRunning();
                     }
+                },
+                // ---- 弹幕数据链 / 输入链（C# → 宿主）----
+                // 弹幕快照分两段推：resetComments() 清空 + appendComments(list)
+                // 按 24KB 一包追加以外的批量（与 append/beginItem 的分块风格一致）。
+                resetComments: function () {
+                    commentSnapshot = [];
+                },
+                appendComments: function (list) {
+                    if (!Array.isArray(list)) {
+                        return;
+                    }
+
+                    for (var index = 0; index < list.length; index++) {
+                        commentSnapshot.push(normalizeComment(list[index]));
+                    }
+                },
+                // 用户发送了一条弹幕：投递给在窗口内条目的 commentTrigger。
+                // M8 的 CommentData.time 是秒，C# 侧传的就是播放位置（秒）。
+                pushComment: function (comment) {
+                    deliverCommentTrigger(normalizeComment(comment));
+                },
+                // 键盘事件：投递给在窗口内条目的 keyTrigger（up=true 的只收 keyUp）。
+                pushKey: function (keyCode, up) {
+                    deliverKeyTrigger(Math.trunc(toFiniteNumber(keyCode, -1)), !!up);
                 }
             };
 

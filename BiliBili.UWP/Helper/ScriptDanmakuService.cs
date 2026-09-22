@@ -52,16 +52,19 @@ namespace BiliBili.UWP.Helper
 
         /// <summary>
         /// 内置示例。用于首次验证渲染链路，不依赖任何外部文件。
-        /// 示例按保留模式编写：脚本只执行一次，期间创建保留元素并声明 tween，
-        /// 之后逐帧由宿主插值（不要写成每帧重算坐标）。
-        /// tween 的 lifeTime 声明的是补间时长；元素寿命取「声明值」与
-        /// 「条目窗口剩余时间」的较小值，未声明 lifeTime 时等于窗口剩余时间。
+        /// 示例按**原版 M8 的 API 面**编写（不是自研的 ctx）：脚本只执行一次，
+        /// 期间用 $.createComment / $.createShape 建出保留元件，用声明式 tween
+        /// 或 interval 声明动画，之后逐帧由宿主插值（不要写成每帧重算坐标）。
+        /// lifeTime 声明的是补间时长，同时也是元素的寿命；元素寿命取
+        /// 「声明值」与「条目窗口剩余时间」的较小值，未声明时等于窗口剩余时间。
         /// 单条脚本同时演示两种写法：文字走声明式 tween（复刻原版 M8 示例的
         /// 观感，从右侧屏幕外滑入、向左移出）；粒子环复刻原版的 24 点旋转扩散
-        /// ——点的半径要恒定 6px，用 scale 会把点一起放大，所以改用 ctx.onFrame
-        /// 逃生舱逐帧只改位置（脚本仍只执行一次，元素树与缓存不重建）。
-        /// 粒子比文字晚 2 秒出现：onFrame 回调只给 elapsedMs、没有 delay 参数
-        /// （只有 tween 的轨道有 delay），因此自行扣掉 2000ms 的起始偏移。
+        /// ——点的半径要恒定 6px，用 scale 会把点一起放大，所以走 M8 惯用的
+        /// interval(fn, 16, 0) 逐帧只改位置（脚本仍只执行一次，元素树与缓存不重建）。
+        /// 粒子比文字晚 2 秒出现：interval 的 delay 是「首次触发的间隔」，
+        /// 用 Player.time 与条目起始时刻比对（M8 脚本就是这么判时间的），
+        /// 到点前直接返回。定时器登记在条目上，条目回收时由宿主统一清掉，
+        /// 不需要脚本自己 clearTimer。
         /// </summary>
         public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo()
         {
@@ -69,33 +72,32 @@ namespace BiliBili.UWP.Helper
             {
                 new ScriptDanmakuModel
                 {
-                    // 单条脚本：文字（tween）+ 粒子环（onFrame 逃生舱）写在一条里，
+                    // 单条脚本：文字（tween）+ 粒子环（interval 逐帧）写在一条里，
                     // 与原版 M8 示例「一条脚本画完整个效果」的形态一致。
                     id = "demo-m8-sample",
                     stime = 1,
                     duration = 7,
                     lang = LangJs,
-                    code = "var label = ctx.createText('脚本弹幕已生效', {"
-                        + " font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
-                        + "label.y = Math.round(ctx.height / 2 - 19);"
-                        + "ctx.tween(label, {"
-                        + "  x: { fromValue: ctx.width + 120, toValue: -120,"
-                        + "       easing: 'Linear' }"
-                        + "}, { lifeTime: 4 });"
+                    code = "var label = $.createComment('脚本弹幕已生效', {"
+                        + " font: 'sans-serif', fontsize: 32, color: 0x66CCFF,"
+                        + " x: Player.width + 120, y: Math.round(Player.height / 2 - 19),"
+                        + " lifeTime: 4,"
+                        + " motion: { x: { fromValue: Player.width + 120,"
+                        + "                 toValue: -120, easing: 'Linear', lifeTime: 4 } } });"
                         + "var count = 24;"
-                        + "var cx = ctx.width / 2;"
-                        + "var cy = ctx.height / 2;"
+                        + "var cx = Player.width / 2;"
+                        + "var cy = Player.height / 2;"
                         + "var dots = [];"
                         + "for (var i = 0; i < count; i++) {"
-                        + "  var dot = ctx.createShape();"
+                        + "  var dot = $.createShape({ visible: false });"
                         + "  dot.graphics.beginFill(0xFF66CC, 1);"
                         + "  dot.graphics.drawCircle(0, 0, 6);"
                         + "  dot.graphics.endFill();"
-                        + "  dot.visible = false;"
                         + "  dots.push(dot);"
                         + "}"
-                        + "ctx.onFrame(function (frameCtx, elapsedMs) {"
-                        + "  var local = elapsedMs - 2000;"
+                        + "var startAt = Player.time;"
+                        + "interval(function () {"
+                        + "  var local = Player.time - startAt - 2000;"
                         + "  if (local < 0) { return; }"
                         + "  var p = Math.min(1, local / 3000);"
                         + "  var radius = 40 + p * 160;"
@@ -106,7 +108,7 @@ namespace BiliBili.UWP.Helper
                         + "    dots[i].alpha = 1 - p;"
                         + "    dots[i].visible = p < 1;"
                         + "  }"
-                        + "});"
+                        + "}, 16, 0);"
                 }
             });
         }

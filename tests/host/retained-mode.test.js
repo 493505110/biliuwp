@@ -85,6 +85,15 @@ function unionRect(rects) {
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
+function intersectRect(a, b) {
+    const x = Math.max(a.x, b.x);
+    const y = Math.max(a.y, b.y);
+    const right = Math.min(a.x + a.width, b.x + b.width);
+    const bottom = Math.min(a.y + a.height, b.y + b.height);
+    if (right <= x || bottom <= y) return null;
+    return { x: x, y: y, width: right - x, height: bottom - y };
+}
+
 function parseFontSize(font) {
     const match = /([0-9.]+)px/.exec(String(font || ''));
     return match ? Number(match[1]) : 10;
@@ -138,7 +147,13 @@ function createContextStub(canvas) {
     }
 
     function record(kind, x, y, width, height) {
-        const rect = transformedAABB(ctx.__matrix, x, y, width, height);
+        let rect = transformedAABB(ctx.__matrix, x, y, width, height);
+        if (ctx.__clip) {
+            rect = intersectRect(rect, ctx.__clip);
+            // 完全落在裁剪区外的落笔不算「画出来了」。
+            if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        }
+
         canvas.__marks.push(rect);
         canvas.__ops.push({ type: kind, rect: rect, font: ctx.font });
         count(kind);
@@ -151,9 +166,25 @@ function createContextStub(canvas) {
         record(kind, bounds.x, bounds.y, bounds.width, bounds.height);
     }
 
-    ctx.save = function () { ctx.__stack.push(ctx.__matrix.slice()); };
+    // 裁剪区（宿主 Player.setMask 会用到）。save/restore 一并保存恢复，
+    // record() 把落笔矩形与裁剪区求交：完全落在裁剪外的落笔不记录，
+    // 这样「遮罩外的元素没画出来」可以被断言。
+    ctx.__clip = null;
+
+    ctx.save = function () { ctx.__stack.push({ matrix: ctx.__matrix.slice(), clip: ctx.__clip }); };
     ctx.restore = function () {
-        if (ctx.__stack.length > 0) ctx.__matrix = ctx.__stack.pop();
+        if (ctx.__stack.length > 0) {
+            const state = ctx.__stack.pop();
+            ctx.__matrix = state.matrix;
+            ctx.__clip = state.clip;
+        }
+    };
+
+    ctx.clip = function () {
+        const bounds = pathBounds(ctx.__path);
+        if (!bounds) return;
+        const rect = transformedAABB(ctx.__matrix, bounds.x, bounds.y, bounds.width, bounds.height);
+        ctx.__clip = ctx.__clip ? intersectRect(ctx.__clip, rect) : rect;
     };
     ctx.setTransform = function (a, b, c, d, e, f) { ctx.__matrix = [a, b, c, d, e, f]; };
     ctx.transform = function (a, b, c, d, e, f) { ctx.__matrix = multiply(ctx.__matrix, [a, b, c, d, e, f]); };
@@ -401,12 +432,12 @@ test('D1 移动元素跑 60 帧后不残留旧位置像素（无拖影）', () =
     const host = loadHost();
     host.reset(0, true, 1, true);
     host.append([scriptItem('d1', 0, 10,
-        'var box = ctx.createShape();'
+        'var box = $.createShape({ lifeTime: 10,'
+        + ' motion: { x: { fromValue: 0, toValue: 400, easing: "Linear", lifeTime: 10 } } });'
         + 'box.graphics.beginFill(0xFFFFFF, 1);'
         + 'box.graphics.drawRect(0, 0, 40, 20);'
         + 'box.graphics.endFill();'
-        + 'window.__box = box;'
-        + 'ctx.tween(box, { x: { fromValue: 0, toValue: 400, easing: "Linear" } }, { lifeTime: 10 });')]);
+        + 'window.__box = box;')]);
 
     host.runFrames(60);
     assert.equal(host.frameErrors.length, 0, '帧回调不应抛错：' + host.frameErrors);
@@ -436,22 +467,21 @@ test('D2 自定义缓动抛错后帧循环存活、其他条目继续渲染、�
         // 缓动只在 t>0 时抛错：t=0 那一次（创建时立即套用的插值）不抛，
         // 这样错误落在「逐帧推进」路径上，正是 D2 要覆盖的位置。
         scriptItem('d2-bad', 0, 10,
-            'var bad = ctx.createShape();'
+            'var bad = $.createShape({ lifeTime: 10 });'
             + 'bad.graphics.beginFill(0xFF0000, 1);'
             + 'bad.graphics.drawRect(0, 0, 20, 20);'
             + 'bad.graphics.endFill();'
-            + 'ctx.tween(bad, { x: { fromValue: 0, toValue: 100, easing: function (time, begin) {'
+            + 'Tween.tween(bad, { x: 100 }, { x: 0 }, 10, function (time, begin) {'
             + '  if (time > 0) { throw new Error("坏缓动"); }'
             + '  return begin;'
-            + '} } }, { lifeTime: 10 });'),
+            + '}).play();'),
         scriptItem('d2-good', 0, 10,
-            'var good = ctx.createShape();'
+            'var good = $.createShape({ lifeTime: 10, y: 200 });'
             + 'good.graphics.beginFill(0x00FF00, 1);'
             + 'good.graphics.drawRect(0, 0, 20, 20);'
             + 'good.graphics.endFill();'
-            + 'good.y = 200;'
             + 'window.__good = good;'
-            + 'ctx.tween(good, { x: { fromValue: 0, toValue: 300, easing: "Linear" } }, { lifeTime: 10 });')
+            + 'Tween.tween(good, { x: 300 }, { x: 0 }, 10).play();')
     ]);
 
     host.runFrames(5);
@@ -483,7 +513,7 @@ test('D2 自定义缓动抛错后帧循环存活、其他条目继续渲染、�
 
     host.reset(0, true, 1, true);
     host.append([scriptItem('d2-after', 0, 10,
-        'window.__after = ctx.createShape();')]);
+        'window.__after = $.createShape();')]);
     host.runFrames(2);
     assert.ok(host.sandbox.__after, 'reset 之后仍应能接收并执行新条目');
     assert.equal(host.pendingFrames(), 1, 'reset 后帧循环仍应存活');
@@ -500,14 +530,25 @@ test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () =
         return host;
     }
 
-    const shape = 'var box = ctx.createShape();'
+    // 声明式 motion 的 lifeTime 同时是补间时长与元素寿命（与 M8 的
+    // `motion: {x: {..., lifeTime: n}}` 一致）。
+    function motionShape(lifeTime) {
+        return 'var box = $.createShape({ motion: { x: { fromValue: 0, toValue: 10,'
+            + ' easing: "Linear", lifeTime: ' + lifeTime + ' } } });'
+            + 'box.graphics.beginFill(0xFFFFFF, 1);'
+            + 'box.graphics.drawRect(0, 0, 20, 20);'
+            + 'box.graphics.endFill();'
+            + 'window.__box = box;';
+    }
+
+    const shape = 'var box = $.createShape();'
         + 'box.graphics.beginFill(0xFFFFFF, 1);'
         + 'box.graphics.drawRect(0, 0, 20, 20);'
         + 'box.graphics.endFill();'
         + 'window.__box = box;';
 
     // 声明 4s、窗口 10s：寿命 4000ms（声明生效，不被窗口吞掉）。
-    let host = lifeTimeOf(0, 10, shape + 'ctx.tween(box, { x: { fromValue: 0, toValue: 10 } }, { lifeTime: 4 });');
+    let host = lifeTimeOf(0, 10, motionShape(4));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 4000,
         '声明 lifeTime: 4、窗口 10s 时寿命应为 4000ms');
@@ -519,7 +560,7 @@ test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () =
     assert.equal(host.sandbox.__box.expired, true, '约 4s 后元素应被摘除');
 
     // 声明 2s、窗口 10s：寿命 2000ms（声明必须能**缩短**寿命，不能只延长）。
-    host = lifeTimeOf(0, 10, shape + 'ctx.tween(box, { x: { fromValue: 0, toValue: 10 } }, { lifeTime: 2 });');
+    host = lifeTimeOf(0, 10, motionShape(2));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 2000,
         '声明 lifeTime: 2、窗口 10s 时寿命应为 2000ms，而不是活到窗口结束');
@@ -531,13 +572,13 @@ test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () =
     assert.equal(host.sandbox.__box.expired, true, '约 2s 后元素应被摘除');
 
     // 声明 8s、窗口 10s：寿命 8000ms（窗口不能反过来吞掉声明）。
-    host = lifeTimeOf(0, 10, shape + 'ctx.tween(box, { x: { fromValue: 0, toValue: 10 } }, { lifeTime: 8 });');
+    host = lifeTimeOf(0, 10, motionShape(8));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 8000,
         '声明 lifeTime: 8、窗口 10s 时寿命应为 8000ms');
 
     // 声明 8s、窗口 4s：寿命被窗口钳到 4000ms。
-    host = lifeTimeOf(0, 4, shape + 'ctx.tween(box, { x: { fromValue: 0, toValue: 10 } }, { lifeTime: 8 });');
+    host = lifeTimeOf(0, 4, motionShape(8));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 4000,
         '声明 lifeTime: 8、窗口 4s 时寿命应被窗口钳到 4000ms');
@@ -554,22 +595,18 @@ test('D4 同屏有动画元素时，静止复合元素不重复重建整层', ()
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d4-composite', 0, 10,
-            'var group = ctx.createShape();'
-            + 'var dot = ctx.createShape();'
+            'var group = $.createShape();'
+            + 'var dot = $.createShape({ parent: group, x: 100, y: 100 });'
             + 'dot.graphics.beginFill(0xFFFFFF, 1);'
             + 'dot.graphics.drawCircle(0, 0, 5);'
             + 'dot.graphics.endFill();'
-            + 'dot.x = 100;'
-            + 'dot.y = 100;'
-            + 'ctx.addChild(dot, group);'
             + 'window.__group = group;'),
         scriptItem('d4-anim', 0, 10,
-            'var mover = ctx.createShape();'
+            'var mover = $.createShape({ lifeTime: 10, y: 300,'
+            + ' motion: { x: { fromValue: 0, toValue: 300, easing: "Linear", lifeTime: 10 } } });'
             + 'mover.graphics.beginFill(0x00FF00, 1);'
             + 'mover.graphics.drawRect(0, 0, 20, 20);'
-            + 'mover.graphics.endFill();'
-            + 'mover.y = 300;'
-            + 'ctx.tween(mover, { x: { fromValue: 0, toValue: 300, easing: "Linear" } }, { lifeTime: 10 });')
+            + 'mover.graphics.endFill();')
     ]);
 
     host.runFrames(60);
@@ -597,14 +634,11 @@ test('D5 fontsize 补间后缓存尺寸随之变化，静止元素不被过度�
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d5-anim', 0, 10,
-            'var label = ctx.createText("AAAA", { fontsize: 12 });'
-            + 'window.__label = label;'
-            + 'ctx.tween(label, { fontsize: { fromValue: 12, toValue: 40, easing: "Linear" } }, { lifeTime: 10 });'),
+            'var label = $.createComment("AAAA", { fontsize: 12, lifeTime: 10,'
+            + ' motion: { fontsize: { fromValue: 12, toValue: 40, easing: "Linear", lifeTime: 10 } } });'
+            + 'window.__label = label;'),
         scriptItem('d5-static', 0, 10,
-            'var still = ctx.createText("BBBB", { fontsize: 12 });'
-            + 'still.x = 400;'
-            + 'still.y = 400;'
-            + 'window.__still = still;')
+            'window.__still = $.createComment("BBBB", { fontsize: 12, x: 400, y: 400 });')
     ]);
 
     host.runFrames(1);
@@ -650,12 +684,12 @@ test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、�
     host.reset(0, true, 1, true);
     host.append([scriptItem('d6a', 1, 4,
         'window.__runs = (window.__runs || 0) + 1;'
-        + 'var box = ctx.createShape();'
+        + 'var box = $.createShape({ lifeTime: 4,'
+        + ' motion: { x: { fromValue: 0, toValue: 400, easing: "Linear", lifeTime: 4 } } });'
         + 'box.graphics.beginFill(0xFFFFFF, 1);'
         + 'box.graphics.drawRect(0, 0, 40, 20);'
         + 'box.graphics.endFill();'
-        + 'window.__box = box;'
-        + 'ctx.tween(box, { x: { fromValue: 0, toValue: 400, easing: "Linear" } }, { lifeTime: 4 });')]);
+        + 'window.__box = box;')]);
     // 条目窗口从 1s 开始：append 时还不在窗口内，靠 setState 把播放位置推进到
     // 窗口之前并起帧，之后由帧循环自然把条目激活。
     host.setState(0.5, true, 1);
@@ -703,12 +737,12 @@ test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、�
     late.reset(0, true, 1, true);
     late.append([scriptItem('d6b', 1, 9,
         'window.__runs = (window.__runs || 0) + 1;'
-        + 'var box = ctx.createShape();'
+        + 'var box = $.createShape({ lifeTime: 2,'
+        + ' motion: { x: { fromValue: 0, toValue: 400, easing: "Linear", lifeTime: 2 } } });'
         + 'box.graphics.beginFill(0xFFFFFF, 1);'
         + 'box.graphics.drawRect(0, 0, 40, 20);'
         + 'box.graphics.endFill();'
-        + 'window.__box = box;'
-        + 'ctx.tween(box, { x: { fromValue: 0, toValue: 400, easing: "Linear" } }, { lifeTime: 2 });')]);
+        + 'window.__box = box;')]);
     late.setState(0.5, true, 1);
 
     late.runFrames(390);   // 播放位置 0.5s → 7.0s：元素在 3s 已被摘除，条目仍在窗口内
@@ -731,32 +765,33 @@ test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、�
         + '，实际 ' + rebuilt.x.toFixed(1));
 });
 
-test('D7 内置示例（单条）声明式 tween 与逃生舱并存，能渲染出画面且到点自然收尾', () => {
+test('D7 内置示例（单条）声明式 motion 与 interval 并存，能渲染出画面且到点自然收尾', () => {
     // 示例代码必须与 ScriptDanmakuService.GetBuiltInDemo() 逐字一致。
     // 它在 C# 里是字符串拼接，这里改写成等价字面量；两边的"事实来源"
     // 仍是那份 C#，本用例只保证示例确实能跑、且不是每帧重算坐标的写法。
     const demos = [
         {
             id: 'demo-m8-sample', stime: 1, duration: 7, lang: 'js',
-            code: "var label = ctx.createText('脚本弹幕已生效', { font: 'sans-serif', fontsize: 32, color: 0x66CCFF });"
-                + 'label.y = Math.round(ctx.height / 2 - 19);'
-                + 'ctx.tween(label, {'
-                + "  x: { fromValue: ctx.width + 120, toValue: -120, easing: 'Linear' }"
-                + '}, { lifeTime: 4 });'
+            code: "var label = $.createComment('脚本弹幕已生效', {"
+                + " font: 'sans-serif', fontsize: 32, color: 0x66CCFF,"
+                + " x: Player.width + 120, y: Math.round(Player.height / 2 - 19),"
+                + " lifeTime: 4,"
+                + " motion: { x: { fromValue: Player.width + 120,"
+                + "                 toValue: -120, easing: 'Linear', lifeTime: 4 } } });"
                 + 'var count = 24;'
-                + 'var cx = ctx.width / 2;'
-                + 'var cy = ctx.height / 2;'
+                + 'var cx = Player.width / 2;'
+                + 'var cy = Player.height / 2;'
                 + 'var dots = [];'
                 + 'for (var i = 0; i < count; i++) {'
-                + '  var dot = ctx.createShape();'
+                + '  var dot = $.createShape({ visible: false });'
                 + '  dot.graphics.beginFill(0xFF66CC, 1);'
                 + '  dot.graphics.drawCircle(0, 0, 6);'
                 + '  dot.graphics.endFill();'
-                + '  dot.visible = false;'
                 + '  dots.push(dot);'
                 + '}'
-                + 'ctx.onFrame(function (frameCtx, elapsedMs) {'
-                + '  var local = elapsedMs - 2000;'
+                + 'var startAt = Player.time;'
+                + 'interval(function () {'
+                + '  var local = Player.time - startAt - 2000;'
                 + '  if (local < 0) { return; }'
                 + '  var p = Math.min(1, local / 3000);'
                 + '  var radius = 40 + p * 160;'
@@ -767,7 +802,7 @@ test('D7 内置示例（单条）声明式 tween 与逃生舱并存，能渲染�
                 + '    dots[i].alpha = 1 - p;'
                 + '    dots[i].visible = p < 1;'
                 + '  }'
-                + '});'
+                + '}, 16, 0);'
         }
     ];
 
@@ -776,20 +811,22 @@ test('D7 内置示例（单条）声明式 tween 与逃生舱并存，能渲染�
     host.append(demos);
     host.setState(0.5, true, 1);
 
-    // 两条示例都不得退回立即模式的写法。
+    // 示例必须写在原版 M8 的 API 面上，不得退回自研 ctx 或立即模式。
     for (const demo of demos) {
-        assert.equal(demo.code.indexOf('ctx.progress'), -1, demo.id + ' 不得再用 ctx.progress 逐帧重算');
-        assert.equal(demo.code.indexOf('ctx.g.'), -1, demo.id + ' 不得直接操作画布上下文');
+        assert.equal(demo.code.indexOf('ctx.'), -1, demo.id + ' 不得再用自研的 ctx API');
+        assert.equal(demo.code.indexOf('progress'), -1, demo.id + ' 不得用 progress 逐帧重算');
     }
 
-    // 单条脚本里两种写法并存：文字走声明式 tween；粒子要恒定 6px 点半径，
-    // tween 表达不了（scale 会把点一起放大），因此走 ctx.onFrame 逃生舱逐帧只改位置。
-    assert.ok(demos[0].code.indexOf('ctx.tween(') >= 0, '示例必须用 ctx.tween 声明文字动画');
-    assert.ok(demos[0].code.indexOf('ctx.onFrame(') >= 0, '示例必须用 ctx.onFrame 声明粒子逐帧路径');
+    // 单条脚本里两种写法并存：文字走声明式 motion；粒子要恒定 6px 点半径，
+    // tween 表达不了（scale 会把点一起放大），因此走 M8 惯用的 interval 逐帧只改位置。
+    assert.ok(demos[0].code.indexOf('$.createComment(') >= 0, '示例必须用 $.createComment 建文本元件');
+    assert.ok(demos[0].code.indexOf('motion:') >= 0, '示例必须用声明式 motion 描述文字动画');
+    assert.ok(demos[0].code.indexOf('interval(') >= 0, '示例必须用 M8 的 interval 驱动粒子逐帧路径');
     assert.equal(demos[0].code.indexOf('scaleX'), -1, '示例不得用 scale 扩散：那会把点一起放大');
     assert.ok(
-        demos[0].code.indexOf('elapsedMs - 2000') >= 0,
-        '粒子晚于文字 2 秒出现，onFrame 没有 delay，须自行扣掉起始偏移');
+        demos[0].code.indexOf('Player.time - startAt - 2000') >= 0,
+        '粒子晚于文字 2 秒出现，interval 的 delay 是首次触发的间隔，'
+        + '须按 Player.time 与条目起始时刻比对自行扣掉偏移');
 
     // 跑到两种效果同时在屏的中段：文字 1~5s、粒子 3~6s，3.8s 都在。
     host.runFrames(200);
@@ -814,8 +851,7 @@ test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素',
     host.reset(0, true, 1, true);
     host.append([{
         id: 'gen1', stime: 0, duration: 8, lang: 'js',
-        code: "var t = ctx.createText('AAAA', { font: 'sans-serif', fontsize: 48, color: 0xFF0000 });"
-            + 't.x = 100;t.y = 100;'
+        code: "var t = $.createComment('AAAA', { font: 'sans-serif', fontsize: 48, color: 0xFF0000, x: 100, y: 100 });"
     }]);
     host.setState(0.5, true, 1);
     host.runFrames(3);
@@ -824,8 +860,7 @@ test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素',
     host.reset(0, true, 1, true);
     host.append([{
         id: 'gen2', stime: 0, duration: 8, lang: 'js',
-        code: "var t = ctx.createText('BBBB', { font: 'sans-serif', fontsize: 48, color: 0x0000FF });"
-            + 't.x = 400;t.y = 400;'
+        code: "var t = $.createComment('BBBB', { font: 'sans-serif', fontsize: 48, color: 0x0000FF, x: 400, y: 400 });"
     }]);
     assert.equal(
         painted(), null,
@@ -836,29 +871,29 @@ test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素',
     assert.ok(painted(), '第二批弹幕应能正常画出来');
 });
 
-test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、ctx.time / ctx.state 逐帧可读', () => {
+test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、Player.time / Player.state 实时可读', () => {
     // duration 缺省（0）在 Parser 与宿主两侧都表示「不设时间窗」：
     // 原版 M8 没有条目窗口，元素寿命由脚本的 lifeTime 决定，宿主只留防呆上限。
     const host = loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('unbounded', 1, 0,
-            "var label = ctx.createText('U', { font: 'sans-serif', fontsize: 32, color: 0xFFFFFF });"
-            + 'label.x = 10;label.y = 10;'
-            + 'window.__probe = { startTime: ctx.time, startState: ctx.state, frames: 0, lastTime: 0, lastState: "" };'
+            "var label = $.createComment('U', { font: 'sans-serif', fontsize: 32, color: 0xFFFFFF,"
+            + ' x: 10, y: 10, lifeTime: 0,'
+            + " motion: { x: { fromValue: 10, toValue: 300, easing: 'Linear', lifeTime: 0 } } });"
+            + 'window.__probe = { startTime: Player.time, startState: Player.state, frames: 0,'
+            + ' lastTime: 0, lastState: "" };'
             + 'window.__probeTweened = label;'
-            + 'var dot = ctx.createShape();'
+            + 'var dot = $.createShape({ x: 400, y: 300 });'
             + 'dot.graphics.beginFill(0xFFFFFF, 1);'
             + 'dot.graphics.drawCircle(0, 0, 4);'
             + 'dot.graphics.endFill();'
-            + 'dot.x = 400;dot.y = 300;'
             + 'window.__probePlain = dot;'
-            + "ctx.tween(label, { x: { fromValue: 10, toValue: 300, easing: 'Linear' } }, { lifeTime: 0 });"
-            + 'ctx.onFrame(function (frameCtx, elapsedMs) {'
+            + 'interval(function () {'
             + '  window.__probe.frames++;'
-            + '  window.__probe.lastTime = frameCtx.time;'
-            + '  window.__probe.lastState = frameCtx.state;'
-            + '});')
+            + '  window.__probe.lastTime = Player.time;'
+            + '  window.__probe.lastState = Player.state;'
+            + '}, 16, 0);')
     ]);
     host.setState(0.5, true, 1);
     host.runFrames(120);   // 跑到约 2.5s
@@ -867,12 +902,12 @@ test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、ctx.time / ctx
     assert.ok(probe, '脚本应写入探针');
     assert.ok(
         Math.abs(probe.startTime - 1000) < 50,
-        'ctx.time 应是激活那一刻的播放头位置（毫秒）：' + probe.startTime);
-    assert.equal(probe.startState, 'playing', 'ctx.state 在播放时应是 playing');
-    assert.ok(probe.frames > 0, 'onFrame 应被逐帧调用');
+        'Player.time 应是激活那一刻的播放头位置（毫秒）：' + probe.startTime);
+    assert.equal(probe.startState, 'playing', 'Player.state 在播放时应是 playing');
+    assert.ok(probe.frames > 0, 'interval 回调应被逐帧调用');
     assert.ok(
         Math.abs(probe.lastTime - 2500) < 100,
-        'frameCtx.time 应跟着播放头走（毫秒）：' + probe.lastTime);
+        'interval 回调里的 Player.time 应实时跟着播放头走（毫秒）：' + probe.lastTime);
     assert.equal(probe.lastState, 'playing');
 
     // 寿命语义：无界窗口下未声明寿命的元素吃满兜底上限（不再是 3 秒窗口），
@@ -897,9 +932,9 @@ test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后�
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('unbounded-static', 1, 0,
-            "var label = ctx.createText('S', { font: 'sans-serif', fontsize: 32, color: 0xFFFFFF });"
-            + 'label.x = 10;label.y = 10;'
-            + "ctx.tween(label, { x: { fromValue: 10, toValue: 200, easing: 'Linear' } }, { lifeTime: 1 });")
+            "var label = $.createComment('S', { font: 'sans-serif', fontsize: 32, color: 0xFFFFFF,"
+            + ' x: 10, y: 10, lifeTime: 1,'
+            + " motion: { x: { fromValue: 10, toValue: 200, easing: 'Linear', lifeTime: 1 } } });")
     ]);
     host.setState(0.5, true, 1);
     host.runFrames(120);   // 到约 2.5s，1 秒的补间已跑完
@@ -911,6 +946,453 @@ test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后�
 
     host.setState(2.5, true, 1);
     assert.ok(host.pendingFrames() > 0, '恢复播放后帧循环应重新拉起');
+});
+
+test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数都在脚本作用域里', () => {
+    // 这条用例的正文刻意用**原版 M8 的写法**写成（不出现 ctx、不出现宿主扩展），
+    // 断言的也是 M8 文档里写明的行为：$ 是元件工厂、Player.time 实时读、
+    // $G 跨条目共享、ScriptManager.clearTimer 停当前条目的定时器、
+    // timer/interval/clearTimer/foreach/clone/Utils/trace 都在脚本作用域里可用。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d11-a', 0, 10,
+            // 先写一条，往 $G 里放一个值，并建一个「跨条目要复用」的计时器。
+            "window.__log = [];"
+            // Global 与 $G 是同一个对象（M8 文档里的两个名字，真实脚本两种都在用）。
+            + "Global._set('greeting', 'hi');"
+            + "$G._set('greeting2', Global._get('greeting') + '!');"
+            + "window.__greeting2 = $G._get('greeting2');"
+            + "var ticker = interval(function () { window.__log.push(Player.time); }, 200, 0);"
+            + "$G._set('ticker', ticker);"
+            + "function stopTicker() { ScriptManager.clearTimer(); }"
+            + "$G._set('stopTicker', stopTicker);"),
+        scriptItem('d11-b', 2, 8,
+            // 再写一条，读上一条放进 $G 的值，并用 M8 的全局名做一圈操作。
+            "var label = $.createComment($G._get('greeting') + ' M8',"
+            + " { x: 0, y: 0, lifeTime: 2, color: Utils.rgb(102, 204, 255), fontsize: 32 });"
+            + "window.__label = label;"
+            + "window.__labelLength = label.length;"
+            + "window.__state = Player.state;"
+            + "window.__utils = [Utils.hue(0), Utils.hue(120), Utils.hue(240),"
+            + " Utils.formatTimes(75), Math.round(Utils.distance(0, 0, 3, 4)),"
+            + " (Utils.rand(5, 10) >= 5 && Utils.rand(5, 10) < 10)];"
+            + "window.__foreach = [];"
+            + "foreach({ a: 1, b: 2 }, function (key, value) { window.__foreach.push(key + value); });"
+            + "var src = { test: 2 };"
+            + "var copy = clone(src);"
+            + "src.test = 1;"
+            + "window.__clone = copy.test;"
+            + "window.__timerType = typeof timer;"
+            + "window.__getTimerPositive = getTimer() >= 0;"
+            + "trace('m8 script ran');"
+            + "tracex('m8 script ran');"
+            + "timer(function () { window.__timerFired = true; }, 50);"),
+        scriptItem('d11-c', 2.5, 8,
+            // stopExecution() 必须终止当前脚本且不计为错误（原版脚本用它做幂等守卫）。
+            "window.__beforeStop = true;"
+            + "if (Player.time >= 0) { stopExecution(); }"
+            + "window.__afterStop = true;")
+    ]);
+    host.setState(0.5, true, 1);
+    host.runFrames(30);   // 到约 1.0s：第二条还没进窗口
+
+    assert.equal(host.errors().length, 0, 'M8 脚本不应产生任何错误上报：' + JSON.stringify(host.errors()));
+    assert.equal(host.frameErrors.length, 0, 'M8 脚本不应让帧回调抛错：' + host.frameErrors);
+    assert.ok(host.sandbox.__log.length > 0, 'interval 回调应被触发（Player.time 实时可读）');
+    assert.ok(
+        host.sandbox.__log.every((value) => typeof value === 'number' && value >= 0),
+        'Player.time 应是毫秒数：' + JSON.stringify(host.sandbox.__log.slice(0, 3)));
+
+    host.runFrames(120);   // 到约 3.0s：第二条已激活
+    assert.equal(host.errors().length, 0, '第二条 M8 脚本也不应报错：' + JSON.stringify(host.errors()));
+
+    const label = host.sandbox.__label;
+    assert.ok(label, '$.createComment 应建出元件并挂到 window.__label');
+    assert.equal(label.text, 'hi M8', '$G._get 应能读到另一条条目写入的值（跨条目共享）');
+    assert.equal(
+        host.sandbox.__greeting2, 'hi!',
+        'Global 与 $G 必须是同一个对象（Global._set 写的值 $G._get 要读到）');
+    assert.equal(host.sandbox.__labelLength, 5, '文本元件的 length 应是字符数');
+    assert.equal(host.sandbox.__state, 'playing', 'Player.state 在播放时应是 playing');
+    // 注意：沙箱里的数组是 vm realm 的 Array，deepEqual 会因原型不同而误判，
+    // 因此统一用 JSON 归一后再比较。
+    const asJson = (value) => JSON.parse(JSON.stringify(value));
+    assert.deepEqual(
+        asJson(host.sandbox.__utils).slice(0, 3), [0x0000FF, 0xFF0000, 0x00FF00],
+        'Utils.hue 的映射必须与 M8 文档一致（0→蓝、120→红、240→绿）');
+    assert.equal(host.sandbox.__utils[3], '1:15', 'Utils.formatTimes(75) 应是 1:15');
+    assert.equal(host.sandbox.__utils[4], 5, 'Utils.distance(0,0,3,4) 应是 5');
+    assert.equal(host.sandbox.__utils[5], true, 'Utils.rand(min,max) 应落在 [min,max)');
+    assert.deepEqual(
+        asJson(host.sandbox.__foreach).sort(), ['a1', 'b2'],
+        'foreach 回调签名应是 (key, value)');
+    assert.equal(host.sandbox.__clone, 2, 'clone 应是值拷贝（改源对象不影响副本）');
+    assert.equal(host.sandbox.__timerType, 'function', 'timer 应在脚本作用域里可用');
+    assert.equal(host.sandbox.__getTimerPositive, true, 'getTimer 应返回非负毫秒数');
+    assert.equal(host.sandbox.__timerFired, true, 'timer(fn, 50) 应在到点后触发一次');
+    assert.equal(host.sandbox.__beforeStop, true, 'stopExecution 之前的语句应已执行');
+    assert.equal(
+        host.sandbox.__afterStop, undefined,
+        'stopExecution() 必须立刻终止脚本（其后的语句不得执行）');
+    assert.equal(
+        host.errors().filter((message) => message.itemId === 'd11-c').length, 0,
+        'stopExecution 是主动终止，不得被上报成脚本错误');
+
+    // ScriptManager.clearTimer() 只清当前条目的定时器：第一条的 ticker 停了，
+    // 但第二条（$G 里存着 handle）不受影响。这里直接调第一条留下的函数验证。
+    const logLengthBefore = host.sandbox.__log.length;
+    host.setState(3.2, true, 1);
+    host.runFrames(30);
+    assert.ok(
+        host.sandbox.__log.length > logLengthBefore,
+        'interval(…, 0) 是无限次，条目未回收前应继续触发');
+});
+
+test('D12 定时器登记在条目上：条目回收 / reset / seek 越窗后一律不再跑', () => {
+    // M8 用 ScriptManager.clearTimer() 解决的问题：脚本忘了清定时器时，
+    // 定时器不能在条目销毁后继续跑。宿主把它做成兜底——登记表随条目一起清。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d12', 1, 2,
+            "window.__ticks = (window.__ticks || 0);"
+            + "interval(function () { window.__ticks++; }, 100, 0);")
+    ]);
+    host.setState(0.5, true, 1);
+    host.runFrames(60);   // 到约 1.5s：条目在窗口内，定时器已触发若干次
+    const ticksInWindow = host.sandbox.__ticks;
+    assert.ok(ticksInWindow > 0, '条目在窗口内时 interval 应触发');
+
+    host.runFrames(120);  // 到约 3.5s：条目窗口 [1s,3s] 刚结束
+    const ticksAfterWindow = host.sandbox.__ticks;
+    assert.ok(
+        ticksAfterWindow > ticksInWindow,
+        '窗口内 interval 应继续触发：' + ticksInWindow + ' → ' + ticksAfterWindow);
+
+    host.runFrames(120);  // 到约 5.5s
+    assert.equal(
+        host.sandbox.__ticks, ticksAfterWindow,
+        '条目窗口结束后 interval 不得继续触发（定时器随条目一起清掉）');
+
+    // seek 越出窗口后再拖回来：条目重建，定时器重新登记（新的一轮）。
+    host.seek(2, true, 1);
+    host.runFrames(60);
+    assert.ok(
+        host.sandbox.__ticks > ticksAfterWindow,
+        '条目重建后定时器应重新登记并触发');
+
+    // reset 整批作废：定时器必须停。
+    const ticksBeforeReset = host.sandbox.__ticks;
+    host.reset(0, true, 1, true);
+    host.runFrames(60);
+    assert.equal(
+        host.sandbox.__ticks, ticksBeforeReset,
+        'reset 之后旧条目的 interval 不得继续触发');
+    assert.equal(host.errors().length, 0, '定时器生命周期不应产生错误上报');
+});
+
+test('D13 Tween.* 句柄与组合子：play/stop/stopOnComplete、delay/serial/reverse/repeat', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d13-to', 0, 10,
+            // tween + to + play：句柄时间轴由 play() 起算（M8 语义）。
+            "var a = $.createShape({ x: 0, y: 0, lifeTime: 10 });"
+            + "a.graphics.beginFill(0xFFFFFF, 1);"
+            + "a.graphics.drawRect(0, 0, 10, 10);"
+            + "a.graphics.endFill();"
+            + "window.__a = a;"
+            + "Tween.tween(a, { x: 200 }, { x: 0 }, 1).play();"),
+        scriptItem('d13-serial', 0, 10,
+            // serial(t1, reverse(t1))：先去再回，段列表按时间轴拼接。
+            "var b = $.createShape({ x: 0, y: 100, lifeTime: 10 });"
+            + "b.graphics.beginFill(0xFFFFFF, 1);"
+            + "b.graphics.drawRect(0, 0, 10, 10);"
+            + "b.graphics.endFill();"
+            + "window.__b = b;"
+            + "var t1 = Tween.tween(b, { x: 100 }, { x: 0 }, 1);"
+            + "Tween.serial(t1, Tween.reverse(Tween.tween(b, { x: 100 }, { x: 0 }, 1))).play();"),
+        scriptItem('d13-delay', 0, 10,
+            // delay(t, 1)：前 1 秒不动，1~2 秒跑完。
+            "var c = $.createShape({ x: 0, y: 200, lifeTime: 10 });"
+            + "c.graphics.beginFill(0xFFFFFF, 1);"
+            + "c.graphics.drawRect(0, 0, 10, 10);"
+            + "c.graphics.endFill();"
+            + "window.__c = c;"
+            + "Tween.delay(Tween.tween(c, { x: 100 }, { x: 0 }, 1), 1).play();"),
+        scriptItem('d13-repeat', 0, 10,
+            // repeat(t, 3)：整条补间跑 3 轮（每轮都从 fromValue 重新开始）。
+            "var d = $.createShape({ x: 0, y: 300, lifeTime: 10 });"
+            + "d.graphics.beginFill(0xFFFFFF, 1);"
+            + "d.graphics.drawRect(0, 0, 10, 10);"
+            + "d.graphics.endFill();"
+            + "window.__d = d;"
+            + "window.__dRepeatEnd = 0;"
+            + "var r = Tween.repeat(Tween.tween(d, { x: 60 }, { x: 0 }, 1), 3);"
+            + "window.__dRepeatEnd = r.durationMs;"
+            + "r.play();"),
+        scriptItem('d13-stop', 0, 10,
+            // stop()：停在当前位置，之后不再推进。
+            "var e = $.createShape({ x: 0, y: 400, lifeTime: 10 });"
+            + "e.graphics.beginFill(0xFFFFFF, 1);"
+            + "e.graphics.drawRect(0, 0, 10, 10);"
+            + "e.graphics.endFill();"
+            + "window.__e = e;"
+            + "var t = Tween.tween(e, { x: 900 }, { x: 0 }, 10);"
+            + "t.play();"
+            + "timer(function () { t.stop(); }, 200);"),
+        scriptItem('d13-parallel', 0, 10,
+            // parallel(t1, t2)：两条属性同时跑。
+            "var f = $.createShape({ x: 0, y: 500, alpha: 1, lifeTime: 10 });"
+            + "f.graphics.beginFill(0xFFFFFF, 1);"
+            + "f.graphics.drawRect(0, 0, 10, 10);"
+            + "f.graphics.endFill();"
+            + "window.__f = f;"
+            + "Tween.parallel("
+            + "  Tween.tween(f, { x: 120 }, { x: 0 }, 1),"
+            + "  Tween.tween(f, { alpha: 0 }, { alpha: 1 }, 1)"
+            + ").play();")
+    ]);
+    host.setState(0.1, true, 1);
+
+    // 0.5s：三条线性补间都在中段。
+    host.runFrames(30);
+    assert.equal(host.frameErrors.length, 0, 'Tween 用例不应让帧回调抛错：' + host.frameErrors);
+    assert.equal(host.errors().length, 0, 'Tween 用例不应产生错误上报：' + JSON.stringify(host.errors()));
+
+    const a = host.sandbox.__a;
+    assert.ok(a.x > 60 && a.x < 140, 'Tween.tween(...).play() 应推进 x：实际 ' + a.x);
+    assert.ok(host.sandbox.__b.x > 20 && host.sandbox.__b.x < 90,
+        'serial 的第一段应正在推进：实际 ' + host.sandbox.__b.x);
+    assert.ok(host.sandbox.__c.x < 5, 'delay 期间元素不应移动：实际 ' + host.sandbox.__c.x);
+    assert.ok(host.sandbox.__d.x > 5 && host.sandbox.__d.x < 55,
+        'repeat 第一轮应正在推进：实际 ' + host.sandbox.__d.x);
+    assert.equal(host.sandbox.__dRepeatEnd, 3000, 'repeat(t, 3) 的总时长应是 3 倍（毫秒）');
+    assert.ok(host.sandbox.__e.x < 100, 'stop 之前的推进量应有限：实际 ' + host.sandbox.__e.x);
+    assert.ok(host.sandbox.__f.x > 30, 'parallel 的第一个补间应推进：实际 ' + host.sandbox.__f.x);
+    assert.ok(host.sandbox.__f.alpha < 0.9, 'parallel 的第二个补间应推进：实际 ' + host.sandbox.__f.alpha);
+
+    // 1.0s（30 帧 × 16.667ms ≈ 0.5s 之后又 0.5s）：serial 应进入反向段，
+    // delay 应开始移动，stop 的元素必须停在 200ms 处不动了。
+    const stoppedX = host.sandbox.__e.x;
+    host.runFrames(60);
+    assert.ok(host.sandbox.__c.x > 20, 'delay 结束后元素应开始移动：实际 ' + host.sandbox.__c.x);
+    assert.equal(
+        host.sandbox.__e.x, stoppedX,
+        'stop() 之后元素必须停在当前位置，不再推进：' + stoppedX + ' → ' + host.sandbox.__e.x);
+    assert.ok(
+        Math.abs(host.sandbox.__a.x - 200) < 40,
+        'tween 在 1 秒后应接近终点 200：实际 ' + host.sandbox.__a.x);
+});
+
+test('D14 Player 的动作请求走 action 通道：play / pause / seek / jump', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d14', 0, 10,
+            "Player.pause();"
+            + "Player.play();"
+            + "Player.seek(1500);"
+            + "Player.jump('av120040', 2);"
+            + "Player.jump('120040');"
+            // 非法 av 号必须被拒绝，不能把坏消息发到 C# 侧。
+            + "window.__jumpBad = [Player.jump('not-an-av'), Player.jump('')];"
+            // 负数 seek 不是「拒绝」，而是钳到 0（与 PlayerPage.SeekFromScriptDanmaku 的
+            // Math.Max(0, …) 一致）：画面回到开头比静默丢弃更符合预期。
+            + "window.__seekNegative = Player.seek(-5);")
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(2);
+
+    const actions = host.messages.filter((message) => message.type === 'action');
+    assert.deepEqual(
+        actions.map((message) => message.action),
+        ['pause', 'play', 'seek', 'navigate', 'navigate', 'seek'],
+        '每个动作应按调用顺序各发一条 action 消息：' + JSON.stringify(actions));
+    assert.equal(actions[2].seconds, 1.5, 'Player.seek 的入参是毫秒，进 action 时换成秒');
+    assert.equal(
+        actions[3].url, 'https://www.bilibili.com/video/av120040/?p=2',
+        'Player.jump(av, page) 应拼成 bilibili 视频页 URL：' + actions[3].url);
+    assert.equal(
+        actions[4].url, 'https://www.bilibili.com/video/av120040/?p=1',
+        'Player.jump 省略 page 时默认第 1 页：' + actions[4].url);
+    assert.equal(host.sandbox.__jumpBad[0], false, '非 av 号应被拒绝（不发消息）');
+    assert.equal(host.sandbox.__jumpBad[1], false, '空字符串应被拒绝（不发消息）');
+    assert.equal(host.sandbox.__seekNegative, true, '负数 seek 应被接受（钳到 0）');
+    assert.equal(actions[5].seconds, 0, 'Player.seek(-5) 应钳到 0 秒');
+    assert.equal(host.errors().length, 0, '动作请求不应产生错误上报');
+});
+
+test('D15 Player.commentList 是推入的快照，字段形状与 M8 的 CommentData 一致', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    // C# 侧推快照：resetComments 清空 + appendComments 追加（真实链路是分批推的）。
+    host.api.resetComments();
+    host.api.appendComments([
+        { txt: '是', time: 1.5, color: 0xFFFFFF, pool: 0, mode: 1, fontSize: 25 },
+        { txt: '否', time: 2.5, color: 0xFF0000, pool: 1, mode: 4, fontSize: 25 }
+    ]);
+    // 第三条刻意只给 txt：其余字段应被补成 M8 的缺省值（不是 undefined）。
+    host.api.appendComments([{ txt: '是' }]);
+
+    host.append([
+        scriptItem('d15', 0, 10,
+            // 完全按 M8 文档里的 Player.commentList 示例写法。
+            'var l = Player.commentList.length;'
+            + 'var yes = 0; var no = 0;'
+            + 'for (var i = 0; i < l; i++) {'
+            + "  var cmt = Player.commentList[i];"
+            + "  if (cmt.txt == '是') { yes++; } else if (cmt.txt == '否') { no++; }"
+            + '}'
+            + 'window.__vote = { length: l, yes: yes, no: no,'
+            + ' second: Player.commentList[1],'
+            + ' defaults: Player.commentList[2],'
+            + ' defaultsTime: Player.commentList[2].time };')
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(2);
+
+    const vote = host.sandbox.__vote;
+    assert.ok(vote, '脚本应写入探针');
+    assert.equal(vote.length, 3, 'commentList.length 应是推入的条数');
+    assert.equal(vote.yes, 2, '按 txt 统计「是」的条数');
+    assert.equal(vote.no, 1, '按 txt 统计「否」的条数');
+    assert.equal(vote.second.time, 2.5, 'CommentData.time 是秒');
+    assert.equal(vote.second.color, 0xFF0000, 'CommentData.color 原样保留');
+    assert.equal(vote.second.pool, 1, 'CommentData.pool 原样保留');
+    assert.equal(vote.second.mode, 4, 'CommentData.mode 原样保留');
+    assert.equal(vote.second.fontSize, 25, 'CommentData.fontSize 原样保留');
+    // 缺省字段要被补齐，脚本读到的形状始终完整（不是 undefined）。
+    assert.equal(vote.defaults.color, 0xFFFFFF, '未给的 color 应补成默认字色');
+    assert.equal(vote.defaults.pool, 0, '未给的 pool 应补成 0');
+    assert.equal(vote.defaults.mode, 1, '未给的 mode 应补成 1（滚动）');
+    assert.equal(vote.defaults.fontSize, 25, '未给的 fontSize 应补成 M8 默认字号');
+    assert.equal(vote.defaultsTime, 0, '未给的 time 应补成 0');
+
+    // resetComments 清空快照（换一集 / 换视频时 C# 会重新推）：
+    // 用一条新条目读，确认脚本看到的是空表而不是上一批。
+    host.api.resetComments();
+    host.append([scriptItem('d15b', 2, 4,
+        'window.__afterReset = Player.commentList.length;')]);
+    host.setState(2.1, true, 1);
+    host.runFrames(30);
+    assert.equal(host.sandbox.__afterReset, 0, 'resetComments 之后 commentList 应为空');
+    assert.equal(host.errors().length, 0, '数据链不应产生错误上报');
+});
+
+test('D16 commentTrigger / keyTrigger：只在收到桥消息时触发，条目回收后不再触发', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d16', 1, 3,
+            'window.__got = [];'
+            // 监听发送弹幕（timeout 给足，避免用例中途过期）
+            + 'Player.commentTrigger(function (data) {'
+            + "  window.__got.push('c:' + data.txt + '@' + data.time);"
+            + '}, 30000);'
+            // 监听 keyDown 与 keyUp（M8 的 up 参数）
+            + 'Player.keyTrigger(function (key) { window.__got.push("kd:" + key); }, 30000);'
+            + 'Player.keyTrigger(function (key) { window.__got.push("ku:" + key); }, 30000, true);'
+            + 'window.__triggerIds = ['
+            + '  Player.commentTrigger(function () { }, 5000),'
+            + '  Player.keyTrigger(function () { }, 5000)'
+            + '];')
+    ]);
+    host.setState(0.5, true, 1);
+    host.runFrames(40);   // 到约 1.2s，条目已激活
+
+    // 条目还没进窗口时收到的事件不该投递（这里条目已在窗口内，验证投递生效）。
+    host.api.pushComment({ txt: '你好', time: 1.6, color: 0x66CCFF, mode: 1, fontSize: 25 });
+    host.api.pushKey(37, false);   // Left
+    host.api.pushKey(37, true);    // Left up
+    host.api.pushKey(65, false);   // A
+    host.api.pushKey(13, false);   // Enter —— 不在 M8 允许的键里，应被忽略
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(host.sandbox.__got)),
+        ['c:你好@1.6', 'kd:37', 'ku:37', 'kd:65'],
+        'M8 允许的键与发送弹幕都应投递，且 keyUp 只投给 up=true 的触发器');
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(host.sandbox.__triggerIds)).length, 2,
+        'commentTrigger / keyTrigger 应按 M8 返回 id');
+
+    // 条目窗口 [1s,4s] 结束后：定时器与触发器一起被清，再推事件不得触发。
+    host.runFrames(240);   // 到约 5.2s
+    const afterWindow = host.sandbox.__got.length;
+    host.api.pushComment({ txt: '窗口外', time: 5.2 });
+    host.api.pushKey(38, false);
+    assert.equal(
+        host.sandbox.__got.length, afterWindow,
+        '条目回收后 commentTrigger / keyTrigger 不得再触发');
+
+    // reset 整批作废后同理。
+    host.reset(0, true, 1, true);
+    host.runFrames(2);
+    host.api.pushComment({ txt: 'reset 后', time: 0.1 });
+    host.api.pushKey(38, false);
+    assert.equal(
+        host.sandbox.__got.length, afterWindow,
+        'reset 之后旧条目的触发器不得再触发');
+    assert.equal(host.errors().length, 0, '触发器不应产生错误上报');
+});
+
+test('D17 Player.setMask 把画面裁到遮罩形状里（合成期裁剪，不动元素缓存）', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d17', 0, 10,
+            // 遮罩：左上角 100×100 的矩形。
+            'var mask = $.createShape({ x: 0, y: 0 });'
+            + 'mask.graphics.beginFill(0xFF0000, 1);'
+            + 'mask.graphics.drawRect(0, 0, 100, 100);'
+            + 'mask.graphics.endFill();'
+            // 两个方块：一个在遮罩内，一个在遮罩外（右侧 400px 处）。
+            + 'var inside = $.createShape({ x: 10, y: 10, lifeTime: 10 });'
+            + 'inside.graphics.beginFill(0x00FF00, 1);'
+            + 'inside.graphics.drawRect(0, 0, 20, 20);'
+            + 'inside.graphics.endFill();'
+            + 'window.__inside = inside;'
+            + 'var outside = $.createShape({ x: 400, y: 10, lifeTime: 10 });'
+            + 'outside.graphics.beginFill(0x0000FF, 1);'
+            + 'outside.graphics.drawRect(0, 0, 20, 20);'
+            + 'outside.graphics.endFill();'
+            + 'window.__outside = outside;'
+            + 'window.__mask = mask;'
+            + 'Player.setMask(mask);')
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(4);
+
+    assert.equal(host.frameErrors.length, 0, 'setMask 不应让帧回调抛错：' + host.frameErrors);
+    assert.equal(host.errors().length, 0, 'setMask 不应产生错误上报：' + JSON.stringify(host.errors()));
+
+    const marks = host.mainCanvas().__marks;
+    assert.ok(marks.length > 0, '遮罩内应有内容被画出来');
+    // 所有落笔都必须落在 100×100 的遮罩内（桩把落笔与裁剪区求交）。
+    const union = unionRect(marks);
+    assert.ok(
+        union.x + union.width <= 100.5 && union.y + union.height <= 100.5,
+        '所有落笔都应被裁到遮罩内，实际 union=' + JSON.stringify(union));
+
+    // 遮罩元件本身不参与渲染（M8 的遮罩对象不在显示列表里）。
+    const mask = host.sandbox.__mask;
+    assert.equal(mask.treeParent, null, '遮罩元件应从渲染树摘除');
+    assert.equal(mask.expired, false, '遮罩元件应仍然存活（条目回收时才释放）');
+
+    // 裁剪是合成期的：元素自己的位图缓存不受影响，元素也没被标成结构脏。
+    const outside = host.sandbox.__outside;
+    assert.ok(host.elementField(outside, 'cacheCanvas'), '遮罩外的元素仍应有自己的位图缓存');
+    assert.equal(host.elementField(outside, 'expired'), false, '遮罩外元素不应被摘除');
+
+    // 换掉遮罩（设为 null）后画面恢复完整：遮罩外的方块重新可见。
+    host.append([scriptItem('d17b', 1, 8, 'Player.setMask(null);')]);
+    host.runFrames(90);
+    const afterUnion = unionRect(host.mainCanvas().__marks);
+    assert.ok(
+        afterUnion && afterUnion.x + afterUnion.width > 400,
+        '取消遮罩后遮罩外的元素应重新可见，实际 union=' + JSON.stringify(afterUnion));
+    assert.equal(host.errors().length, 0, '取消遮罩不应产生错误上报');
 });
 
 run();

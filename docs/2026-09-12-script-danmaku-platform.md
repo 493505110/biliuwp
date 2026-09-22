@@ -2,6 +2,9 @@
 
 > **状态：阶段 1（核心渲染）已完成代码与构建验证，待页面级验证；阶段 2-5 未开始。** 见 §实施阶段。
 > **本版修订（渲染模型）**：原设计「每帧遍历活跃弹幕调绘制回调」的**立即模式已废弃**，改为**保留模式**——脚本每条只执行一次、逐帧只推进 tween 与重绘脏元素。理由、真实脚本数据与具体形态见 **§3.1**；代码已按此改造并补齐脏矩形擦除 / 寿命语义等收尾（D1~D6），实施记录见 §阶段 1 实施记录 8、9。
+> **本版修订（脚本 API 面）**：**自研的 `ctx.*` 脚本 API 已废弃**，脚本环境直接提供原版 M8 的全局名（`$` / `Player` / `$G` / `Global` / `Tween` / `Utils` / `ScriptManager` / `timer` / `interval` / …），目标是让当年的真实 M8 脚本尽量原样跑起来。API 清单（等价实现 / 占位待接 / 不支持）见 **§3**，决定与理由见 §阶段 1 实施记录 13。
+> **本轮补做**：实施记录 13 里列为占位的 `Player.play()` / `commentList` / `commentTrigger` / `keyTrigger` / `setMask` 已真实现（含桥协议新增的 `play` 动作与 6 条 C#→宿主命令），仅 `createSound` / `External.*` / `load()` 仍是占位——见 §阶段 1 实施记录 14。
+> **阅读提示**：§阶段 1 实施记录 3、8、10、11、12 与 §阶段 1 代码审查修正写于这次改动**之前**，其中出现的 `ctx.*` / `ctx.onFrame` / `ctx.time` 是**当时**的 API 面，现已被本版取代（结论与取舍仍然成立，只是名字换了：`ctx.createText`→`$.createComment`/`$.createText`、`ctx.createShape`→`$.createShape`、`ctx.createImage`→`$.createImage`、`ctx.createLayer`→`$.createLayer`、`ctx.tween`→声明式 `opts.motion`、`ctx.onFrame`→M8 的 `interval`、`ctx.time`/`ctx.state`→`Player.time`/`Player.state`、`ctx.pause`/`ctx.seek`/`ctx.navigate`→`Player.pause`/`Player.seek`/`Player.jump`、`ctx.width`/`ctx.height`→`Player.width`/`Player.height`）。
 > **规模提示**：本需求已从「加个 mode8 类似的东西」长成一个**平台级改动**（自建 WebView2 脚本运行时 + TS 转译 + 三类交互 + 四类拦截 + 几十条同屏渲染）。建议按下面阶段分批落地，每阶段可独立验证。
 > **行号基准**：`PlayerPage.xaml.cs` / `PlayerPage.xaml` 的引用已按**阶段 1 实施后的 HEAD 重新校准**，逐条命中。注意：**这两个文件每实施一个阶段都会整体漂移**（阶段 1 就使 §7 的锚点偏移了 4～239 行不等），动手前请以**符号名**为准、行号仅作快速定位。其余文件（`PlayerAPI.cs` / `ApiHelper.cs` / `DanmakuMTC.cs` / `Generic.xaml` / `SendDanmakuDialog.xaml.cs` / `BiliDanmakuService.cs` / `PlaybackEventTimeline.cs`）行号未受阶段 1 影响。子模块文件行号以 `Libraries/NSDanmaku-Fork` 当前 pin `784d694` 为准。
 > **合并带来的既成事实**：`BiliBili.Background` 侧新增 `DynamicFeedApi` / `DynamicFeedParser` / `NotificationBuilder` / `SettingHelper` 等文件（动态磁贴与更新通知功能）。这些是**另一条功能线，与本计划无交集**，但同处 `BiliBili.Background` 目录，实施时注意区分。
@@ -86,7 +89,7 @@ public sealed class ScriptDanmakuDocument
 ### 2. TypeScript 支持
 
 - 资产：`Assets/typescript.js`（官方 tsc，含 `transpileModule`；原始约 8–10 MB，gzip 后约 2–3 MB——**实施时实测**）。
-- 流程：`lang=="ts"` 的脚本 → 宿主 `ts.transpileModule(code, { compilerOptions: { target: ES2020, module: None } })` → JS → `new Function('ctx', js)`。`lang=="js"` 跳过转译。
+- 流程：`lang=="ts"` 的脚本 → 宿主 `ts.transpileModule(code, { compilerOptions: { target: ES2020, module: None } })` → JS → `new Function(<M8 全局名…>, js)`（注入名清单见 §3）。`lang=="js"` 跳过转译。
 - 转译结果按脚本 id 缓存，只转一次。
 - **不做类型检查**（只转译），避免拖慢。
 - csproj `<Content Include="Assets\typescript.js" />`。**代价：包体积 +几 MB**，这是「应用内直接写 TS」的必付成本。
@@ -95,18 +98,67 @@ public sealed class ScriptDanmakuDocument
 
 > 单文件内联，不拆 `.js`——虚拟主机映射下同目录引用没有额外收益，且少一处 csproj 注册。
 
-- **渲染循环（保留模式）**：主 `<canvas>` + `requestAnimationFrame`。脚本**每条只执行一次**，执行期间通过 `ctx` 建出保留对象树（`ctx.createText/createShape/createImage/createLayer`），并把动画写成声明式 tween 配置；之后每帧只做三件事——推进 tween、更新元素属性、**仅重绘被标记为脏的元素**。**禁止每帧重跑脚本**（理由与真实数据见 §3.1）。**不用 DOM-per-danmaku**。不在播放且没有待推进的补间/逐帧回调时自动停循环（恢复路径天然存在：播放态变化、seek、resize 都会走 `ensureRunning`）。
-- **脚本 API（`ctx`）**——阶段 1 实际提供：`ctx.width` / `ctx.height` / `ctx.dpr` / `ctx.duration` / `ctx.stime` / `ctx.id` / `ctx.time` / `ctx.state`、`ctx.createText(text, style)` / `ctx.createShape()` / `ctx.createImage(url)` / `ctx.createLayer(w, h)`、`ctx.addChild(el, parent?)` / `ctx.removeChild(el)`、`ctx.tween(el, config, options?)`、`ctx.onFrame(fn)`（逃生舱，见下）、`ctx.pause()` / `ctx.seek(seconds)` / `ctx.navigate(url)`。元素属性 `x`/`y`/`z`/`alpha`/`scaleX`/`scaleY`/`rotation`（=`rotationZ`）/`visible`/`matrix`/`filters` 可写，直接赋值即标脏。
-  > **`ctx.t` 与 `ctx.progress` 恒为 0**：脚本每条只执行一次，执行时没有任何时间推进，这两个量不再有逐帧语义，**不得**用它们驱动逐帧机制（`t`/`progress` 仍在对象上只为兼容立即模式脚本的读取而不报错）。
-  > **`ctx.time` / `ctx.state` 是 M8 `Player.time` / `Player.state` 的等价物**：`time` 是播放头位置（**毫秒**，与 M8 的 `Player.time` 同单位，原版脚本可直接移植；注意 `ctx.duration` / `ctx.stime` 仍是秒），`state` 取 `"playing"` / `"pause"` / `"stop"`（宿主没有独立于可见性的停止态，弹幕层隐藏时给 `stop`）。脚本每条只执行一次，激活时读到的是一次快照；逐帧读时间要在 `ctx.onFrame` 回调里读 `frameCtx.time` / `frameCtx.state`——值来自宿主自己的外推时钟，不增加消息往返。
-  > **`ctx.g` 已取消**：直接操作画布等于绕开保留模式，脚本只能通过 `createShape`/`createText` 建保留对象。
-  > **`ctx.onFrame(fn)` 是逃生舱**：只有 tween 表达不了的效果（如物理演算）才该用它；注册后该条目退回逐帧调用，单条脚本的每帧开销不再只与「脏元素数」相关。**能写成 tween 的不要用 onFrame**。
-  > 待接入（阶段 2-4）：`ctx.danmaku`（弹幕快照）、`ctx.intercept.*`、`ctx.filter(...)` / `ctx.send(...)` / `ctx.on(...)`。
+- **渲染循环（保留模式）**：主 `<canvas>` + `requestAnimationFrame`。脚本**每条只执行一次**，执行期间通过 M8 的元件工厂 `$` 建出保留对象树（`$.createComment` / `$.createShape` / `$.createCanvas` / …），并把动画写成声明式 `motion` 或 `Tween` / `interval` 声明；之后每帧只做三件事——推进补间、更新元素属性、**仅重绘被标记为脏的元素**。**禁止每帧重跑脚本**（理由与真实数据见 §3.1）。**不用 DOM-per-danmaku**。不在播放且没有待推进的补间/定时器时自动停循环（恢复路径天然存在：播放态变化、seek、resize 都会走 `ensureRunning`）。
+- **脚本 API：直接暴露原版 M8 的 API 面，不再有自研的 `ctx`**（本版决策，见 §阶段 1 实施记录 13）。宿主用 `new Function("$", "Player", "$G", "Global", "Tween", "Utils", "ScriptManager", "timer", "interval", "clearTimer", "trace", "tracex", "stopExecution", "foreach", "clone", "getTimer", code)` 把这些全局名作为**参数**注入脚本作用域，脚本正文因而可以原样书写 `$.createComment(...)` / `Player.time` / `Tween.tween(...)`，不必改写成 `ctx.xxx`；用参数注入而不是给 `window` 挂属性，是为了让脚本对这些名字的赋值只影响自己那一次执行。
+  > **真实脚本的可移植性**：这一改动来自对 av2669196 的 11 条 mode=8 真实脚本文本（`/root/m8-csharp/scripts-fixtures/`）的统计——`$.createShape` 93 处、`beginFill/endFill` 123 处、`createGlowFilter` 18 处、`createMatrix` 20 处、`Global` 90 次、`Utils.rgb` 61 次、`ScriptManager.popEl` 4 次、`stopExecution` 1 次。这些脚本没有一行 `ctx.xxx`，自研 API 面等于要求每个作者重写脚本。
+
+**脚本 API 清单（按「等价实现 / 占位待接数据链 / 不支持」三类）**
+
+| 类别 | API | 状态与说明 |
+|---|---|---|
+| **等价实现** | `$.createComment(text, opts)` / `$.createText` | M8 的文本元件。默认白字 / 黑体 / 25px（与 M8 一致）。`opts` 支持 `x/y/z/alpha/scaleX/scaleY/rotation/rotationX/rotationY/visible/lifeTime/parent/motion/font/fontsize/color/bold/border/borderColor/filters` |
+| | `$.createShape(opts)` / `$.createCanvas(opts)` / `$.createSprite(opts)` | 可承载子元件的保留元件（`canvas`/`sprite` 与 `shape` 同义）。`el.graphics.*` 为现有绘图子集（见下） |
+| | `$.createButton(opts)` | 近似实现：底色矩形 + 居中文本 + `onclick` 登记。**`onclick` 当前不会触发**——控件 `IsHitTestVisible=False`、主画布 `pointerEvents:none`，没有输入通道（阶段 3 接输入拦截后才会响） |
+| | `$.createImage(url, opts)` | 宿主扩展（M8 用 `External.Bitmap.createBitmap`）。直连 URL / `data:` URI |
+| | `$.toIntVector(list)` / `$.toNumberVector(list)` | 返回普通数值数组（本宿主的 Vector 就是 Array），供字体数据类脚本原样跑 |
+| | `el.remove()` | 从渲染中摘除并退出元素登记表 |
+| | `el.setStyle(name, value)` | 文本类属性（`color`/`fontsize`/`font`/`bold`/`border`/`borderColor`）落到文本样式；其余按元素属性赋值 |
+| | 可写属性 | `x/y/z/alpha/scaleX/scaleY/rotation`（=`rotationZ`）/`rotationX`/`rotationY`/`visible`/`matrix`/`filters`/`text`/`url`/`fontsize`/`font`/`color`/`bold`/`mask`。直接赋值即标脏；内容类属性（`text`/`fontsize`/`color`/`filters`…）还会让位图缓存失效。**`rotationX`/`rotationY` 是 3D 属性，2D 画布只存储、不呈现**。注意区分两个 `mask`：**元素级的 `el.mask`（元件互相遮罩）只存储、不生效**（需要逐元素的 clip 合成），而**播放器级的 `Player.setMask` 是已实现的**（见下） |
+| | `el.parent` / `el.children` | 可写：赋值 `parent` 即换父节点；`children` 是子元件数组 |
+| | 文本 `el.length` | 字符数（M8 的 `CommentField.length`） |
+| | `el.graphics.*` | `beginFill` / `endFill` / `lineStyle` / `moveTo` / `lineTo` / `curveTo` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawEllipse` / `drawWedge` / `drawPolygon` / `clear`。**`beginGradientFill` / `lineGradientStyle` / `drawGraphicsData` / `drawPath` 显式抛「尚未支持」**，不静默画错 |
+| | `Player.time` | **实时 getter**，读宿主外推时钟（毫秒）。不是激活时快照——M8 脚本在 `interval` 回调里读它 |
+| | `Player.state` | 实时 getter：`playing` / `pause` / `stop`（弹幕层隐藏时给 `stop`） |
+| | `Player.width` / `height` | 宿主视口（CSS 像素） |
+| | `Player.play()` / `pause()` / `seek(ms)` / `jump(av, page, newwindow)` | 四个动作都走宿主→C# 的 `action` 通道（`play` / `pause` / `seek` / `navigate`，本轮补上 `play`）；`jump` 拼成 `https://www.bilibili.com/video/av{n}/?p={page}`，由 PlayerPage 侧的白名单校验。`newwindow` 忽略（宿主无法开新窗口）。`seek` 的负数入参钳到 0（与 `PlayerPage.SeekFromScriptDanmaku` 的 `Math.Max(0, …)` 一致） |
+| | `Player.commentList` | **推入的弹幕快照**，字段与 M8 的 `CommentData` 同名同义：`txt` / `time`（**秒**）/ `color` / `pool` / `mode` / `fontSize`，缺省补齐。由 PlayerPage 在弹幕池落定时推入（`resetComments` + `appendComments`），控件保留快照并在脚本加载后的 `reset` 之后自动补投 |
+| | `Player.commentTrigger(f, timeout)` | **监听用户发送弹幕**：PlayerPage 在发送成功回调里经 `pushComment` 推入，宿主投递给在窗口内条目的回调（一条 CommentData 形状的对象）。返回 M8 文档说的数字 id |
+| | `Player.keyTrigger(f, timeout, up)` | **监听键盘输入**：PlayerPage 把 `CoreWindow` 的 KeyDown / KeyUp 经 `pushKey` 推入。只投递 M8 文档列出的那组键（小键盘 0-9、方向键、Home/End/PgUp/PgDn、W/S/A/D）——这组键与 Windows `VirtualKey` / DOM `keyCode` 同值，因此 C# 侧整数值透传、宿主侧筛选。`up=true` 只收 keyUp |
+| | `Player.setMask(obj)` | **合成期裁剪**：整块脚本弹幕画布裁剪到 mask 元件的形状里（形状元件按它的图元描路径；文本/图片/复合元件退化成外接矩形）。遮罩元件本身不参与渲染（M8 的遮罩对象不在显示列表里），只从渲染树摘除、仍随条目回收。裁剪是合成期行为，**不会让任何元素重建位图缓存** |
+| | `Player.refreshRate` | 可读写，钳制到 `[10, 500]`，默认 170（M8 文档）。当前只作兼容存储，不改变本宿主的 rAF 帧率 |
+| | `$G._set/_get/_remove` 与 `$G._`、`Global._set/_get/_remove` | 跨条目共享变量；`reset` 时换成新对象（上一代脚本的写入不污染新一代）。`Global` 与 `$G` 是同一个对象（M8 文档里的两个名字，真实脚本两种都在用） |
+| | `Tween.tween/to/delay/scale/reverse/repeat/slice/serial/parallel` | 段列表模型上的时间轴运算，返回 ITween 句柄 |
+| | ITween：`play` / `stop` / `gotoAndPlay` / `gotoAndStop` / `togglePause` / `stopOnComplete` | 句柄有自己的播放头（`play()` 起算）。组合子（`serial`/`parallel`/`delay`/…）只做时间轴运算，`play()` 时统一装到来源句柄的元件上，来源句柄随即停用 |
+| | `Utils.hue/rgb/formatTimes/delay/interval/distance/rand` | `hue(0)=0x0000FF`、`hue(120)=0xFF0000`、`hue(240)=0x00FF00`（按 M8 文档）；`formatTimes` 输出 `m:ss`；`delay`/`interval` 是全局 `timer`/`interval` 的别名 |
+| | `timer(fn, delay)` / `interval(fn, delay, times)` | 登记在**条目**上的定时器（见下「定时器生命周期」）。`times=0` 为无限次 |
+| | `clearTimer(x)` / `clearInterval` 语义 | 接受 ITimer 句柄或数字 id；无参时清当前条目的全部定时器 |
+| | `trace(...)` / `tracex(s)` | 回显到宿主控制台，不抛错、不新增桥消息 |
+| | `foreach(obj, f)` / `clone(obj)` / `getTimer()` | `foreach` 回调签名 `(key, value)`；`clone` 浅拷贝且**不复制函数**（M8 文档明说）；`getTimer` 返回宿主启动至今的毫秒数 |
+| | `ScriptManager.clearTimer()` / `clearEl()` / `clearTrigger()` / `popEl(el)` | `clearTimer` 清当前条目的定时器；`clearEl` 摘除当前条目的元件；`clearTrigger` 是空实现（触发器登记表为空）；`popEl` 等价于 `el.remove()`（真实脚本 `entry_08` 在用） |
+| | `stopExecution()` | 抛出内部信号，`activateItem` 捕获后按「脚本主动终止」处理，**不计为错误**（真实脚本用它做幂等守卫） |
+| **占位（不做，且写明原因）** | `Player.createSound(t, onLoad)` | 返回惰性 stub（`play`/`stop`/`close` 都是 no-op），`onLoad` **不调用**。两个硬阻塞：① M8 的 `createSound(t)` 是按**名字**取它内置音效库里的音（`t` 是音效类型而非 URL），这个音效库没有随客户端分发，宿主也没有可用的音频资产（零外部依赖、单文件内联）；② WebView2 的自动播放策略会拦截无用户手势的播放。**刻意不用合成音（振荡器/噪声）冒充原音效**——那会让脚本听起来「生效了」却完全不是原声，比明确的 no-op 更误导。要真做需要先解决音效资产来源 |
+| | `External.Storage.loadRank/uploadScore/saveData/loadData` | 名字在、能调用，**不调用任何回调**（不伪造数据，避免脚本按假数据继续跑） |
+| | `External.Bitmap.createBitmapData/createBitmap/createRectangle` | `createRectangle` 返回 `{x,y,width,height}`；`createBitmapData` 返回 `null`、`createBitmap` 返回空图片元件（位图管线未接入） |
+| | `$.createVector` / `$.createMatrix` / `$.createColorTransform` / `$.createGlowFilter` / `$.createBlurFilter` / `$.createDropShadowFilter` / `$.createBevelFilter` / `$.createGradientBox` / `$.createPoint` / `$.createColor` | 名字在、能调用。`createMatrix` 返回支持 `a/b/c/d/tx/ty` + `createGradientBox`(no-op) 的矩阵对象（元素的 `matrix` 属性会用它）；滤镜工厂返回 `{type, color, alpha, blurX, blurY}` 占位对象，**元素的 `filters` 只识别 `GlowFilter`**（缓存期 `blur(4px)`+`lighter` 近似），其余滤镜不产生视觉效果。`createColorTransform` / `createGradientBox` / `createBitmapData` 返回 `null` |
+| | `load(library, onComplete)` | 外部库加载未接入：**不调用 `onComplete`**（否则 `Bitmap.createBitmapData` 之类会立刻 ReferenceError） |
+| **不支持** | `$.createVector` 的真正 Vector 语义、`drawGraphicsData` / `drawPath`、`beginGradientFill` / `lineGradientStyle` | 需要完整 Flash 图形数据模型；遇到时显式抛错而非静默画错 |
+| | `_Galgame` 里的 `TweenEasing` 命名空间 | 不需要：缓动名沿用现有 `easingTable`，`resolveEasing` 已支持 `M8Easing.SineEaseInOut` 这类带前缀的全名 |
+| | 字体排版（`fontData` / `advanceHori` / `kernings`） | 真实脚本里占比最大的能力（11 条样本里 7 条是字体数据），需要完整 TrueType 轮廓排版，本阶段不做 |
+| | 3D / `transform.matrix3D` | 2D 画布，`rotationX`/`rotationY` 只存储不呈现 |
+
+  > **`ctx.t` / `ctx.progress` / `ctx.g` 已彻底取消**：它们没有 M8 对应物。逐帧回调只剩 M8 的 `interval` 这一条路径，且回调签名是 M8 的「无参数」形式——逐帧状态一律读 `Player.time`（值来自宿主自己的外推时钟，不增加消息往返）。
+  > **`Player.time` 必须实时读**：脚本典型写法是先记 `var t0 = Player.time;`，再在 `interval` 回调里用 `Player.time - t0` 判断「脚本开始后过了多久」。宿主内部仍然按条目窗口激活一次脚本，但**时间量不再是激活时的快照**。
+  > **定时器生命周期（重点）**：`timer` / `interval` 一律登记在条目上，条目回收 / `reset` / seek 越窗时由宿主统一清掉；`ScriptManager.clearTimer()` 清当前条目的定时器。**定时器绝不会活过条目**——这正是 M8 用 `ScriptManager.clearTimer` 解决的问题，宿主把它做成了兜底而不只依赖脚本自觉。定时器按「条目已播放时间」推进（`advanceItem` 的帧增量），因此暂停时它与画面一起停住。
+  > **声明式 `motion` 与 `Tween.*` 是两条路径**：`opts.motion`（以及 `$.create*` 的 `lifeTime`）是**按条目进度 `elapsed` 插值**的声明式补间，seek 回窗口内重建时位置是插值结果；`Tween.tween/to/...` 返回的句柄有自己的播放头（`play()` 起算），用于脚本显式控制播放。两条路径都由同一套段列表插值器驱动，区别只在「时间从哪来」。
 - **时间同步**：照搬 `bas-host.html` 已验证的 `state` + `currentPositionMs()` 模式（playing 时 `performance.now()` 外推，`setState`/`seek` 重置基准）。
 - **桥协议（JSON）**：
-  - 主→宿主：`reset` / `append` / `beginItem` / `appendItemChunk` / `endItem` / `setState` / `seek` / `visible` / `resize`
-  - 宿主→主：`ready` / `parsed` / `rendered` / `error` / `action`（含 `pause` / `seek` / `navigate`）
-  > 设计稿另列的 `clear` / `danmakuBatch` / `judgeBatch` / `inputEvent` / `playbackAction` / `sendRequest` / `queryDanmaku` / `filter` / `send` / `judgeResult` / `inputVerdict` / `actionVerdict` 属阶段 2-4。
+  - 主→宿主（控件 → `window.scriptDanmakuHost.*`）：`reset` / `append` / `beginItem` / `appendItemChunk` / `endItem` / `setState` / `seek` / `visible` / `resize`，以及本轮新增的数据链与输入链——
+    - `resetComments()` / `appendComments([...])`：弹幕快照（脚本侧 `Player.commentList`）。分两段推是因为整池可能有几千条：先清空、再按 24KB 的**字节预算**分批追加（与 `append` 的分块上限同一套口径；按预算而不是按固定条数切分——单条弹幕长度可以差一个量级）。
+    - `pushComment({txt,time,color,pool,mode,fontSize})`：用户发送了一条弹幕 → 投递给 `commentTrigger`。
+    - `pushKey(keyCode, up)`：键盘事件 → 投递给 `keyTrigger`。
+  - 宿主→主（`post(type, …)`）：`ready` / `parsed` / `rendered` / `error` / `action`（含 `pause` / `play` / `seek` / `navigate`）。
+  > 零开销原则仍然成立：没有任何脚本时 `PushDanmakuBatchAsync` 经懒初始化闸门直接返回，不创建 WebView2、不发任何 RPC；分页加载反复落定弹幕池时，控件按「同一列表实例 + 条数不变」跳过重复投递。
+  > 设计稿另列的 `clear` / `danmakuBatch` / `judgeBatch` / `inputEvent` / `playbackAction` / `sendRequest` / `queryDanmaku` / `filter` / `send` / `judgeResult` / `inputVerdict` / `actionVerdict` 属后续阶段（弹幕**拦截**与发送**改写**，与本次的「读取弹幕 / 监听输入」是两回事）。
 
 #### 3.1 保留模式：脚本只执行一次，逐帧只插值属性（本版新增，取代原「每帧调绘制回调」）
 
@@ -122,7 +174,7 @@ public sealed class ScriptDanmakuDocument
 **保留模式的具体形态**
 
 - **元素**：脚本执行期间创建 `M8Element` 式保留对象（text / shape / image / layer），进入宿主的元素树；属性含 `x/y/scaleX/scaleY/rotation/alpha/visible/filters/matrix`。
-- **动画**：声明式 tween（`fromValue`/`toValue`/`lifeTime`/`startDelay`/`easing`/`repeat`），由统一 ticker 推进。逐帧回调只保留 `ctx.onFrame` 这一条逃生舱，且默认路径不得使用。
+- **动画**：两条入口，都由统一的段列表插值器推进——① 声明式 `motion`（`opts.motion = {x: {fromValue, toValue, lifeTime, startDelay, easing, repeat}}`，按条目进度 `elapsed` 插值）；② M8 的 `Tween.tween/to/...` 句柄（自带播放头，`play()` 起算，配 `delay/scale/reverse/repeat/slice/serial/parallel` 组合子）。**逐帧回调只剩 M8 的 `interval` 一条路径**（回调无参数，逐帧状态读 `Player.time`），且它同样登记在条目上、随条目一起回收。
 - **重绘策略**：元素分两类——**静态元素**（只创建、不动）首次绘制后缓存为位图或留在离屏层，后续帧不再重绘；**动画元素**（有活跃 tween 或被脚本改属性）标记脏，每帧只重绘脏元素。**擦除按「元素包围盒矩形」做，不是每帧整屏 `clearRect`**：元素移动 / 缩放 / 旋转 / 隐藏 / 释放时，把它**上一帧**在画布上的变换后外接矩形入队（`retireElementRect` → `pendingEraseRects`，外扩 `DIRTY_RECT_PADDING = 2` 像素），下一帧先以单位变换擦掉这些矩形、再合成本帧的脏元素。顺序不能反（反了会把刚画好的像素擦掉）；擦除是无差别矩形，可能盖住静止的邻居，所以擦完还要补画「被擦到但不是本帧脏元素」的邻居。整屏 `clearSurface()` **只出现在两条整幅画面作废的路径上**——`tick()` 的 `!visible` 隐藏分支与 `stopRunning()`；逐帧路径出现整屏清空即为回归（那正是立即模式的做法）。
   > **元素摘除的顺序陷阱**：`releaseItemElement` 必须**先** `detachElement(element)`（内部 `markElementMoved` 入队擦除）**再**标 `element.expired = true`。`markElementMoved` 见到 `expired` 为真会直接返回，顺序反了最后一帧的像素就入不了擦除队列，会在画布上永久残留（条目窗口结束时尤其明显）。契约测试 `Host_ReleasesElementCachesOnLifetimeExpiry` 固定了这个先后关系。
 - **错误隔离**：脚本与缓动都是脚本作者提供的函数，抛错**不得**逃出 rAF 回调——否则 `running` 停在 `true` 而实际已无排队回调，帧循环永久冻结且 `ensureRunning()` 救不回来。因此 `frame()` 的调度链必须与「本帧是否出错」解耦：`try { tick } catch { reportCompositeError } finally { if (running) 续帧 }`。条目级失败（脚本编译/执行抛错）只停该条目；元素级失败（某个元素的缓动抛错）只标该元素 `failed` 并跳过，同帧其它元素与其它条目继续推进。
@@ -269,9 +321,32 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 
 12. **向 M8 靠拢：播放器状态可见 + 时间窗降级为兜底（已落地）**。原版 M8 没有条目窗口，元素寿命由脚本的 `lifeTime` 决定（实测真实脚本里写着 `$.createCanvas({ lifeTime: 810114514 })`，≈9.4 天，等于常驻），因为 Flash 播放器本身就是帧循环主人。本项按同样思路放开两处：其一，`duration` 缺省或非正数改为**不设时间窗**（`ScriptDanmakuParser.UnboundedDurationSeconds = 0`），宿主只保留防呆上限 `MAX_ITEM_WINDOW_MS = 600000`，元素寿命因此完全由脚本的 `lifeTime` 决定；其二，`lifeTime: 0` / 负数按 M8 语义改为**常驻**（声明值取 `Infinity`，实际仍受兜底上限约束），此前宿主把 `lifeTime <= 0` 夹成 `0.001` 秒、元素瞬间消失，与 M8 的 `lifeTime:0`（Galgame 示例里大量使用）正好相反。同时把脚本侧的播放器状态补齐：`ctx.time`（播放头位置，**毫秒**，与 M8 的 `Player.time` 同单位）与 `ctx.state`（`playing`/`pause`/`stop`），等价于 M8 的 `Player.time` / `Player.state`，逐帧读法是在 `ctx.onFrame` 回调里读 `frameCtx.time`——值来自宿主自己的外推时钟，不增加消息往返。连带修正一处判据：`frame()` 的自停条件原为「窗口内有没有条目」，无界窗口下条目会长时间停在窗口内、暂停后帧循环一直空转，现改为「不在播放且没有待推进的补间/逐帧回调」。行为套件新增 `D9`（无界窗口兜底、`lifeTime: 0` 常驻、`ctx.time`/`ctx.state` 逐帧可读）与 `D10`（暂停自停、恢复后重新拉起）。
 
-测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、`ctx` 字段、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
+13. **放弃自研 `ctx` 面，脚本环境直接暴露原版 M8 的 API（已落地）**。这是本分支对脚本 API 的**破坏性重做**，`ctx.*` 全部移除。
+    - **动机**：自研 API 面等于要求每个作者重写脚本，而本平台的目标恰恰是「让当年的真实 M8 作品尽量原样跑起来」。11 条真实 mode=8 脚本（`/root/m8-csharp/scripts-fixtures/`）的统计很直白：`$.createShape` 93 处、`beginFill/endFill` 123 处、`drawWedge/drawCircle/drawRect` 87 处、`createGlowFilter` 18 处、`createMatrix` 20 处、`Global` 90 次、`Utils.rgb` 61 次、`ScriptManager.popEl` 4 次、`stopExecution` 1 次——**没有一行 `ctx.xxx`**。更关键的是，前一版分支 `feature/m8-script-engine` 的结论就是「大部分 mode8 代码弹幕 api 返回不完整」，自研面在没有真实脚本可跑的情况下无法自我验证。
+    - **注入机制**：宿主用 `new Function("$", "Player", "$G", "Global", "Tween", "Utils", "ScriptManager", "timer", "interval", "clearTimer", "trace", "tracex", "stopExecution", "foreach", "clone", "getTimer", code)` 把 M8 全局名作为**参数**注入。用参数而不是 `window.xxx`：脚本对 `$` / `Tween` 的赋值只影响它自己那一次执行，不污染其它条目。整份宿主仍然只有这一处 `new Function`，「脚本只编译一次」的契约不变。
+      > `Global` 是 `$G` 在 M8 文档里的另一个名字，真实脚本两种都在用（样本里 `Global` 出现 90 次），因此两个名字注入同一个对象。`$G._` 也是 `_get` 的别名（Galgame 示例在用）。**真实脚本还依赖 `new Function` 体的非严格模式隐式全局**（样本里 `Factory` 被裸用 38 次，由更早的脚本赋值产生）——宿主保留了这一行为（脚本体不在 `"use strict"` 下）。
+    - **渲染引擎一行未改**：保留模式的全部约束继续成立——脚本每条只执行一次、保留元件树、声明式补间、脏元素重绘、脏矩形擦除、元素寿命 `min(脚本声明 lifeTime, 条目窗口剩余)`、暂停自停。改动只落在「脚本拿到的名字」这一层。
+    - **`motion` 与 `Tween.*` 分两条路径**（这是本次唯一动到补间引擎的地方）。M8 的 `opts.motion` 是**声明式**动画（元件上的属性声明），必须按**条目进度 `elapsed` 插值**——否则 seek 回窗口内重建时元素会从 0 重新开始，破坏保留模式契约（行为用例 D6 钉住了这一点）。`Tween.tween/to/...` 返回的 ITween 是**命令式**句柄，有自己的播放头（`play()` 起算）。两者共用同一套「段（segment）列表」插值器：段 = `{offsetMs, durationMs, tracks:[{key,from,to,easing}]}`，取值规则是**每个属性各认一个段**（从最后一段往前找第一个「已开始且含该属性」的段）。这条规则是修出来的：最初写成「只取最后一个已开始的段」，并行补间（`parallel`，或多属性各自带不同 duration）里先声明的属性永远不会被写（D13）。
+    - **itween 组合子**（`delay`/`scale`/`reverse`/`repeat`/`slice`/`serial`/`parallel`）只做**段列表的时间轴运算**，返回的句柄**不带元件**：元件集合沿用来源句柄，等 `play()` 时由 `installTweenHandle` 统一装到元件上，并把来源句柄停用（否则两条句柄会各写同一批属性）。派生句柄一律深拷贝段列表——共享段对象会让 `repeat` 重复插值、`reverse` 把源句柄的 `from`/`to` 一起换掉（实际踩到过）。
+    - **时间必须是实时读的**：`Player.time` 是 getter，读宿主外推时钟（毫秒），不是激活时的快照。M8 脚本的典型写法是「先记 `var t0 = Player.time`，再在 `interval` 回调里用 `Player.time - t0` 判断过了多久」，快照会直接算错。`Player.state` / `width` / `height` / `commentList` 同理。
+    - **定时器生命周期**：`timer` / `interval` 一律登记在**条目**上（`item.scheduledTimers`），条目回收 / `reset` / seek 越窗时由 `deactivateItem` / `clearAllItems` 统一清掉；`ScriptManager.clearTimer()` 只清当前条目。**定时器绝不会活过条目**——这正是 M8 用 `ScriptManager.clearTimer()` 解决的问题，宿主做成了兜底而不只依赖脚本自觉（D12）。定时器按「条目已播放时间」的帧增量推进，因此暂停时与画面一起停住；`hasPendingAnimation` 也把「还有定时器在跑」计入，否则暂停后自停判据会把定时器冻住。
+    - **占位而不伪造**：当时依赖数据链或 Flash 运行时能力的 API 做成「名字在、能调用、不生效」并逐条标注——`Player.commentList`、`commentTrigger`/`keyTrigger`、`setMask`、`createSound`、`Player.play()`、`External.Storage.*`、`External.Bitmap.*`、`load()`。完整清单见 §3 的三类表格。
+      > **本条的占位清单已被实施记录 14 大幅收窄**：`Player.play()` / `commentList` / `commentTrigger` / `keyTrigger` / `setMask` 都已真实现，仅 `createSound` 与 `External.*` / `load()` 仍是占位。
+    - **未做**：字体排版（`fontData` / `advanceHori` / `kernings` —— 11 条真实样本里 7 条是字体数据，是占比最大的能力，需要完整 TrueType 轮廓排版）、`beginGradientFill` / `lineGradientStyle` / `drawGraphicsData` / `drawPath`（需要完整图形数据模型，遇到时**显式抛错**不静默画错）、`rotationX`/`rotationY`（3D，2D 画布只存储）、`el.mask`（只存储）、`$.createButton` 的 `onclick`（无输入通道）。
+    - **验证**：宿主行为套件新增 D11（**M8 脚本原样执行**：`$` / `Player` / `$G` / `Global` / `ScriptManager` / `timer` / `interval` / `foreach` / `clone` / `Utils` / `trace` / `stopExecution` 都在脚本作用域里可用，`$G` 跨条目共享，`Utils.hue` 的映射与文档一致）、D12（定时器随条目回收 / reset / seek 越窗一律不再跑）、D13（ITween 句柄与 `delay`/`serial`/`reverse`/`repeat`/`parallel` 组合子、`stop()` 后停在原地）；契约测试新增 `Host_DoesNotInjectCtxIntoScripts` 等 9 条改写为 M8 面。另外用一次性脚本（不进仓库）把真实脚本的三种形态原样丢进宿主验证：Galgame 示例形态（`$.createCanvas` + `parent:` + `$G._()` + `interval` + `setStyle` + `$.createButton`）、Akari 形态（`Global._get/_set` 幂等守卫 + `stopExecution` + `ScriptManager.popEl`）、以及 `Utils`/`foreach`/`clone`/`remove`/`clearTrigger` 的混合形态，均无错误上报。
 
-**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 把宿主 HTML 里的内联 `<script>` 加载进沙箱，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D10：
+14. **补齐脚本 API 的占位项：播放动作 + 弹幕/输入数据链 + 舞台遮罩（已落地）**。实施记录 13 收尾时列的占位清单里，能真实现的这一轮都做了；剩下确实做不通的（`createSound`、`External.*`、`load`）保持占位并写明原因。
+    - **`Player.play()`（桥协议新增 `play` 动作）**。此前是唯一被主动放弃的接口，理由是「C# 侧没有播放动作通道，不为它乱造桥消息」。这一轮按既有协议风格补齐：宿主 `post("action", {action:"play"})` → `ScriptDanmakuControl.HandleActionMessage` 的 `case "play"` → 新增 `ScriptDanmakuActionKind.Play` → `PlayerPage` 的 `case ScriptDanmakuActionKind.Play: mediaPlayer?.Play();`。**C# 改动是三个文件各加一处**，与既有 `Pause` 分支同形，没有引入任何新机制。
+    - **弹幕数据链（桥协议新增 4 条 C#→宿主命令）**。`Player.commentList` 取的是**推入的快照**而不是拉取——脚本在正文里一次性读它（M8 的官方示例就是 `for (i=0;i<Player.commentList.length;i++)`），异步拉取会让 `length` 读到 0，所以必须在脚本执行前就位。链路：`PlayerPage.SetDanmakuPool`（弹幕池落定）→ 转成 `ScriptDanmakuComment`（M8 CommentData 形状）→ 控件 `PushDanmakuBatchAsync` → 宿主 `resetComments()` + `appendComments([...])`（按 24KB 字节预算分批）。三个务实处理：① **控件保留快照并在 `reset` 之后补投**，这样「先加载弹幕池、后加载脚本」的顺序下脚本仍读得到数据；② **分页加载会反复落定弹幕池**，按「同一列表实例 + 条数不变」跳过重复投递；③ **没有任何脚本时经懒初始化闸门直接返回**，不创建 WebView2、不发 RPC（零开销原则）。
+      - `mode` 的映射不能想当然：`DanmakuModel` 只保留了 `DanmakuLocation` 枚举，它的**枚举序号不是 B 站的 mode 编号**，必须按 `BiliDanmakuService.TryToLocation` 的反向映射（Scroll→1 / Bottom→4 / Top→5 / ReverseScroll→6 / Position→7）。已知信息损失：解析时 mode 1/2/3 都归成 Scroll，池子里不再保留原始 mode，脚本看到的一律是 1。
+    - **`commentTrigger` / `keyTrigger`（桥协议新增 2 条 C#→宿主命令）**。`pushComment` 由 `SendDanmakuDialog.DanmakuSended` 回调转发，`pushKey` 由 `PlayerPage_KeyDown` / 新增的 `PlayerPage_KeyUp` 转发。要点：① **键值整数值透传**——M8 允许监听的那组键（小键盘 0-9、方向键、Home/End/PgUp/PgDn、W/S/A/D）与 Windows `VirtualKey` / DOM/Flash `keyCode` **同值**，所以 C# 侧 `(int)args.VirtualKey` 直接过桥、宿主侧按 `M8_TRIGGER_KEY_CODES` 筛选，不需要任何映射表；② **`up` 参数真的可用**：为它补了 `KeyUp` 订阅，与既有 `KeyDown` 同址（`OnNavigatedTo` 挂、退出路径摘）成对；③ **触发器与定时器共用同一条生命周期**——登记在 `item.triggers`，`deactivateItem` / `clearAllItems` 统一清掉，条目回收 / `reset` / seek 越窗后一律不再触发（行为用例 D16）；④ **投递是消息驱动的**，不依赖帧循环，所以暂停时收到的事件也会立即送达回调，回调里照常可以建元件（宿主会把该条目设为 `activeItem` 并拉起一帧）。`timeout` 用**条目已播放时间**计量而不是 M8 的挂钟——本宿主的一切都挂在这条时钟上，混用两套时钟会让触发时机与画面错位（已在代码注释与 §3 写明这处偏离）。
+    - **`Player.setMask` 真实现为合成期裁剪**。裁剪点只有一个：`composeElement`（`applyStageMask` + `clip()`），因此**元素自己的离屏缓存完全不受遮罩影响**，遮罩变化不会让任何元素重建位图。三条边界写清楚并各有断言：① **擦除（`flushEraseRects`）与整屏清空（`clearSurface`）不带裁剪**——它们要抹掉的正是上一帧的像素，带上裁剪会留下旧内容；② **换遮罩时整屏清空 + 全部重合成**（可见区域变了，已画像素全作废），这是 `clearSurface()` 的第 4 条合法路径，契约测试从 3 处放宽到 4 处并显式加入 `setStageMask`；③ **遮罩元件本身不参与渲染**（M8 的遮罩对象不在显示列表里）——只从渲染树摘除，仍留在条目元素表里，变换照旧可用、条目回收时一起释放。已知近似：文本 / 图片 / 复合元件当遮罩时退化成它的外接矩形（形状元件按真实图元描路径）。
+    - **仍未实现（并写明原因）**：`Player.createSound` —— M8 的 `createSound(t)` 是按**名字**取它内置音效库里的音，这个库没有随客户端分发，宿主也没有可用音频资产（零外部依赖、单文件内联）；且 WebView2 的自动播放策略会拦截无手势播放。**刻意不用合成音冒充原音效**（那会是「听起来生效了、但完全不是原声」，比明确的 no-op 更误导）。`External.Storage.*` / `External.Bitmap.*` / `load()` 保持占位（不伪造数据、不发请求、不调回调）。
+    - **行为套件新增 D14~D17**：D14（`Player.play/pause/seek/jump` 四个动作真的发出 `action` 消息、非法 av 号被拒、负数 seek 钳到 0）、D15（`commentList` 快照可读、字段形状与缺省补齐、`resetComments` 后清空）、D16（`commentTrigger`/`keyTrigger` 只在收到桥消息时触发、keyUp 只投给 `up=true`、M8 允许键之外的按键被忽略、条目回收与 `reset` 之后不再触发）、D17（`setMask` 把落笔裁到遮罩形状内、遮罩外元素不画但仍存活、取消遮罩后恢复完整）。契约测试新增 7 条（宿主命令名与 `action: "play"`、`Player` 的 `setMask`/`commentTrigger`/`keyTrigger` 接到实现上、M8 键值集合、裁剪只落在合成期、控件与 PlayerPage 的新挂钩）。
+
+测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、**M8 注入名单与「不再注入 ctx」**、`Player` 的实时 getter 面、`$` 元件工厂与创建参数、**定时器登记在条目上**、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
+
+**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 把宿主 HTML 里的内联 `<script>` 加载进沙箱，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D17：
 
 | 用例 | 语义 | 修复前的表现 |
 |---|---|---|
@@ -281,10 +356,17 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 | D4 | 同屏有动画元素时，静止复合元素不重复重建整层 | 每帧重烘一次（60 帧 60 次） |
 | D5 | `fontsize` 补间后缓存尺寸随之变化，静止元素不被过度失效 | 缓存尺寸不变，字号补间不可见 |
 | D6 | 向后 seek 回窗口内：元素被重建、位置是插值结果、脚本不逐帧重跑 | 摘除后残影不擦、重建位置不对 |
-| D7 | 内置示例（单条）声明式 tween 与 onFrame 逃生舱并存，能渲染出画面且到点自然收尾 | 示例写的是立即模式，脚本跑完没有动画 |
+| D7 | 内置示例（单条）声明式 `motion` 与 `interval` 并存，能渲染出画面且到点自然收尾 | 示例写的是立即模式，脚本跑完没有动画 |
 | D8 | reset 整批作废时必须清画布，换一批弹幕不留旧像素 | 旧像素永久残留（换成新一批后仍在） |
-| D9 | 无界窗口按兜底上限兜住、`lifeTime: 0` 常驻、`ctx.time` / `ctx.state` 逐帧可读 | 缺省窗口按 3 秒截断，`lifeTime: 0` 元素瞬间消失 |
+| D9 | 无界窗口按兜底上限兜住、`lifeTime: 0` 常驻、`Player.time` / `Player.state` 实时可读 | 缺省窗口按 3 秒截断，`lifeTime: 0` 元素瞬间消失 |
 | D10 | 暂停且没有待推进的补间时帧循环自停，恢复播放后重新拉起 | 无界窗口下暂停后 60fps 空转 |
+| D11 | **M8 脚本原样执行**：`$` / `Player` / `$G` / `Global` / `ScriptManager` / 全局函数都在脚本作用域里，`$G` 跨条目共享 | 只有自研 `ctx`，真实脚本跑不起来 |
+| D12 | 定时器登记在条目上：条目回收 / reset / seek 越窗后一律不再跑 | 条目销毁后 `interval` 继续触发 |
+| D13 | ITween 句柄与组合子（`delay`/`serial`/`reverse`/`repeat`/`parallel`）、`stop()` 后停在原地 | 组合子结果没装到元件上，属性从不推进 |
+| D14 | `Player.play/pause/seek/jump` 四个动作真的发出 `action` 消息，非法 av 号被拒、负数 seek 钳到 0 | `Player.play()` 是 no-op，不发任何消息 |
+| D15 | `Player.commentList` 是推入的快照，字段形状与 M8 的 CommentData 一致、缺省补齐 | getter 恒返回空数组 |
+| D16 | `commentTrigger`/`keyTrigger` 只在收到桥消息时触发；条目回收 / reset 后不再触发 | 注册返回 0，永不触发 |
+| D17 | `Player.setMask` 把画面裁到遮罩形状里（合成期裁剪，不动元素缓存） | `setMask` 是 no-op，遮罩外照样画 |
 
 运行方式（默认宿主为仓库内 `BiliBili.UWP/Assets/script-danmaku-host.html`，可用参数或环境变量改指）：
 
@@ -319,13 +401,16 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
   2. 暂停/seek/倍速/全屏/横竖屏/切集 → 同步正确、不残留、画布尺寸正确。
   3. **同屏几十条粒子/3D → 帧率可接受（性能验收点）**。
   3.5. **保留模式验收**：脚本每条只执行一次——用 `console.count`/埋点确认「同一条弹幕在播放 10 秒里只执行 1 次」；静态元素（只创建不动的）在首帧之后不再重绘（可用绘制计数或 DevTools 性能面板确认）；暂停时画面停在当前插值位置；seek 后按新位置重算插值而不是重跑脚本。
+  3.6. **M8 API 面验收**：把一条**真实的旧 M8 脚本**（当年作品导出的 mode=8 文本）原样贴进 `.js` 加载，确认不抛错、能画出来；重点核 `Player.time` 在 `interval` 回调里是**实时值**（不是激活快照）、`$G` 跨条目共享、条目结束后 `interval` 不再触发（定时器随条目回收）。
+  3.7. **数据链与输入链验收**（必须真机，单测只能证明消息通了）：① 加载一条读 `Player.commentList` 的脚本（按 M8 官方示例数「是/否」），确认读到的条数与实际弹幕池一致；② 发一条弹幕后确认 `commentTrigger` 回调被触发且内容/颜色/时间正确；③ 按方向键确认 `keyTrigger` 收到键值，按住不放/松开能区分 `keyDown` 与 `keyUp`（`up=true`）；④ 条目窗口结束后再发弹幕/按键，确认不再触发；⑤ `Player.setMask` 用一个矩形遮罩确认弹幕只在遮罩内出现，`setMask(null)` 后恢复；⑥ `Player.play()/pause()/seek()/jump()` 各验一次（**这条要在 Windows 上跑**，本环境编不了 UWP）。
+  3.8. **性能回归点**：未加载任何脚本时，播放 / 切集 / 输入路径不得因本轮新增的推入而出现可感知开销（控件应在懒初始化闸门上直接返回，且分页加载不重复推同一份池子）。
   4. 四类拦截各验一次：点击被消费、播放操作被阻止、弹幕被拦下、发送被拦下。
   5. 三类交互各验一次：读到弹幕数据、屏蔽一条、发送一条。
   6. 弹幕总开关关闭 → 脚本弹幕隐藏；未加载时不初始化 WebView2。
   7. **未注册任何拦截器时，播放/弹幕/输入路径无可感知开销**（性能回归点）。
 - **接口可用性前置**：阶段 4 开工前，先按 `Controls/SendDanmakuDialog.xaml.cs:57` 的参数与签名形态实测 `x/v2/dm/post`，确认可用后再决定抽取方式（见 §6③）。不要先按 `PlayerAPI.SendDanmu` 实现。
 - **回归**：BAS 弹幕（mode9）行为不变。
-- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，7 例 D1~D7，见上）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
+- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，17 例 D1~D17，见上）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
 - **日志**：`LogHelper` 无脚本弹幕渲染失败。
 
 ## 风险

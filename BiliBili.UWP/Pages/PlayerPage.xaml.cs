@@ -662,10 +662,22 @@ namespace BiliBili.UWP.Pages
             }
         }
 
+        /// <summary>
+        /// keyUp 只用于脚本的 <c>Player.keyTrigger(f, timeout, true)</c>；
+        /// 播放器自身的行为全部挂在 KeyDown 上，这里不改任何既有逻辑。
+        /// </summary>
+        private void PlayerPage_KeyUp(CoreWindow sender, KeyEventArgs args)
+        {
+            _ = scriptDanmakuControl.PushKeyEventAsync((int)args.VirtualKey, true);
+        }
+
         private void PlayerPage_KeyDown(CoreWindow sender, KeyEventArgs args)
         {
 
             args.Handled = true;
+            // 转发给脚本的 Player.keyTrigger（宿主侧只投递 M8 允许的那组键）。
+            // 只做监听、不消费：这里的 Handled 语义与脚本无关，保持原样。
+            _ = scriptDanmakuControl.PushKeyEventAsync((int)args.VirtualKey, false);
             if (sp_View.IsPaneOpen)
             {
                 return;
@@ -820,6 +832,7 @@ namespace BiliBili.UWP.Pages
         {
             base.OnNavigatedTo(e);
             CoreWindow.GetForCurrentThread().KeyDown += PlayerPage_KeyDown;
+            CoreWindow.GetForCurrentThread().KeyUp += PlayerPage_KeyUp;
             Window.Current.VisibilityChanged += PlayerPage_VisibilityChanged;
             this.Frame.Visibility = Visibility.Visible;
             int flag = 1;
@@ -883,6 +896,7 @@ namespace BiliBili.UWP.Pages
                 }
                 //Debug.WriteLine("开始返回");
                 CoreWindow.GetForCurrentThread().KeyDown -= PlayerPage_KeyDown;
+                CoreWindow.GetForCurrentThread().KeyUp -= PlayerPage_KeyUp;
                 Window.Current.VisibilityChanged -= PlayerPage_VisibilityChanged;
                 this.Frame.Visibility = Visibility.Collapsed;
                 MusicHelper.ActivatePausedMusic();
@@ -1554,6 +1568,95 @@ namespace BiliBili.UWP.Pages
                 DanMuPool,
                 item => item.time);
             ResetDanmakuTimeline(includeCurrentPosition);
+            SyncScriptDanmakuComments();
+        }
+
+        /// <summary>
+        /// 把当前弹幕池推给脚本弹幕宿主（脚本侧 <c>Player.commentList</c>）。
+        /// 未加载脚本时控件不创建 WebView2，这一路是零开销；快照由控件保留，
+        /// 之后加载脚本时会在 reset 之后自动补投（见 ScriptDanmakuControl.PushDanmakuBatchAsync）。
+        /// 分页加载会多次走到这里，所以控件按「同一列表实例 + 条数不变」跳过重复投递。
+        /// </summary>
+        private void SyncScriptDanmakuComments()
+        {
+            var pool = DanMuPool;
+            if (pool == null)
+            {
+                return;
+            }
+
+            var comments = new List<ScriptDanmakuComment>(pool.Count);
+            foreach (var item in pool)
+            {
+                comments.Add(ToScriptDanmakuComment(item));
+            }
+
+            _ = scriptDanmakuControl.PushDanmakuBatchAsync(comments);
+        }
+
+        /// <summary>"#RRGGBB" 形式的颜色串 → 0xRRGGBB。解析失败时回退到白色。</summary>
+        private static int ToScriptDanmakuColor(string value)
+        {
+            try
+            {
+                var color = value.ToColor();
+                return (color.R << 16) | (color.G << 8) | color.B;
+            }
+            catch (Exception)
+            {
+                return 0xFFFFFF;
+            }
+        }
+
+        /// <summary>NSDanmaku 的弹幕模型 → 脚本宿主消费的 M8 CommentData 形状。</summary>
+        private static ScriptDanmakuComment ToScriptDanmakuComment(
+            NSDanmaku.Model.DanmakuModel item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+
+            int poolNumber;
+            if (!int.TryParse(item.pool, out poolNumber))
+            {
+                poolNumber = 0;
+            }
+
+            return new ScriptDanmakuComment
+            {
+                txt = item.text ?? string.Empty,
+                time = item.time,
+                color = (item.color.R << 16) | (item.color.G << 8) | item.color.B,
+                pool = poolNumber,
+                mode = ToDanmakuMode(item.location),
+                fontSize = item.size
+            };
+        }
+
+        /// <summary>
+        /// 弹幕位置 → B 站的 mode 数值（M8 的 CommentData.mode 用的是这个编号：
+        /// 1 滚动 / 4 底部 / 5 顶部 / 6 逆向 / 7 定位）。
+        /// 对应关系与 <c>BiliDanmakuService.TryToLocation</c> 的解析互为反向，
+        /// 不要改用 DanmakuLocation 的枚举序号——两者的编号不是一套。
+        /// 已知的信息损失：解析时 mode 1/2/3 都被归成 Scroll，池子里不再保留原始 mode，
+        /// 因此脚本看到的一律是 1（mode 2/3 的不同滚动速度在 NSDanmaku 侧另有实现）。
+        /// </summary>
+        private static int ToDanmakuMode(NSDanmaku.Model.DanmakuLocation location)
+        {
+            switch (location)
+            {
+                case NSDanmaku.Model.DanmakuLocation.Top:
+                    return 5;
+                case NSDanmaku.Model.DanmakuLocation.Bottom:
+                    return 4;
+                case NSDanmaku.Model.DanmakuLocation.ReverseScroll:
+                    return 6;
+                case NSDanmaku.Model.DanmakuLocation.Position:
+                    return 7;
+                default:
+                    return 1;
+            }
         }
 
         private void AppendDanmakuPool(IEnumerable<NSDanmaku.Model.DanmakuModel> additions)
@@ -3758,6 +3861,9 @@ namespace BiliBili.UWP.Pages
                 case ScriptDanmakuActionKind.Pause:
                     mediaPlayer?.Pause();
                     break;
+                case ScriptDanmakuActionKind.Play:
+                    mediaPlayer?.Play();
+                    break;
                 case ScriptDanmakuActionKind.Seek:
                     SeekFromScriptDanmaku(e.PositionSeconds);
                     break;
@@ -4375,11 +4481,24 @@ namespace BiliBili.UWP.Pages
                 Utils.ShowMessageToast("请先登录!", 3000);
             }
             CoreWindow.GetForCurrentThread().KeyDown -= PlayerPage_KeyDown;
+            CoreWindow.GetForCurrentThread().KeyUp -= PlayerPage_KeyUp;
             hidePointerFlag = true;
             mediaElement.MediaPlayer.Pause();
             SendDanmakuDialog dialog = new SendDanmakuDialog(playNow.Aid, playNow.Mid, mediaElement.MediaPlayer.PlaybackSession.Position.TotalSeconds);
             dialog.DanmakuSended += new EventHandler<SendDanmakuModel>((obj, item) =>
             {
+                // 转发给脚本的 Player.commentTrigger 回调（只通知，不改渲染）。
+                _ = scriptDanmakuControl.PushSentCommentAsync(new ScriptDanmakuComment
+                {
+                    txt = item.text ?? string.Empty,
+                    time = mediaElement.MediaPlayer.PlaybackSession.Position.TotalSeconds,
+                    color = ToScriptDanmakuColor(item.color),
+                    pool = 0,
+                    // SendDanmakuModel.location 本身就用 B 站的 mode 编号（1/4/5），
+                    // 与 M8 的 CommentData.mode 同一套，直接透传。
+                    mode = item.location,
+                    fontSize = 25
+                });
 
                 if (item.location == 1)
                 {
@@ -4397,6 +4516,7 @@ namespace BiliBili.UWP.Pages
             });
             await dialog.ShowAsync();
             CoreWindow.GetForCurrentThread().KeyDown += PlayerPage_KeyDown;
+            CoreWindow.GetForCurrentThread().KeyUp += PlayerPage_KeyUp;
             hidePointerFlag = false;
             mediaElement.MediaPlayer.Play();
         }

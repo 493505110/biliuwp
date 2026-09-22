@@ -33,4 +33,32 @@ namespace BiliBili.UWP.Models
         public string title { get; set; }
         public List<ScriptDanmakuModel> items { get; set; }
     }
+
+    /// <summary>
+    /// 推给脚本宿主的弹幕条目（M8 的 CommentData 形状）。
+    /// 字段名与 M8 文档一致，宿主按同名同义直接交给脚本，不做重命名——
+    /// 脚本读到的 <c>Player.commentList[i].txt</c> 等就是这里的属性。
+    /// 用显式模型而不是匿名类型：UWP Release 走 .NET Native AOT，
+    /// 反射序列化要避开动态形状（见设计文档 §风险）。
+    /// </summary>
+    public sealed class ScriptDanmakuComment
+    {
+        /// <summary>弹幕内容。</summary>
+        public string txt { get; set; }
+
+        /// <summary>出现时间（**秒**；M8 的 CommentData.time 是秒，Player.time 才是毫秒）。</summary>
+        public double time { get; set; }
+
+        /// <summary>颜色（0xRRGGBB）。</summary>
+        public int color { get; set; }
+
+        /// <summary>弹幕池号码。</summary>
+        public int pool { get; set; }
+
+        /// <summary>弹幕模式（1/4/5 等）。</summary>
+        public int mode { get; set; }
+
+        /// <summary>字体大小。</summary>
+        public double fontSize { get; set; }
+    }
 }

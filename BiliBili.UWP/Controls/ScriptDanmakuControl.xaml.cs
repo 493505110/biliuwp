@@ -28,6 +28,9 @@ namespace BiliBili.UWP.Controls
         private const string HostPage = "https://biliuwp.local/script-danmaku-host.html";
         private const int MaxAppendPayloadLength = 48 * 1024;
         private const int MaxChunkPayloadLength = 24 * 1024;
+        // appendComments 单次调用的外壳（不含具体条目），用于按字节预算切分。
+        private const string CommentBatchPrefix = "window.scriptDanmakuHost.appendComments([";
+        private const string CommentBatchSuffix = "]); ";
         private static readonly TimeSpan PageReadyTimeout = TimeSpan.FromSeconds(10);
 
         private readonly SemaphoreSlim commandGate = new SemaphoreSlim(1, 1);
@@ -40,6 +43,13 @@ namespace BiliBili.UWP.Controls
         private int parsedItemCount;
         private bool hasRenderedItem;
         private int pendingItemCount;
+        // 最近一次推入的弹幕快照。保留它是为了在 reset（换视频 / 重新推脚本）之后
+        // 重新投递：脚本可能是后于弹幕池加载的，那时第一次推送已被懒初始化闸门丢掉。
+        private readonly List<ScriptDanmakuComment> danmakuSnapshot =
+            new List<ScriptDanmakuComment>();
+        // 上一次投递的列表实例与条数，用于跳过「池子没变」的重复投递。
+        private IList<ScriptDanmakuComment> lastPushedComments;
+        private int lastPushedCommentCount;
 
         public ScriptDanmakuControl()
         {
@@ -47,7 +57,7 @@ namespace BiliBili.UWP.Controls
             SizeChanged += ScriptDanmakuControl_SizeChanged;
         }
 
-        /// <summary>宿主侧脚本请求播放器执行动作（暂停 / 跳转 / 导航）。</summary>
+        /// <summary>宿主侧脚本请求播放器执行动作（暂停 / 播放 / 定位 / 导航）。</summary>
         public event EventHandler<ScriptDanmakuActionEventArgs> ActionRequested;
 
         public Task ReplaceAsync(
@@ -77,6 +87,10 @@ namespace BiliBili.UWP.Controls
                         + ","
                         + JsonConvert.SerializeObject(visible)
                         + ");");
+
+                    // reset 会清空宿主侧的 commentList，这里把保留的快照补回去，
+                    // 保证「先加载弹幕池、后加载脚本」的顺序下脚本仍读得到数据。
+                    await PushDanmakuSnapshotAsync(version);
 
                     await AppendItemsAsync(list, version);
                     if (version != Volatile.Read(ref contentVersion))
@@ -159,6 +173,129 @@ namespace BiliBili.UWP.Controls
                         + JsonConvert.SerializeObject(visible)
                         + ");");
                 });
+        }
+
+        /// <summary>
+        /// 推入弹幕快照（脚本侧的 <c>Player.commentList</c>）。会整体替换上一次的快照，
+        /// 并在后续 <see cref="ReplaceAsync"/> 的 reset 之后自动重投。
+        /// 没有任何脚本时经懒初始化闸门直接返回，不创建 WebView2（零开销）。
+        /// </summary>
+        public Task PushDanmakuBatchAsync(IEnumerable<ScriptDanmakuComment> comments)
+        {
+            var list = comments as IList<ScriptDanmakuComment> ?? comments?.ToList();
+            // 分页加载弹幕会反复走 SetDanmakuPool，池子没变时不必再把整批推一遍。
+            // 用「同一列表实例 + 条数不变」判定：AppendDanmakuPool 是就地追加，
+            // 条数会变；换集 / 换视频则是新实例。
+            if (list != null && ReferenceEquals(list, lastPushedComments) && list.Count == lastPushedCommentCount)
+            {
+                return Task.CompletedTask;
+            }
+
+            lastPushedComments = list;
+            lastPushedCommentCount = list?.Count ?? 0;
+
+            danmakuSnapshot.Clear();
+            if (list != null)
+            {
+                danmakuSnapshot.AddRange(list.Where(item => item != null));
+            }
+
+            var version = Volatile.Read(ref contentVersion);
+            return ExecuteCommandAsync(
+                version,
+                async () => await PushDanmakuSnapshotAsync(version));
+        }
+
+        /// <summary>
+        /// 通知宿主「用户刚发送了一条弹幕」，投递给脚本的 <c>Player.commentTrigger</c> 回调。
+        /// 只负责转发，不改变脚本弹幕自身的渲染。
+        /// </summary>
+        public Task PushSentCommentAsync(ScriptDanmakuComment comment)
+        {
+            if (comment == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            var version = Volatile.Read(ref contentVersion);
+            return ExecuteCommandAsync(
+                version,
+                async () => await ExecuteScriptAsync(
+                    "window.scriptDanmakuHost.pushComment("
+                    + JsonConvert.SerializeObject(comment)
+                    + ");"));
+        }
+
+        /// <summary>
+        /// 把按键事件转发给脚本的 <c>Player.keyTrigger</c>。
+        /// <paramref name="keyCode"/> 用 Windows.System.VirtualKey 的整数值——
+        /// M8 允许监听的那组键（方向键 / Home / End / PgUp / PgDn / W A S D /
+        /// 小键盘 0-9）与 DOM/Flash 的 keyCode 同值，因此可以直接透传，宿主侧筛选。
+        /// </summary>
+        public Task PushKeyEventAsync(int keyCode, bool isKeyUp)
+        {
+            var version = Volatile.Read(ref contentVersion);
+            return ExecuteCommandAsync(
+                version,
+                async () => await ExecuteScriptAsync(
+                    "window.scriptDanmakuHost.pushKey("
+                    + keyCode.ToString(CultureInfo.InvariantCulture)
+                    + ","
+                    + (isKeyUp ? "true" : "false")
+                    + ");"));
+        }
+
+        /// <summary>
+        /// 把快照推给宿主：先 resetComments 清空，再按 <see cref="MaxChunkPayloadLength"/>
+        /// 的字节预算分批 appendComments（与 append / beginItem 的分块上限同一套口径）。
+        /// 按预算而不是按固定条数切分：单条弹幕的长度可以差一个量级，
+        /// 固定条数在长弹幕上会突破上限、在短弹幕上又切得过碎。
+        /// </summary>
+        private async Task PushDanmakuSnapshotAsync(int version)
+        {
+            if (version != Volatile.Read(ref contentVersion))
+            {
+                return;
+            }
+
+            await ExecuteScriptAsync("window.scriptDanmakuHost.resetComments();");
+
+            var builder = new StringBuilder(MaxChunkPayloadLength + 64);
+            builder.Append(CommentBatchPrefix);
+            var batched = 0;
+            foreach (var comment in danmakuSnapshot)
+            {
+                var json = JsonConvert.SerializeObject(comment);
+                // 单条就超过预算时也照发：宁可一次大载荷，也不能丢弹幕。
+                if (batched > 0
+                    && builder.Length + json.Length + CommentBatchSuffix.Length > MaxChunkPayloadLength)
+                {
+                    if (version != Volatile.Read(ref contentVersion))
+                    {
+                        return;
+                    }
+
+                    builder.Append(CommentBatchSuffix);
+                    await ExecuteScriptAsync(builder.ToString());
+                    builder.Clear();
+                    builder.Append(CommentBatchPrefix);
+                    batched = 0;
+                }
+
+                if (batched != 0)
+                {
+                    builder.Append(',');
+                }
+
+                builder.Append(json);
+                batched++;
+            }
+
+            if (batched > 0)
+            {
+                builder.Append(CommentBatchSuffix);
+                await ExecuteScriptAsync(builder.ToString());
+            }
         }
 
         private async Task ExecuteCommandAsync(int version, Func<Task> command)
@@ -398,6 +535,11 @@ namespace BiliBili.UWP.Controls
                         this,
                         new ScriptDanmakuActionEventArgs(ScriptDanmakuActionKind.Pause));
                     break;
+                case "play":
+                    ActionRequested?.Invoke(
+                        this,
+                        new ScriptDanmakuActionEventArgs(ScriptDanmakuActionKind.Play));
+                    break;
                 case "seek":
                 {
                     double seconds;
@@ -595,6 +737,7 @@ namespace BiliBili.UWP.Controls
     public enum ScriptDanmakuActionKind
     {
         Pause,
+        Play,
         Seek,
         Navigate
     }
