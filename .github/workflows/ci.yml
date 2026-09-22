@@ -56,9 +56,14 @@ jobs:
         run: dotnet restore tests/BiliBili.Tests/BiliBili.Tests.csproj
 
       - name: Run host behaviour tests
-        # 宿主 HTML 的保留模式行为测试（D1~D6）。纯 node、零依赖，
+        # 宿主 HTML 的保留模式行为测试（D1~D22）。纯 node、零依赖，
         # 运行器自带 node，不需要 setup-node。
         run: node tests/host/retained-mode.test.js
+
+      - name: Run real M8 script integration tests
+        # 用仓库自带的 11 条真实 M8 脚本夹具跑集成测试（0 报错 + 真的落笔）。
+        # 夹具就在 tests/host/fixtures/real/（约 808 KB），同样零依赖。
+        run: node tests/host/real-m8-scripts.test.js
 
       - name: Run unit tests
         run: dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release --no-restore

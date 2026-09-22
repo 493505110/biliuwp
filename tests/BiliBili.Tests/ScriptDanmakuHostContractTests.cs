@@ -252,7 +252,7 @@ namespace BiliBili.Tests
             var source = HostSource();
             StringAssert.Contains(source, "function setStageMask(element) {");
             StringAssert.Contains(source, "function applyStageMask(target) {");
-            StringAssert.Contains(source, "function traceElementClipPath(target, element) {");
+            StringAssert.Contains(source, "function traceElementClipPath(target, element, map) {");
             StringAssert.Contains(source, "var stageMaskElement = null;");
 
             var playerBody = TestRepository.MethodBody(source, "var Player = {");
@@ -260,7 +260,9 @@ namespace BiliBili.Tests
             StringAssert.Contains(playerBody, "setStageMask(obj);");
 
             // 裁剪必须在 composeElement（合成期）施加，且擦除 / 整屏清空不带裁剪。
+            // 另外被当作遮罩的元件本身不参与合成（连呈现记录都不留）。
             var composeBody = TestRepository.MethodBody(source, "function composeElement(element) {");
+            StringAssert.Contains(composeBody, "if (isUsedAsMask(element)) {");
             StringAssert.Contains(composeBody, "var clipped = applyStageMask(context2d);");
             StringAssert.Contains(composeBody, "if (clipped) {");
             StringAssert.Contains(composeBody, "context2d.restore();");
@@ -287,8 +289,10 @@ namespace BiliBili.Tests
             // 且它在 compileItem 里被调用，编译结果缓存到 item.run。
             var source = HostSource();
 
-            // 「只编译一次」的可观测落点：整份宿主只有一处 new Function，
+            // 「只编译一次」的可观测落点：整份宿主只有一处构造脚本函数的地方，
             // 且它在 compileItem 里执行、结果缓存到 item.run。
+            //
+            // 整份宿主只有一处 `new Function(`，且它在 compileItem 里。
             var occurrences = 0;
             var index = source.IndexOf("new Function(", System.StringComparison.Ordinal);
             while (index >= 0)
@@ -303,6 +307,14 @@ namespace BiliBili.Tests
                 "宿主只应在 compileItem 里编译脚本，逐帧路径不得再出现 new Function");
             StringAssert.Contains(source, "item.run = compileItem(model);");
 
+            // 注入名清单只有一张表（SCRIPT_GLOBAL_NAMES），compileItem 的形参与
+            // createScriptScope 的实参都以它为准，避免两边顺序漂移。
+            StringAssert.Contains(source, "var SCRIPT_GLOBAL_NAMES = [");
+            var scopeBody = TestRepository.MethodBody(
+                source,
+                "function createScriptScope(item) {");
+            StringAssert.Contains(scopeBody, "// 顺序必须与 compileItem 的形参逐字对应。");
+
             // 注入的是 M8 的全局名，不是自研的 ctx。
             var compileBody = TestRepository.MethodBody(
                 source,
@@ -311,6 +323,205 @@ namespace BiliBili.Tests
             {
                 StringAssert.Contains(compileBody, name, "compileItem 必须注入 M8 全局名 " + name);
             }
+        }
+
+        [TestMethod]
+        public void Host_ExposesFlashDisplayObjectSurface()
+        {
+            // 这一批是让 av2669196 的真实 M8 脚本「真的出画面」时逐个补出来的
+            // Flash DisplayObject 能力，缺一个都会让那两条脚本停摆。
+            var source = HostSource();
+
+            // 1) element.transform：matrix 与已有的 props.matrix 是同一份对象
+            //    （脚本会 `mx = el.transform.matrix; mx.identity();` 原地改）。
+            StringAssert.Contains(source, "function createElementTransform(element) {");
+            var transformBody = TestRepository.MethodBody(
+                source,
+                "function createElementTransform(element) {");
+            StringAssert.Contains(transformBody, "if (!element.props.matrix) {");
+            StringAssert.Contains(transformBody, "element.props.matrix = createPlaceholderMatrix();");
+            StringAssert.Contains(transformBody, "getRelativeMatrix3D: function (target) {");
+            StringAssert.Contains(transformBody, "matrix3D");
+            StringAssert.Contains(transformBody, "colorTransform");
+
+            // Matrix3D / Vector3D 是真算的（Akari 靠 transformVectors 做 3D 深度排序）。
+            StringAssert.Contains(source, "function createMatrix3D(rawData) {");
+            StringAssert.Contains(source, "function createVector3D(x, y, z) {");
+            StringAssert.Contains(source, "matrix.transformVectors = function (source, target) {");
+            StringAssert.Contains(source, "matrix.appendRotation = function (degrees, axis) {");
+            StringAssert.Contains(source, "createVector3D: function (x, y, z) {");
+            StringAssert.Contains(source, "createMatrix3D: function (rawData) {");
+
+            // 2) 显示列表查询（Akari 的 clone 整棵克隆走 getChildAt/numChildren）。
+            StringAssert.Contains(source, "function attachDisplayListApi(element) {");
+            foreach (var member in new[]
+            {
+                "element.getChildAt = function (index) {",
+                "element.getChildIndex = function (child) {",
+                "element.setChildIndex = function (child, index) {",
+                "element.getChildByName = function (name) {",
+                "element.contains = function (child) {",
+                "element.addChildAt = function (child, index) {",
+                "element.removeChildAt = function (index) {"
+            })
+            {
+                StringAssert.Contains(source, member, member);
+            }
+
+            StringAssert.Contains(source, "Object.defineProperty(element, \"numChildren\", {");
+
+            // 3) blendMode：映射到 globalCompositeOperation，未知值退回 normal。
+            StringAssert.Contains(source, "var BLEND_MODE_COMPOSITES = {");
+            var blendBody = TestRepository.MethodBody(
+                source,
+                "function blendModeToComposite(value) {");
+            StringAssert.Contains(blendBody, "return \"source-over\";");
+            StringAssert.Contains(source, "add: \"lighter\",");
+            StringAssert.Contains(source, "multiply: \"multiply\",");
+            StringAssert.Contains(source, "function applyElementBlendMode(target, element) {");
+
+            // 4) 元素级 mask：作用域是元素子树，不是整块画布（与 Player.setMask 区分开）。
+            StringAssert.Contains(source, "function applyElementMaskClip(target, element) {");
+            StringAssert.Contains(source, "function createMaskPointMapper(masker) {");
+            StringAssert.Contains(source, "function retainMaskReference(maskElement) {");
+            StringAssert.Contains(source, "element.maskUseCount");
+            // 遮罩元件的变换烘进路径坐标：不能靠 canvas 的 save/restore 压变换
+            // （restore 会把刚建立的裁剪一起去掉）。
+            var maskBody = TestRepository.MethodBody(
+                source,
+                "function applyElementMaskClip(target, element) {");
+            Assert.IsFalse(
+                maskBody.Contains("target.save()"),
+                "元素遮罩不能用 save/restore 压遮罩元件的变换（restore 会连带撤销裁剪）");
+            StringAssert.Contains(maskBody, "traceElementClipPath(target, masker, map)");
+        }
+
+        [TestMethod]
+        public void Host_HidesElementInternalsFromScriptEnumeration()
+        {
+            // 元素的内部字段必须不可枚举：Flash 的显示对象属性在原型上，
+            // 脚本 `foreach(obj, fn)` / `for-in` 遍历显示对象时一个都拿不到。
+            // Akari 的 Factory.clone 正是靠 `countProperties === 0` 分叉——
+            // 可枚举的话它会顺着（成环的）对象图无限递归。
+            var source = HostSource();
+            StringAssert.Contains(source, "function hideElementInternals(element) {");
+            StringAssert.Contains(source, "function defineHiddenValue(element, name, value) {");
+
+            var hideBody = TestRepository.MethodBody(
+                source,
+                "function hideElementInternals(element) {");
+            StringAssert.Contains(hideBody, "Object.getOwnPropertyNames(element)");
+            StringAssert.Contains(hideBody, "descriptor.enumerable = false;");
+
+            // 构造期之后新增的字段也要藏（工厂收尾与创建参数收尾各一次）。
+            StringAssert.Contains(source, "hideElementInternals(element);\n                return element;");
+            var optionsBody = TestRepository.MethodBody(
+                source,
+                "function applyCreateOptions(element, options) {");
+            StringAssert.Contains(optionsBody, "hideElementInternals(element);");
+
+            // hasOwnProperty 不受影响：脚本用它判断「是不是显示对象」——
+            // 不可枚举只影响 for-in / Object.keys，hasOwnProperty 照旧为真。
+            StringAssert.Contains(source, "Object.prototype.hasOwnProperty.call(loop, key)");
+        }
+
+        [TestMethod]
+        public void Host_KeepsPopElAndElementEventsFaithful()
+        {
+            // ScriptManager.popEl 的 M8 语义是「从自动清理表里弹出」，不是从
+            // 显示列表摘除——Akari 把整幅作品挂在 popEl 过的常驻 root 下，
+            // 实现成 remove() 会让整棵树脱离渲染（实测一个像素都画不出来）。
+            var source = HostSource();
+            StringAssert.Contains(source, "defineHiddenValue(element, \"exemptFromClear\", true);");
+            var clearBody = TestRepository.MethodBody(source, "function clearItemElements(item) {");
+            StringAssert.Contains(clearBody, "if (item.elements[index].exemptFromClear) {");
+            StringAssert.Contains(clearBody, "continue;");
+
+            // Flash 的 Event.ENTER_FRAME：Akari 的整幅画面更新挂在这上面。
+            StringAssert.Contains(source, "function registerItemFrameListener(element, listener) {");
+            StringAssert.Contains(source, "function dispatchItemEnterFrame(item) {");
+            StringAssert.Contains(source, "element.addEventListener = function (type, listener) {");
+            StringAssert.Contains(source, "element.removeEventListener = function (type, listener) {");
+            StringAssert.Contains(source, "if (type === \"enterFrame\") {");
+            // 监听表随条目回收一起清掉。
+            var deactivateBody = TestRepository.MethodBody(source, "function deactivateItem(item) {");
+            StringAssert.Contains(deactivateBody, "item.frameListeners = [];");
+            // 派发必须早于补间推进 / 脏元素重绘，否则本帧画的是旧状态。
+            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now) {");
+            var dispatchIndex = advanceBody.IndexOf("dispatchItemEnterFrame(item);", System.StringComparison.Ordinal);
+            var handlesIndex = advanceBody.IndexOf("advanceItemHandles(item, delta);", System.StringComparison.Ordinal);
+            Assert.IsTrue(
+                dispatchIndex >= 0 && handlesIndex > dispatchIndex,
+                "enterFrame 派发应早于补间推进");
+        }
+
+        [TestMethod]
+        public void Host_ComputesGradientsAndDrawPathInsteadOfThrowing()
+        {
+            // entry_10 真的会调 beginGradientFill 与 drawPath（此前是显式抛错）。
+            var source = HostSource();
+            StringAssert.Contains(source, "beginGradientFill: function (type, colors, alphas, ratios, matrix) {");
+            StringAssert.Contains(source, "lineGradientStyle: function (type, colors, alphas, ratios, matrix) {");
+            StringAssert.Contains(source, "function createCanvasGradient(target, gradient) {");
+            StringAssert.Contains(source, "target.createLinearGradient(");
+            StringAssert.Contains(source, "target.createRadialGradient(");
+
+            // drawPath 复用 moveTo/lineTo/curveTo 的路径模型，所以描边/填充/包围盒
+            // 以及元素级遮罩的路径描摹都自动生效。
+            var drawPathBody = TestRepository.MethodBody(source, "drawPath: function (commands, data) {");
+            StringAssert.Contains(drawPathBody, "graphics.moveTo(");
+            StringAssert.Contains(drawPathBody, "graphics.lineTo(");
+            StringAssert.Contains(drawPathBody, "graphics.curveTo(");
+            // 没有前置 MOVE_TO 时，Flash 把首个 LINE_TO 当起点。
+            StringAssert.Contains(drawPathBody, "if (!graphics.__path || graphics.__path.kind !== \"poly\") {");
+
+            // drawGraphicsData 仍然显式报错（两条真实脚本 0 次使用）。
+            StringAssert.Contains(source, "drawGraphicsData 尚未支持");
+        }
+
+        [TestMethod]
+        public void Host_BindsUndeclaredIdentifiersToUndefinedForAvm1Scripts()
+        {
+            // M8 脚本是 AS2 时代写给 AVM1 的：读未声明变量得到 undefined、不抛错。
+            // 真实样本 entry_10 的 `update:function(time){if(time < startTime)...}`
+            // 里 startTime / duration 就是翻译时丢掉的 var——JS 下是 ReferenceError，
+            // 整条脚本停摆。宿主按需把这些**确实不存在**的标识符绑定成 undefined 重跑。
+            var source = HostSource();
+            StringAssert.Contains(source, "function runItemScriptWithAvm1Scope(item) {");
+            StringAssert.Contains(source, "function readUndeclaredIdentifier(error) {");
+            StringAssert.Contains(source, "function declareAvm1GlobalIfUndeclared(error) {");
+            StringAssert.Contains(source, "var MAX_AVM1_SCOPE_RETRIES = 8;");
+            StringAssert.Contains(source, "if (!error || !(error instanceof ReferenceError)) {");
+
+            // 修在**全局对象**上而不是补脚本形参：抛错的闭包可能不是本条脚本创建的
+            // （entry_10 抛错的那处 update 定义在 entry_08 的 Akari 库里，
+            // 它的作用域链在 entry_08 执行时就定死了）。标识符解析对未绑定名是
+            // 每次访问都回落全局对象查，所以补在全局对象上连已建好的闭包也一起救。
+            StringAssert.Contains(source, "window[missingName] = undefined;");
+            StringAssert.Contains(source, "Object.prototype.hasOwnProperty.call(window, missingName)");
+
+            // 释放上一次跑出来的元件/定时器/触发器，避免重跑出现两份。
+            StringAssert.Contains(source, "function releaseItemForRerun(item) {");
+            var rerunBody = TestRepository.MethodBody(source, "function releaseItemForRerun(item) {");
+            StringAssert.Contains(rerunBody, "clearItemTimers(item);");
+            StringAssert.Contains(rerunBody, "releaseItemElement(item, index);");
+
+            // 只声明「已证明不存在」的名字：已注入的 M8 名一律不放行
+            // （它们抛 ReferenceError 说明是别的原因，补绑也救不了）。
+            StringAssert.Contains(
+                HostSource(),
+                "if (missingName === null || INJECTED_SCRIPT_NAMES[missingName]) {");
+
+            // 回调（定时器 / 触发器 / enterFrame）里抛的同类错误也要救：
+            // entry_10 的 startTime 就是在 interval 回调里读的，只救正文没用。
+            StringAssert.Contains(
+                HostSource(),
+                "if (!recoverItemFromCallbackError(item, error)) {");
+            var recoverBody = TestRepository.MethodBody(
+                HostSource(),
+                "function recoverItemFromCallbackError(item, error) {");
+            StringAssert.Contains(recoverBody, "releaseItemForRerun(item);");
+            StringAssert.Contains(recoverBody, "runItemScriptWithAvm1Scope(item);");
         }
 
         [TestMethod]

@@ -4,6 +4,7 @@
 > **本版修订（渲染模型）**：原设计「每帧遍历活跃弹幕调绘制回调」的**立即模式已废弃**，改为**保留模式**——脚本每条只执行一次、逐帧只推进 tween 与重绘脏元素。理由、真实脚本数据与具体形态见 **§3.1**；代码已按此改造并补齐脏矩形擦除 / 寿命语义等收尾（D1~D6），实施记录见 §阶段 1 实施记录 8、9。
 > **本版修订（脚本 API 面）**：**自研的 `ctx.*` 脚本 API 已废弃**，脚本环境直接提供原版 M8 的全局名（`$` / `Player` / `$G` / `Global` / `Tween` / `Utils` / `ScriptManager` / `timer` / `interval` / …），目标是让当年的真实 M8 脚本尽量原样跑起来。API 清单（等价实现 / 占位待接 / 不支持）见 **§3**，决定与理由见 §阶段 1 实施记录 13。
 > **本轮补做**：实施记录 13 里列为占位的 `Player.play()` / `commentList` / `commentTrigger` / `keyTrigger` / `setMask` 已真实现（含桥协议新增的 `play` 动作与 6 条 C#→宿主命令），仅 `createSound` / `External.*` / `load()` 仍是占位——见 §阶段 1 实施记录 14。
+> **本轮补做（Flash DisplayObject）**：`element.transform`（含真实现的 `Matrix3D`/`Vector3D`）、显示列表查询、`blendMode`、**元素级 `mask`** 四类已补齐，另修掉 5 处「不补就出不了画面」的兼容语义（元素属性不可枚举、`foreach` 不遍历原始值、`popEl` 的真正语义、`Event.ENTER_FRAME`、AVM1 读未声明变量返回 undefined）。**av2669196 的 11 条真实脚本现在能在同一宿主实例里 0 报错跑完并真的出画面**——见 §阶段 1 实施记录 15。
 > **阅读提示**：§阶段 1 实施记录 3、8、10、11、12 与 §阶段 1 代码审查修正写于这次改动**之前**，其中出现的 `ctx.*` / `ctx.onFrame` / `ctx.time` 是**当时**的 API 面，现已被本版取代（结论与取舍仍然成立，只是名字换了：`ctx.createText`→`$.createComment`/`$.createText`、`ctx.createShape`→`$.createShape`、`ctx.createImage`→`$.createImage`、`ctx.createLayer`→`$.createLayer`、`ctx.tween`→声明式 `opts.motion`、`ctx.onFrame`→M8 的 `interval`、`ctx.time`/`ctx.state`→`Player.time`/`Player.state`、`ctx.pause`/`ctx.seek`/`ctx.navigate`→`Player.pause`/`Player.seek`/`Player.jump`、`ctx.width`/`ctx.height`→`Player.width`/`Player.height`）。
 > **规模提示**：本需求已从「加个 mode8 类似的东西」长成一个**平台级改动**（自建 WebView2 脚本运行时 + TS 转译 + 三类交互 + 四类拦截 + 几十条同屏渲染）。建议按下面阶段分批落地，每阶段可独立验证。
 > **行号基准**：`PlayerPage.xaml.cs` / `PlayerPage.xaml` 的引用已按**阶段 1 实施后的 HEAD 重新校准**，逐条命中。注意：**这两个文件每实施一个阶段都会整体漂移**（阶段 1 就使 §7 的锚点偏移了 4～239 行不等），动手前请以**符号名**为准、行号仅作快速定位。其余文件（`PlayerAPI.cs` / `ApiHelper.cs` / `DanmakuMTC.cs` / `Generic.xaml` / `SendDanmakuDialog.xaml.cs` / `BiliDanmakuService.cs` / `PlaybackEventTimeline.cs`）行号未受阶段 1 影响。子模块文件行号以 `Libraries/NSDanmaku-Fork` 当前 pin `784d694` 为准。
@@ -113,10 +114,20 @@ public sealed class ScriptDanmakuDocument
 | | `$.toIntVector(list)` / `$.toNumberVector(list)` | 返回普通数值数组（本宿主的 Vector 就是 Array），供字体数据类脚本原样跑 |
 | | `el.remove()` | 从渲染中摘除并退出元素登记表 |
 | | `el.setStyle(name, value)` | 文本类属性（`color`/`fontsize`/`font`/`bold`/`border`/`borderColor`）落到文本样式；其余按元素属性赋值 |
-| | 可写属性 | `x/y/z/alpha/scaleX/scaleY/rotation`（=`rotationZ`）/`rotationX`/`rotationY`/`visible`/`matrix`/`filters`/`text`/`url`/`fontsize`/`font`/`color`/`bold`/`mask`。直接赋值即标脏；内容类属性（`text`/`fontsize`/`color`/`filters`…）还会让位图缓存失效。**`rotationX`/`rotationY` 是 3D 属性，2D 画布只存储、不呈现**。注意区分两个 `mask`：**元素级的 `el.mask`（元件互相遮罩）只存储、不生效**（需要逐元素的 clip 合成），而**播放器级的 `Player.setMask` 是已实现的**（见下） |
+| | 可写属性 | `x/y/z/alpha/scaleX/scaleY/rotation`（=`rotationZ`）/`rotationX`/`rotationY`/`visible`/`matrix`/`filters`/`text`/`url`/`fontsize`/`font`/`color`/`bold`/`mask`。直接赋值即标脏；内容类属性（`text`/`fontsize`/`color`/`filters`…）还会让位图缓存失效。**`rotationX`/`rotationY` 是 3D 属性，2D 画布只存储、不呈现**。两个 `mask` 都是已实现的：**元素级 `el.mask`** 作用于被遮罩元素的子树（见下），**播放器级 `Player.setMask`** 作用于整块画布 |
 | | `el.parent` / `el.children` | 可写：赋值 `parent` 即换父节点；`children` 是子元件数组 |
 | | 文本 `el.length` | 字符数（M8 的 `CommentField.length`） |
-| | `el.graphics.*` | `beginFill` / `endFill` / `lineStyle` / `moveTo` / `lineTo` / `curveTo` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawEllipse` / `drawWedge` / `drawPolygon` / `clear`。**`beginGradientFill` / `lineGradientStyle` / `drawGraphicsData` / `drawPath` 显式抛「尚未支持」**，不静默画错 |
+| | `el.graphics.*` | `beginFill` / `endFill` / `beginGradientFill` / `lineStyle` / `lineGradientStyle` / `moveTo` / `lineTo` / `curveTo` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawEllipse` / `drawWedge` / `drawPolygon` / `drawPath` / `clear`。渐变按 `$.createMatrix().createGradientBox(w,h,rotation,tx,ty)` 给的渐变框换算成 canvas 的线性/径向渐变；`drawPath` 复用 moveTo/lineTo/curveTo 的路径模型（命令码 1/2/3/4/5 完整，6 取第一个控制点近似）。**`drawGraphicsData` 仍显式抛「尚未支持」**（需要完整 IGraphicsData 对象模型，真实脚本 0 次使用） |
+| | `el.transform` | Flash 的 `DisplayObject.transform`。`.matrix` **与元素已有的 `props.matrix` 是同一份对象**（脚本的 `mx = el.transform.matrix; mx.identity()` 原地改法必须作用在同一份数据上），带 `identity/translate/scale/rotate/concat/invert/clone/transformPoint`；`.matrix3D` / `.colorTransform` 可读可写但只存储（2D 画布不呈现）；`.perspectiveProjection` 返回 Flash 默认值的纯数据对象；`.getRelativeMatrix3D(target)` 返回累计 2D 变换铺成的 Matrix3D |
+| | `$.createMatrix3D` / `$.createVector3D` | **真算**：`append`/`appendRotation`/`appendTranslation`/`appendScale`/`prepend*`/`transformVector`/`transformVectors`（原地填充目标数组）/`deltaTransformVector`/`invert`/`clone`/`position`，rawData 用 Flash 的列主序布局。Akari 靠 `transformVectors` 把子元件局部坐标投到世界坐标、按 z 排序来定绘制顺序——算错画面顺序就错 |
+| | 显示列表查询 | `numChildren`（own property！脚本用 `hasOwnProperty("numChildren")` 判断「是不是显示对象」）/ `getChildAt` / `getChildIndex` / `setChildIndex` / `getChildByName` / `contains` / `addChild` / `addChildAt` / `removeChild` / `removeChildAt` / `removeAllChildren` / `swapChildren`。`getChildAt` 越界返回 `null`（Flash 抛 RangeError，这里选择不炸整条脚本） |
+| | `el.blendMode` | 映射到 canvas 的 `globalCompositeOperation`：`normal`/`layer`/`alpha`→`source-over`、`add`→`lighter`、`multiply`→`multiply`、`screen`→`screen`、`overlay`→`overlay`、`difference`/`subtract`→`difference`、`lighten`/`darken`、`hardlight`→`hard-light`、`colordodge`/`colorburn`、`exclusion`、`hue`/`saturation`/`color`/`luminosity`。**未知值一律退回 `normal`，不抛错**（脚本里的取值集合远大于 canvas 能表达的）。脚本读回的 `blendMode` 是它写进去的原值 |
+| | `el.mask`（元素级） | Flash 语义 `被遮罩元素.mask = 遮罩元素`：**只裁被遮罩元素自己（含子树）**，不串到整块画布（与 `Player.setMask` 的区别）。遮罩元件自己不参与合成。变换用「烘进路径坐标」的方式施加——不能用 canvas 的 save/restore 压遮罩元件的变换，因为 restore 会把刚建立的裁剪一起去掉 |
+| | `el.addEventListener` / `removeEventListener` / `hasEventListener` / `dispatchEvent` | Flash 的 `EventDispatcher`。真正派发的是 **`"enterFrame"`**（Akari 的 `Composition.present()` 就是 `canvas.addEventListener("enterFrame", frameFn)`，整幅画面的每帧更新挂在这上面）；其余事件类型登记了不派发、也不抛错。监听表随条目回收一起清掉 |
+| | `ScriptManager.popEl(el)` | M8 语义是「把元件从**自动清理表**里弹出」（让 `clearEl()` 不删它），**不是从显示列表摘除**。Akari 把整幅作品挂在 `popEl` 过的常驻 root 下——实现成 `remove()` 会让整棵树脱离渲染，实测一个像素都画不出来 |
+| | 元素属性**不可枚举** | 元素的全部内部字段与访问器都定义成 non-enumerable：Flash 里显示对象的属性挂在原型上，脚本 `foreach(obj, fn)` / `for-in` 遍历显示对象时拿不到任何一项。Akari 的 `Factory.clone` 正是靠 `countProperties === 0` 分叉走「新建 `$.createCanvas` 再逐个拷贝显示属性」那条路；可枚举会让它顺着（成环的）对象图无限递归（`Maximum call stack size exceeded`）。`hasOwnProperty` 不受影响 |
+| | `foreach` 只遍历真对象 | 原始值（string / number / boolean）一律不遍历。这不是洁癖：上面那条 clone 递归到字符串时，若去枚举 `"a"` 的字符下标就会 `clone("a")` → `clone("a")` 无限递归。M8 文档把参数标成 `Object`，Flash 的 for-in 对原始值也不产生可枚举属性 |
+| | AVM1 宽容语义 | 读**未声明变量**得到 `undefined` 而不抛 `ReferenceError`。真实样本里 `update:function(time){if(time < startTime)...}` 的 `startTime`/`duration` 就是 AS→JS 翻译时丢掉的 `var`——AVM1 下它们读成 undefined（比较恒 false、正文照跑），JS 下直接停摆。实现方式：捕获 `ReferenceError` 认出名字 → 把它**声明到脚本全局对象上**（值 `undefined`）→ 清理并重跑本条脚本（回调里抛的同类错误同样处理，因为有问题的闭包可能来自**别的**条目：entry_10 抛错的那处 `update` 定义在 entry_08 的 Akari 库里，作用域链早已定死，补形参救不了，只有补全局对象才能让已建好的闭包也恢复） |
 | | `Player.time` | **实时 getter**，读宿主外推时钟（毫秒）。不是激活时快照——M8 脚本在 `interval` 回调里读它 |
 | | `Player.state` | 实时 getter：`playing` / `pause` / `stop`（弹幕层隐藏时给 `stop`） |
 | | `Player.width` / `height` | 宿主视口（CSS 像素） |
@@ -141,7 +152,7 @@ public sealed class ScriptDanmakuDocument
 | | `External.Bitmap.createBitmapData/createBitmap/createRectangle` | `createRectangle` 返回 `{x,y,width,height}`；`createBitmapData` 返回 `null`、`createBitmap` 返回空图片元件（位图管线未接入） |
 | | `$.createVector` / `$.createMatrix` / `$.createColorTransform` / `$.createGlowFilter` / `$.createBlurFilter` / `$.createDropShadowFilter` / `$.createBevelFilter` / `$.createGradientBox` / `$.createPoint` / `$.createColor` | 名字在、能调用。`createMatrix` 返回支持 `a/b/c/d/tx/ty` + `createGradientBox`(no-op) 的矩阵对象（元素的 `matrix` 属性会用它）；滤镜工厂返回 `{type, color, alpha, blurX, blurY}` 占位对象，**元素的 `filters` 只识别 `GlowFilter`**（缓存期 `blur(4px)`+`lighter` 近似），其余滤镜不产生视觉效果。`createColorTransform` / `createGradientBox` / `createBitmapData` 返回 `null` |
 | | `load(library, onComplete)` | 外部库加载未接入：**不调用 `onComplete`**（否则 `Bitmap.createBitmapData` 之类会立刻 ReferenceError） |
-| **不支持** | `$.createVector` 的真正 Vector 语义、`drawGraphicsData` / `drawPath`、`beginGradientFill` / `lineGradientStyle` | 需要完整 Flash 图形数据模型；遇到时显式抛错而非静默画错 |
+| **不支持** | `drawGraphicsData` | 需要完整的 IGraphicsData 对象模型（IGraphicsPath / IGraphicsStroke / …）；真实脚本 0 次使用，遇到时显式抛错而非静默画错 |
 | | `_Galgame` 里的 `TweenEasing` 命名空间 | 不需要：缓动名沿用现有 `easingTable`，`resolveEasing` 已支持 `M8Easing.SineEaseInOut` 这类带前缀的全名 |
 | | 字体排版（`fontData` / `advanceHori` / `kernings`） | 真实脚本里占比最大的能力（11 条样本里 7 条是字体数据），需要完整 TrueType 轮廓排版，本阶段不做 |
 | | 3D / `transform.matrix3D` | 2D 画布，`rotationX`/`rotationY` 只存储不呈现 |
@@ -344,9 +355,33 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
     - **仍未实现（并写明原因）**：`Player.createSound` —— M8 的 `createSound(t)` 是按**名字**取它内置音效库里的音，这个库没有随客户端分发，宿主也没有可用音频资产（零外部依赖、单文件内联）；且 WebView2 的自动播放策略会拦截无手势播放。**刻意不用合成音冒充原音效**（那会是「听起来生效了、但完全不是原声」，比明确的 no-op 更误导）。`External.Storage.*` / `External.Bitmap.*` / `load()` 保持占位（不伪造数据、不发请求、不调回调）。
     - **行为套件新增 D14~D17**：D14（`Player.play/pause/seek/jump` 四个动作真的发出 `action` 消息、非法 av 号被拒、负数 seek 钳到 0）、D15（`commentList` 快照可读、字段形状与缺省补齐、`resetComments` 后清空）、D16（`commentTrigger`/`keyTrigger` 只在收到桥消息时触发、keyUp 只投给 `up=true`、M8 允许键之外的按键被忽略、条目回收与 `reset` 之后不再触发）、D17（`setMask` 把落笔裁到遮罩形状内、遮罩外元素不画但仍存活、取消遮罩后恢复完整）。契约测试新增 7 条（宿主命令名与 `action: "play"`、`Player` 的 `setMask`/`commentTrigger`/`keyTrigger` 接到实现上、M8 键值集合、裁剪只落在合成期、控件与 PlayerPage 的新挂钩）。
 
+15. **补齐 Flash DisplayObject 能力，让 av2669196 的真实 M8 脚本真的出画面（已落地）**。这是「11 条真脚本全部灌进同一宿主实例、0 runtime error 且出画面」这一个硬指标一路逼出来的：每修掉一个报错就露出下一个，最后补了 4 类 Flash 能力 + 5 处兼容语义。
+    - **起点与终点**：改造前 11 条里 8 条字体脚本能跑（只注册数据、不出画面），出画面的两条都挂在报错上（`entry_08` 断在 `sprite.transform.matrix3D=null`、`entry_10` 连带断在 `Akari.stop()`）。改造后：**11 条同实例 0 报错，主画布 79 次 `drawImage`**（t≈150s）。
+    - **4 类 Flash DisplayObject 能力**（本轮的主题）：
+      1. **`element.transform`**：`.matrix` 与元素已有的 `props.matrix` **是同一份对象**（脚本的 `mx = el.transform.matrix; mx.identity()` 是取出→原地改→写回，两套数据会互相打架）；`.matrix3D` / `.colorTransform` 可读可写只存储；`.getRelativeMatrix3D()` 返回累计 2D 变换铺成的 Matrix3D。配套把 `$.createMatrix3D` / `$.createVector3D` 从占位改成**真实现**（`append*` / `transformVector` / `transformVectors` 原地填充 / `invert`，rawData 用 Flash 的列主序）——Akari 用 `transformVectors` 做 3D 深度排序，算错画面顺序就错。
+      2. **显示列表查询**：`numChildren`（必须是 own property，脚本用 `hasOwnProperty("numChildren")` 判断「是不是显示对象」）/ `getChildAt` / `getChildIndex` / `setChildIndex` / `getChildByName` / `contains` / `addChildAt` / `removeChildAt` / `swapChildren`。`getChildAt` 越界返回 `null` 而不是像 Flash 那样抛 RangeError（不让坏索引炸掉整条脚本）。
+      3. **`blendMode`**：映射到 canvas 的 `globalCompositeOperation`（`add`→`lighter`、`multiply`/`screen`/`overlay`/`difference`/`lighten`/`darken`/`hard-light`/`color-dodge`… 同名直映；Flash 8 的 `layer`/`alpha` 近似成 `source-over`），**未知值一律退回 `normal` 不抛错**。脚本读回的 `blendMode` 是原值（它在图层之间互相拷贝）。
+      4. **元素级 `mask`**：`被遮罩元素.mask = 遮罩元素`，**只裁被遮罩元素自己（含子树）**，不串到整块画布——这是它与 `Player.setMask` 的关键区别。实现上有个坑：**不能**用 `save → 施加遮罩元件的变换 → clip → restore`，因为 canvas 的裁剪区在状态栈里，`restore` 会把刚建立的裁剪一起去掉；改为把遮罩元件的变换**烘进路径坐标**（`createMaskPointMapper`）再用当前坐标系直接 `clip()`。遮罩元件自己不参与合成（连 `lastPaintedRect` 都不留）。
+    - **另外 5 处是「不补就出不了画面」的兼容语义**，都不是可选装饰：
+      - **元素属性必须不可枚举**（`hideElementInternals`）。Flash 里显示对象的属性挂在原型上，脚本 `foreach(obj, fn)` 遍历显示对象**一个属性都拿不到**；Akari 的 `Factory.clone` 正是靠 `countProperties === 0` 分叉走「新建 `$.createCanvas` 再逐个拷贝显示属性」那条路。本宿主的元素是普通对象、内部字段全在自身上且成环（`treeParent ↔ childList ↔ ownerItem ↔ motion.handle.elements`），可枚举就会让 clone 顺着环无限递归（实测 `Maximum call stack size exceeded`）。构造期之后新增的字段（`shapeItems`/`graphics`/`autoCached`/`createParent`/`transformValue`/`maskUseCount`）也要逐个藏。`hasOwnProperty` 不受影响。
+      - **`foreach` 只遍历真对象**：原始值（string/number/boolean）不遍历。上面那条 clone 递归到字符串时，枚举 `"a"` 的字符下标会 `clone("a")` → `clone("a")` 无限递归。M8 文档把参数标成 `Object`、Flash 的 for-in 对原始值也不产生可枚举属性，所以「零次迭代」才是正确语义。
+      - **`ScriptManager.popEl` 的语义是「从自动清理表里弹出」**，不是从显示列表摘除（`clearEl()` 会跳过被 popEl 过的元件）。早先实现成 `el.remove()`——Akari 把整幅作品挂在 `popEl` 过的常驻 root 下，于是整棵树脱离渲染，`topLevel=0`、26797 个元件一个像素都画不出来。
+      - **`Event.ENTER_FRAME`**：`el.addEventListener("enterFrame", fn)` 每帧派发。Akari 的 `Composition.present()` 就是 `canvas.addEventListener("enterFrame", frameFn)`，整幅画面的每帧更新挂在这上面。监听表按条目存、随条目回收清掉，派发早于补间推进与脏元素重绘。
+      - **AVM1 宽容语义**：读未声明变量得到 `undefined` 而不抛 `ReferenceError`。`entry_10` 的 `update:function(time){if(time < startTime)...}` 里 `startTime`/`duration` 是 AS→JS 翻译时丢掉的 `var`。实现：`runItemScriptWithAvm1Scope` 捕获 `ReferenceError` 认出名字 → **声明到脚本全局对象上**（值 `undefined`）→ 清理并重跑本条脚本。**为什么是全局对象而不是补脚本形参**：抛错的闭包可能不是本条脚本创建的——`entry_10` 抛错的那处 `update` 定义在 `entry_08` 的 Akari 库里，作用域链在 entry_08 执行时就定死了，补形参救不了；标识符解析对未绑定名是每次访问都回落全局对象查，只有补在全局对象上才能让**已建好的闭包**一并恢复。定时器 / 触发器 / enterFrame 回调里抛的同类错误同样处理（`startTime` 就是在 interval 回调里读的）。安全性：只声明「已被 `ReferenceError` 证明不存在」的名字，**绝不会遮蔽任何真实存在的名字**（脚本自己声明的、或像 `entry_10` 那样用 `Factory.extend(this, …)` 导出到全局对象上的，都照旧解析）；不做静态分析、不动作用域链（不用 `with`）。
+    - **顺带补上的**：`drawPath`（真实脚本在用，此前是显式抛错——复用 `moveTo`/`lineTo`/`curveTo` 的路径模型，命令码 1/2/3/4/5 完整、6 取第一个控制点近似）、`beginGradientFill` / `lineGradientStyle`（按 `createGradientBox(w,h,rotation,tx,ty)` 的渐变框换算成 canvas 线性/径向渐变）、`DisplayObject.name`（`getChildByName` 要用）、`$.width`/`$.height`（`$` 作为 Display 命名空间的舞台尺寸，entry_08 用它算居中与缩放比）。`onclick` / `drawGraphicsData` 仍不支持。
+    - **三轮对照实测（每条结论都是跑出来的，不是推的）**：
+      | 加载 | 结果 |
+      |---|---|
+      | 全 11 条 | 0 报错；主画布 19→39→59→79 次 `drawImage`（t=90/110/130/150s） |
+      | 去掉 `entry_10` | 落笔 **0**（`entry_10` 才是真正绘制的主作品） |
+      | 去掉 `entry_08` | `entry_10` 直接报错（Akari 库来自 `entry_08`） |
+      | 仓库夹具（`entry_08` + 一条字体脚本） | 0 报错、**0 落笔**（`entry_10` 的文字图层要从 `$G` 取 6 张字形表，少一条就报错） |
+      > **对任务书里「entry_08 与 entry_10 必须出画面」的精确化**：实测 `entry_08` 是**库 + 骨架**，单独加载在任何时间点都不落笔；可见画面来自 `entry_10`（主作品）**渲染时用 entry_08 的 Akari 库**，且还需要 6 条字体脚本注册字形表。所以「出画面」的准确表述是「`entry_08` + `entry_10` + 字体脚本一起出画面」。
+    - **测试**：新增 `tests/host/real-m8-scripts.test.js`（真实脚本集成测试，5 例：仓库夹具齐备 / 0 报错 / 字体脚本不出画面 / 字形表注册进 `$G` / 完整 11 条 0 报错且真落笔；外部夹具目录缺失时**跳过**而非失败）；`retained-mode.test.js` 新增 D18~D22（transform 与 Matrix3D、显示列表 + 不可枚举、blendMode 映射与未知值、元素级遮罩作用域、popEl + enterFrame）；契约测试新增 5 条。夹具取舍与体积见 `tests/host/fixtures/real/README.md`。
+
 测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、**M8 注入名单与「不再注入 ctx」**、`Player` 的实时 getter 面、`$` 元件工厂与创建参数、**定时器登记在条目上**、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
 
-**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 把宿主 HTML 里的内联 `<script>` 加载进沙箱，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D17：
+**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 把宿主 HTML 里的内联 `<script>` 加载进沙箱，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D22：
 
 | 用例 | 语义 | 修复前的表现 |
 |---|---|---|
@@ -367,6 +402,11 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 | D15 | `Player.commentList` 是推入的快照，字段形状与 M8 的 CommentData 一致、缺省补齐 | getter 恒返回空数组 |
 | D16 | `commentTrigger`/`keyTrigger` 只在收到桥消息时触发；条目回收 / reset 后不再触发 | 注册返回 0，永不触发 |
 | D17 | `Player.setMask` 把画面裁到遮罩形状里（合成期裁剪，不动元素缓存） | `setMask` 是 no-op，遮罩外照样画 |
+| D18 | 元素 `transform`：`matrix` 与 `props.matrix` 同一份、`matrix3D` 可读写、Matrix3D/Vector3D 真算 | `transform` 不存在，脚本一碰就 TypeError |
+| D19 | 显示列表 API + **元素属性不可枚举**（`foreach` 拿不到、`hasOwnProperty` 照旧） | 属性可枚举 → 真脚本的 clone 无限递归 |
+| D20 | `blendMode` 映射到 `globalCompositeOperation`，未知值退回 `normal` | `blendMode` 只是个普通字段，不影响合成 |
+| D21 | 元素级 `mask` 只裁被遮罩元素子树、遮罩元件自己不合成 | `el.mask` 只存储、不生效 |
+| D22 | `popEl` 不摘离渲染树；`Event.ENTER_FRAME` 每帧派发 | `popEl` 实现成 `remove()` → 整棵树脱离渲染 |
 
 运行方式（默认宿主为仓库内 `BiliBili.UWP/Assets/script-danmaku-host.html`，可用参数或环境变量改指）：
 
@@ -410,7 +450,7 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
   7. **未注册任何拦截器时，播放/弹幕/输入路径无可感知开销**（性能回归点）。
 - **接口可用性前置**：阶段 4 开工前，先按 `Controls/SendDanmakuDialog.xaml.cs:57` 的参数与签名形态实测 `x/v2/dm/post`，确认可用后再决定抽取方式（见 §6③）。不要先按 `PlayerAPI.SendDanmu` 实现。
 - **回归**：BAS 弹幕（mode9）行为不变。
-- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，17 例 D1~D17，见上）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
+- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，22 例 D1~D22，见上）与真实脚本集成测试 `tests/host/real-m8-scripts.test.js`（5 例，夹具缺失时跳过）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
 - **日志**：`LogHelper` 无脚本弹幕渲染失败。
 
 ## 风险

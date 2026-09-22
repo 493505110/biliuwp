@@ -155,7 +155,13 @@ function createContextStub(canvas) {
         }
 
         canvas.__marks.push(rect);
-        canvas.__ops.push({ type: kind, rect: rect, font: ctx.font });
+        // 记下混合模式：blendMode 的断言要看「落笔时用的是哪个 composite」。
+        canvas.__ops.push({
+            type: kind,
+            rect: rect,
+            font: ctx.font,
+            composite: ctx.globalCompositeOperation
+        });
         count(kind);
         return rect;
     }
@@ -231,6 +237,19 @@ function createContextStub(canvas) {
             dx = args[4]; dy = args[5]; dw = args[6]; dh = args[7];
         }
         record('drawImage', dx, dy, dw, dh);
+    };
+
+    // 渐变对象（宿主 beginGradientFill 会用到）。记录色标数量，便于断言。
+    ctx.__gradients = [];
+    ctx.createLinearGradient = function (x0, y0, x1, y1) {
+        const gradient = { kind: 'linear', x0, y0, x1, y1, stops: [], addColorStop(o, c) { gradient.stops.push([o, c]); } };
+        ctx.__gradients.push(gradient);
+        return gradient;
+    };
+    ctx.createRadialGradient = function (x0, y0, r0, x1, y1, r1) {
+        const gradient = { kind: 'radial', x0, y0, r0, x1, y1, r1, stops: [], addColorStop(o, c) { gradient.stops.push([o, c]); } };
+        ctx.__gradients.push(gradient);
+        return gradient;
     };
 
     ctx.beginPath = function () { ctx.__path = { points: [] }; };
@@ -371,11 +390,14 @@ function loadHost(hostPath) {
             host.api.resize();
         },
         // 读元素内部字段前先确认字段名确实存在（防止宿主改字段名后测试静默取到 undefined）。
+        // 用 getOwnPropertyNames 而不是 Object.keys：宿主把元素的字段都定义成
+        // 不可枚举（Flash 的显示对象属性在原型上、foreach 拿不到，M8 的脚本
+        // 依赖这个分叉），Object.keys 会全都看不到。校验强度不变。
         elementField(element, name) {
             assert.ok(element && typeof element === 'object', '元素探针未设置：脚本里没有 window.__probe = ...');
             assert.ok(
-                Object.keys(element).indexOf(name) >= 0,
-                '元素上不存在字段 ' + name + '，实际字段：' + Object.keys(element).join(', '));
+                Object.getOwnPropertyNames(element).indexOf(name) >= 0,
+                '元素上不存在字段 ' + name + '，实际字段：' + Object.getOwnPropertyNames(element).join(', '));
             return element[name];
         }
     };
@@ -1393,6 +1415,259 @@ test('D17 Player.setMask 把画面裁到遮罩形状里（合成期裁剪，不�
         afterUnion && afterUnion.x + afterUnion.width > 400,
         '取消遮罩后遮罩外的元素应重新可见，实际 union=' + JSON.stringify(afterUnion));
     assert.equal(host.errors().length, 0, '取消遮罩不应产生错误上报');
+});
+
+test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读写、距离矩阵可用', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d18', 0, 10,
+            'var box = $.createShape({ x: 0, y: 0, lifeTime: 10 });'
+            + 'box.graphics.beginFill(0xFFFFFF, 1);'
+            + 'box.graphics.drawRect(0, 0, 20, 20);'
+            + 'box.graphics.endFill();'
+            + 'window.__box = box;'
+            // transform 命名空间必须挂在元素自身上
+            + 'window.__hasTransform = typeof box.transform === "object";'
+            // matrix 取出→原地改→写回（Akari 的写法）必须作用于同一份对象
+            + 'var mx = box.transform.matrix;'
+            + 'window.__matrixIsProps = (mx === box.props.matrix);'
+            + 'mx.identity();'
+            + 'window.__afterIdentity = [mx.a, mx.b, mx.c, mx.d, mx.tx, mx.ty].join(",");'
+            + 'mx.translate(5, 6);'
+            + 'mx.scale(2, 3);'
+            + 'box.transform.matrix = mx;'
+            + 'window.__afterOps = [box.transform.matrix.a, box.transform.matrix.d,'
+            + ' box.transform.matrix.tx, box.transform.matrix.ty].join(",");'
+            // matrix3D：可赋值（含 null）、可读回，读回值要能被 clone/append
+            + 'box.transform.matrix3D = null;'
+            + 'window.__m3dNull = box.transform.matrix3D;'
+            + 'var m3 = $.createMatrix3D([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);'
+            + 'm3.appendTranslation(10, 20, 30);'
+            + 'm3.appendRotation(90, $.createVector3D(1, 0, 0));'
+            + 'var v = m3.transformVector($.createVector3D(1, 0, 0));'
+            + 'window.__m3dVector = [v.x, v.y, v.z].map(function (n) { return Math.round(n * 100) / 100; }).join(",");'
+            + 'box.transform.matrix3D = m3;'
+            + 'window.__m3dSame = (box.transform.matrix3D === m3);'
+            // 相对矩阵：返回带 transformVectors 的 Matrix3D（Akari 的 3D 排序要用）
+            + 'var rel = box.transform.getRelativeMatrix3D(null);'
+            + 'var vLocal = $.toNumberVector([0, 0, 0]);'
+            + 'var vWorld = $.toNumberVector([]);'
+            + 'rel.transformVectors(vLocal, vWorld);'
+            + 'window.__worldLength = vWorld.length;'
+            + 'window.__perspective = typeof box.transform.perspectiveProjection.fieldOfView;')
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(2);
+
+    assert.equal(host.frameErrors.length, 0, '不应抛错：' + host.frameErrors);
+    assert.equal(host.errors().length, 0, 'transform 不应产生错误：' + JSON.stringify(host.errors()));
+    assert.equal(host.sandbox.__hasTransform, true, 'element.transform 应是对象');
+    assert.equal(host.sandbox.__matrixIsProps, true, 'transform.matrix 必须与 props.matrix 是同一份对象');
+    assert.equal(host.sandbox.__afterIdentity, '1,0,0,1,0,0', 'identity() 应重置为单位矩阵');
+    assert.equal(host.sandbox.__afterOps, '2,3,5,6', 'translate/scale 应就地生效');
+    assert.equal(host.sandbox.__m3dNull, null, 'matrix3D 赋 null 后应读回 null（不报错）');
+    assert.equal(host.sandbox.__m3dSame, true, 'matrix3D 应原样存回');
+    // 绕 X 轴转 90°：(1,0,0) → (1,0,0)（X 轴不变），平移分量是 (10,20,30)
+    assert.equal(host.sandbox.__m3dVector, '11,20,30', 'Matrix3D 的平移与旋转应真算');
+    assert.equal(host.sandbox.__worldLength, 3, 'transformVectors 必须原地填充目标数组');
+    assert.equal(host.sandbox.__perspective, 'number', 'perspectiveProjection 应是可读的默认值对象');
+});
+
+test('D19 显示列表：numChildren/getChildAt 等按 Flash 语义，且元素属性不可枚举', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d19', 0, 10,
+            'var box = $.createShape({ lifeTime: 10 });'
+            + 'window.__box = box;'
+            + 'var a = $.createShape({ parent: box, name: "a" });'
+            + 'var b = $.createShape({ parent: box });'
+            + 'var c = $.createShape({ parent: box });'
+            + 'window.__kids = [a, b, c];'
+            + 'window.__flash = {'
+            + '  num: box.numChildren,'
+            + '  first: box.getChildAt(0) === a,'
+            + '  last: box.getChildAt(2) === c,'
+            + '  outOfRange: box.getChildAt(9),'
+            + '  index: box.getChildIndex(b),'
+            + '  byName: box.getChildByName("a") === a,'
+            + '  contains: box.contains(a),'
+            + '  ownNumChildren: box.hasOwnProperty("numChildren"),'
+            + '  ownGraphics: box.hasOwnProperty("graphics"),'
+            // Flash 里显示对象的属性在原型上：foreach / for-in 拿不到任何一项。
+            // Akari 的 Factory.clone 正是靠这个分叉（countProperties === 0）。
+            + '  foreachCount: (function () { var n = 0; foreach(box, function () { n++; }); return n; })()'
+            + '};'
+            + 'box.setChildIndex(c, 0);'
+            + 'window.__afterSwap = box.getChildAt(0) === c;'
+            + 'box.removeChildAt(0);'
+            + 'window.__afterRemove = box.numChildren;'
+            + 'box.addChildAt(c, 0);'
+            + 'window.__afterAdd = [box.numChildren, box.getChildAt(0) === c].join(",");')
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(2);
+
+    assert.equal(host.frameErrors.length, 0, '不应抛错：' + host.frameErrors);
+    assert.equal(host.errors().length, 0, '显示列表 API 不应报错：' + JSON.stringify(host.errors()));
+    const flash = host.sandbox.__flash;
+    assert.equal(flash.num, 3, 'numChildren 应是子元件数');
+    assert.equal(flash.first, true, 'getChildAt(0) 应是第一个子元件');
+    assert.equal(flash.last, true, 'getChildAt(2) 应是第三个子元件');
+    assert.equal(flash.outOfRange, null, '越界的 getChildAt 应返回 null 而不是抛错');
+    assert.equal(flash.index, 1, 'getChildIndex 应返回下标');
+    assert.equal(flash.byName, true, 'getChildByName 应按 name 找到子元件');
+    assert.equal(flash.contains, true, 'contains 应沿父链判断');
+    assert.equal(flash.ownNumChildren, true, 'numChildren 必须是 own property（脚本用它判断显示对象）');
+    assert.equal(flash.ownGraphics, true, 'graphics 必须是 own property');
+    assert.equal(
+        flash.foreachCount, 0,
+        'foreach 遍历显示对象应一个属性都拿不到（Flash 的属性在原型上）——'
+        + 'Akari 的 clone 靠这个分叉，可枚举会让它顺着对象图无限递归');
+    assert.equal(host.sandbox.__afterSwap, true, 'setChildIndex 应改变顺序');
+    assert.equal(host.sandbox.__afterRemove, 2, 'removeChildAt 应移除子元件');
+    assert.equal(host.sandbox.__afterAdd, '3,true', 'addChildAt 应插回指定位置');
+});
+
+test('D20 blendMode 映射到 globalCompositeOperation，未知值退回 normal', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d20', 0, 10,
+            'var add = $.createShape({ x: 0, y: 0, lifeTime: 10, blendMode: "add" });'
+            + 'add.graphics.beginFill(0xFF0000, 1);'
+            + 'add.graphics.drawRect(0, 0, 10, 10);'
+            + 'add.graphics.endFill();'
+            + 'window.__add = add;'
+            + 'var unk = $.createShape({ x: 100, y: 0, lifeTime: 10, blendMode: "layer" });'
+            + 'unk.graphics.beginFill(0x00FF00, 1);'
+            + 'unk.graphics.drawRect(0, 0, 10, 10);'
+            + 'unk.graphics.endFill();'
+            + 'window.__unk = unk;'
+            + 'var mul = $.createShape({ x: 200, y: 0, lifeTime: 10, blendMode: "multiply" });'
+            + 'mul.graphics.beginFill(0x0000FF, 1);'
+            + 'mul.graphics.drawRect(0, 0, 10, 10);'
+            + 'mul.graphics.endFill();'
+            + 'window.__mul = mul;'
+            + 'window.__readBack = add.blendMode;')
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(4);
+
+    assert.equal(host.frameErrors.length, 0, '不应抛错：' + host.frameErrors);
+    assert.equal(
+        host.errors().length, 0,
+        '未知 blendMode（"layer"）不得抛错：' + JSON.stringify(host.errors()));
+    assert.equal(host.sandbox.__readBack, 'add', '脚本读回的 blendMode 应是它写进去的原值');
+
+    // 落笔时的 composite 必须按元素各自的 blendMode 走。
+    const canvas = host.mainCanvas();
+    const byX = {};
+    for (const op of canvas.__ops) {
+        if (op.type !== 'drawImage') continue;
+        const x = Math.round(op.rect.x);
+        if (x < 20) byX.add = op.composite;
+        else if (x > 180) byX.multiply = op.composite;
+        else if (x > 80 && x < 130) byX.unknown = op.composite;
+    }
+
+    assert.equal(byX.add, 'lighter', 'blendMode "add" 应映射到 lighter');
+    assert.equal(byX.multiply, 'multiply', 'blendMode "multiply" 应映射到 multiply');
+    assert.equal(byX.unknown, 'source-over', '未知 blendMode 应退回 normal（source-over）');
+});
+
+test('D21 元素级 mask 只裁被遮罩元素，且遮罩元件自己不绘制', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    // 用数组 join 拼脚本，避免长串拼接里少一个 + 或引号而看不出问题。
+    const code = [
+        'var maskEl = $.createShape({ x: 0, y: 0, lifeTime: 10 });',
+        'maskEl.graphics.beginFill(0xFFFFFF, 1);',
+        'maskEl.graphics.drawRect(0, 0, 40, 40);',
+        'maskEl.graphics.endFill();',
+        // 被遮罩的容器：子元件铺满 200x200，实际只有左上 40x40 可见
+        'var box = $.createShape({ x: 0, y: 0, lifeTime: 10 });',
+        'var inner = $.createShape({ parent: box });',
+        'inner.graphics.beginFill(0xFF0000, 1);',
+        'inner.graphics.drawRect(0, 0, 200, 200);',
+        'inner.graphics.endFill();',
+        'box.mask = maskEl;',
+        'window.__mask = maskEl;',
+        'window.__box = box;',
+        // 同一画布上的另一个元素不受影响（mask 作用域是子树，不是整块画布）
+        'var other = $.createShape({ x: 400, y: 0, lifeTime: 10 });',
+        'other.graphics.beginFill(0x00FF00, 1);',
+        'other.graphics.drawRect(0, 0, 60, 60);',
+        'other.graphics.endFill();',
+        'window.__other = other;'
+    ].join('\n');
+
+    host.append([scriptItem('d21', 0, 10, code)]);
+    host.setState(0.1, true, 1);
+    host.runFrames(4);
+
+    assert.equal(host.frameErrors.length, 0, '不应抛错：' + host.frameErrors);
+    assert.equal(host.errors().length, 0, '元素遮罩不应报错：' + JSON.stringify(host.errors()));
+
+    const marks = host.mainCanvas().__marks;
+    assert.ok(marks.length > 0, '应有落笔');
+
+    // 被遮罩元素（x < 300）的落笔必须落在 40x40 内。
+    const masked = marks.filter((rect) => rect.x < 300);
+    assert.ok(masked.length > 0, '被遮罩元素应有落笔：' + JSON.stringify(marks));
+    for (const rect of masked) {
+        assert.ok(
+            rect.x >= -1 && rect.y >= -1 && rect.x + rect.width <= 41 && rect.y + rect.height <= 41,
+            '被遮罩元素的落笔应被裁到 40x40 内，实际 ' + JSON.stringify(rect));
+    }
+
+    // 遮罩元件自己不应参与合成（Flash 的遮罩对象不参与渲染）：
+    // lastPaintedRect 是「上一帧在主画布上画到哪」的记录，没参与合成就应该一直是 null。
+    assert.equal(
+        host.elementField(host.sandbox.__mask, 'lastPaintedRect'), null,
+        '遮罩元件不应参与合成（它只是裁剪形状）');
+
+    // 未被遮罩的邻居照常画在自己位置：证明遮罩没串成整块画布。
+    const neighbor = marks.filter((rect) => rect.x >= 390);
+    assert.ok(neighbor.length > 0, '未被遮罩的元素应正常绘制：' + JSON.stringify(marks));
+});
+
+test('D22 popEl 不摘离渲染树；Event.ENTER_FRAME 每帧派发', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d22', 0, 10,
+            'var sprite = $.createShape({ x: 10, y: 10, lifeTime: 10 });'
+            + 'sprite.graphics.beginFill(0xFFFFFF, 1);'
+            + 'sprite.graphics.drawRect(0, 0, 30, 30);'
+            + 'sprite.graphics.endFill();'
+            // M8 的 popEl 语义：从「自动清理表」里弹出，**不是**从显示列表摘掉。
+            // Akari 把整幅作品挂在 popEl 过的常驻 root 下，摘掉就一个像素都没有。
+            + 'ScriptManager.popEl(sprite);'
+            + 'window.__sprite = sprite;'
+            + 'window.__frames = 0;'
+            + 'function onFrame(e) { window.__frames++; window.__lastType = e.type; }'
+            + 'sprite.addEventListener("enterFrame", onFrame);'
+            + 'window.__eventNames = [typeof sprite.removeEventListener, typeof sprite.dispatchEvent,'
+            + ' sprite.hasEventListener("enterFrame")].join(",");')
+    ]);
+    host.setState(0.1, true, 1);
+    host.runFrames(10);
+
+    assert.equal(host.frameErrors.length, 0, '不应抛错：' + host.frameErrors);
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+
+    const sprite = host.sandbox.__sprite;
+    assert.equal(
+        sprite.treeParent, host.sandbox.__sprite.treeParent && sprite.treeParent,
+        'popEl 后元件仍应在渲染树里（treeParent 不为 null）');
+    assert.notEqual(sprite.treeParent, null, 'popEl 不得把元件摘离渲染树');
+    assert.equal(host.mainCanvas().__marks.length > 0, true, 'popEl 过的元件照旧要画出来');
+
+    assert.equal(host.sandbox.__eventNames, 'function,function,true', 'EventDispatcher API 应齐备');
+    assert.ok(host.sandbox.__frames > 0, 'enterFrame 监听应被逐帧派发');
+    assert.equal(host.sandbox.__lastType, 'enterFrame', '派发的事件对象应带 type');
 });
 
 run();

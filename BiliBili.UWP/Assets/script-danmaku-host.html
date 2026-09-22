@@ -75,6 +75,31 @@
             var AV_NUMBER_PATTERN = /^(?:av)?(\d+)$/i;
             // commentTrigger / keyTrigger 的默认监听时长（M8 文档：1000ms）。
             var DEFAULT_TRIGGER_TIMEOUT_MS = 1000;
+            // 注入脚本作用域的 M8 全局名。compileItem 按这张表生成形参、
+            // createScriptArgs 按同一顺序生成实参，两边必须逐字对应。
+            var SCRIPT_GLOBAL_NAMES = [
+                "$", "Player", "$G", "Global", "Tween", "Utils", "ScriptManager",
+                "timer", "interval", "clearTimer", "trace", "tracex",
+                "stopExecution", "foreach", "clone", "getTimer"];
+            // 上面这张表的反查表：判断某个未声明标识符是不是已经注入过的 M8 全局名
+            // （是的话说明不是「未声明」，补绑也救不了，直接按脚本失败处理）。
+            var INJECTED_SCRIPT_NAMES = {};
+            for (var injectedIndex = 0; injectedIndex < SCRIPT_GLOBAL_NAMES.length; injectedIndex++) {
+                INJECTED_SCRIPT_NAMES[SCRIPT_GLOBAL_NAMES[injectedIndex]] = true;
+            }
+
+            // 「未声明标识符按 undefined 处理」的重试上限（见 runItemScriptWithAvm1Scope）。
+            var MAX_AVM1_SCOPE_RETRIES = 8;
+            // 保留字不能当形参。
+            var RESERVED_WORDS = {
+                break: true, case: true, catch: true, class: true, const: true, continue: true,
+                debugger: true, default: true, delete: true, do: true, else: true, enum: true,
+                export: true, extends: true, finally: true, for: true, function: true, if: true,
+                import: true, in: true, instanceof: true, new: true, return: true, super: true,
+                switch: true, this: true, throw: true, try: true, typeof: true, var: true,
+                void: true, while: true, with: true, yield: true, let: true, static: true,
+                null: true, true: true, false: true, arguments: true, eval: true
+            };
 
             var state = {
                 positionMs: 0,
@@ -529,7 +554,21 @@
                         rotationZ: 0,
                         visible: true,
                         matrix: null,
-                        filters: null
+                        filters: null,
+                        // 以下四项是 Flash DisplayObject 的平移面属性：
+                        //  - scaleZ        ：3D 缩放（2D 画布不呈现，只存储）
+                        //  - blendMode     ：混合模式，映射到 canvas 的 globalCompositeOperation
+                        //  - scrollRect    ：滚动矩形（需要裁剪语义，当前只存储）
+                        //  - mask          ：元素级遮罩（真实现，见 applyElementMaskClip）
+                        scaleZ: 1,
+                        // Flash 的 DisplayObject.name（getChildByName 要用）。
+                        name: "",
+                        blendMode: "normal",
+                        scrollRect: null,
+                        mask: null,
+                        // transform 命名空间上的三个可写量（matrix 复用 props.matrix）。
+                        matrix3D: null,
+                        colorTransform: null
                     },
                     // treeParent / childList 是元素树的真实字段；对脚本暴露的
                     // element.parent / element.children 是它们的读写访问器
@@ -538,6 +577,11 @@
                     // 递归调用 addChildToParent。
                     childList: [],
                     treeParent: null,
+                    // Flash 的 EventDispatcher 登记表（addEventListener /
+                    // removeEventListener）。Akari 用 canvas 上的 "enterFrame"
+                    // 监听驱动整幅画面的每帧更新。注意它挂在**元素自身**上，
+                    // 不是 props（props 是变换/样式属性表）。
+                    eventListeners: {},
                     ownerItem: null,
                     expired: false,
                     // 逐属性记脏：元素被整体标脏（例如 insertItem 时）后，
@@ -576,23 +620,62 @@
                     motion: null
                 };
 
-                var names = ["x", "y", "z", "alpha", "scaleX", "scaleY",
+                var names = ["x", "y", "z", "alpha", "scaleX", "scaleY", "scaleZ",
                     "rotation", "rotationX", "rotationY", "rotationZ",
-                    "visible", "matrix", "filters"];
+                    "visible", "matrix", "filters", "blendMode", "scrollRect", "mask", "name"];
                 for (var index = 0; index < names.length; index++) {
                     Object.defineProperty(element, names[index], propertyDescriptor(names[index]));
                 }
 
+                // transform 命名空间：脚本里 22 次访问，必须挂在元素自身上。
+                // `.matrix` 与已有 props.matrix 是同一个对象（不另起一套），
+                // `.matrix3D` / `.colorTransform` 只存储，`.perspectiveProjection`
+                // 返回 Flash 默认值的纯数据对象。
+                Object.defineProperty(element, "transform", {
+                    configurable: true,
+                    enumerable: false,
+                    get: function () {
+                        if (!element.transformValue) {
+                            // 懒创建，所以在这里单独藏一次（否则它会成为可枚举字段，
+                            // 脚本的 foreach 就能看到它 → Factory.clone 又会走偏）。
+                            Object.defineProperty(element, "transformValue", {
+                                configurable: true,
+                                enumerable: false,
+                                writable: true,
+                                value: createElementTransform(element)
+                            });
+                        }
+
+                        return element.transformValue;
+                    }
+                });
+
                 // M8 元素 API：remove / setStyle 与 parent / children 访问器。
                 attachElementApi(element);
                 defineTreeProperties(element);
+                attachDisplayListApi(element);
+                hideElementInternals(element);
                 return element;
             }
 
             function setPropertyInternal(element, name, value, markDirty) {
                 var props = element.props;
+                // matrix 归一成「带方法的矩阵对象」：脚本会走
+                // `mx = el.transform.matrix; mx.identity();` 这种取出→原地改的写法，
+                // 拿到的必须是同一份对象、且带 Flash Matrix 的方法。
+                if (name === "matrix") {
+                    value = normalizeMatrixObject(value);
+                }
+
                 if (props[name] === value) {
                     return false;
+                }
+
+                // 元素级遮罩要记引用计数：被当作遮罩的元件自己不再绘制
+                // （Flash 里遮罩对象不参与渲染），计数为 0 时才恢复绘制。
+                if (name === "mask") {
+                    releaseMaskReference(props.mask);
+                    retainMaskReference(value);
                 }
 
                 props[name] = value;
@@ -768,9 +851,12 @@
             // 未知属性按内容类处理：宁可多重建一次，也不能让脚本改了内容却看不到。
             var TRANSFORM_ONLY_KEYS = {
                 x: true, y: true, z: true,
-                alpha: true, scaleX: true, scaleY: true,
+                alpha: true, scaleX: true, scaleY: true, scaleZ: true,
                 rotation: true, rotationX: true, rotationY: true, rotationZ: true,
-                matrix: true, visible: true, filters: true
+                matrix: true, visible: true, filters: true,
+                // 合成/裁剪类：改变的是「怎么画上去」，不是元素自己的位图内容，
+                // 因此复用位图缓存，只把该元素标脏重合成（Flash 的 blendMode 与 mask）。
+                blendMode: true, mask: true, scrollRect: true
             };
 
             // 脚本直接给元素属性赋值（例如先建元素再设 text 之外的内容属性）走这里。
@@ -1705,12 +1791,39 @@
                     return result;
                 }
 
-                var names = ["x", "y", "z", "scaleX", "scaleY", "rotation", "alpha"];
+                var names = ["x", "y", "z", "scaleX", "scaleY", "scaleZ",
+                    "rotation", "rotationX", "rotationY", "rotationZ", "alpha"];
                 for (var index = 0; index < names.length; index++) {
                     var name = names[index];
                     if (style[name] !== undefined && style[name] !== null) {
                         result[name] = toFiniteNumber(style[name], result[name]);
                     }
+                }
+
+                // 非数值的创建参数：Flash DisplayObject 的混合模式与裁剪面也要能从
+                // 创建参数直接给（`$.createShape({blendMode: "add"})`）。
+                if (typeof style.blendMode === "string" && style.blendMode) {
+                    result.blendMode = style.blendMode;
+                }
+
+                if (style.name !== undefined && style.name !== null) {
+                    result.name = String(style.name);
+                }
+
+                if (style.scrollRect !== undefined) {
+                    result.scrollRect = style.scrollRect;
+                }
+
+                if (style.matrix !== undefined && style.matrix !== null) {
+                    result.matrix = style.matrix;
+                }
+
+                if (style.filters !== undefined) {
+                    result.filters = style.filters;
+                }
+
+                if (style.mask !== undefined && style.mask !== null) {
+                    result.mask = style.mask;
                 }
 
                 if (style.scale !== undefined && style.scale !== null) {
@@ -1855,6 +1968,421 @@
                 return element;
             }
 
+            // 把元素的所有自有属性设为**不可枚举**。
+            //
+            // 这一条是让真实 M8 脚本能跑的关键（entry_08 踩出来的）：Flash 里
+            // 显示对象的属性与方法都挂在原型上，脚本用 `foreach(obj, fn)` 或
+            // `for (k in obj)` 遍历一个显示对象时**一个属性都拿不到**；
+            // Akari 的 Factory.clone 正是靠这个分叉——`countProperties === 0`
+            // 时才走「新建 $.createCanvas 再逐个拷贝显示属性」那条正确路径。
+            //
+            // 本宿主的元素是普通对象，内部字段（props / childList / treeParent /
+            // ownerItem / motion / cacheCanvas …）全在自身上且互相成环
+            // （treeParent ↔ childList ↔ ownerItem ↔ motion.handle.elements），
+            // 可枚举的话脚本的 foreach 会顺着环无限递归（实测：
+            // RangeError: Maximum call stack size exceeded）。
+            //
+            // 注意：不可枚举**不影响** hasOwnProperty —— 脚本用
+            // `object.hasOwnProperty("numChildren")` 判断「是不是显示对象」照旧成立。
+            // 给元素加一个「脚本不该看见」的字段（不可枚举）。懒创建的字段必须走它，
+            // 否则脚本的 foreach / for-in 能枚举到，Akari 的 Factory.clone 会走偏。
+            function defineHiddenValue(element, name, value) {
+                Object.defineProperty(element, name, {
+                    configurable: true,
+                    enumerable: false,
+                    writable: true,
+                    value: value
+                });
+            }
+
+            function hideElementInternals(element) {
+                var names = Object.getOwnPropertyNames(element);
+                for (var index = 0; index < names.length; index++) {
+                    var descriptor = Object.getOwnPropertyDescriptor(element, names[index]);
+                    if (!descriptor || descriptor.enumerable === false) {
+                        continue;
+                    }
+
+                    descriptor.enumerable = false;
+                    Object.defineProperty(element, names[index], descriptor);
+                }
+
+                return element;
+            }
+
+            // ---- Flash 的 Event.ENTER_FRAME ----
+            //
+            // Akari 的 Composition.present() 是 `this.canvas.addEventListener(
+            // "enterFrame", frameFunction)`，整幅画面的每帧更新就挂在这上面——
+            // 没有它 entry_10 只建树不渲染。
+            //
+            // 监听表按条目存（item.frameListeners），随条目回收一起清掉；
+            // 派发在 advanceItem 里，与补间推进同一条每帧路径。
+            function registerItemFrameListener(element, listener) {
+                var item = element.ownerItem || currentItem();
+                if (!item) {
+                    return;
+                }
+
+                if (!item.frameListeners) {
+                    item.frameListeners = [];
+                }
+
+                item.frameListeners.push({ element: element, listener: listener });
+            }
+
+            function unregisterItemFrameListener(element, listener) {
+                var item = element.ownerItem || currentItem();
+                if (!item || !item.frameListeners) {
+                    return;
+                }
+
+                for (var index = item.frameListeners.length - 1; index >= 0; index--) {
+                    var entry = item.frameListeners[index];
+                    if (entry.element === element && entry.listener === listener) {
+                        item.frameListeners.splice(index, 1);
+                    }
+                }
+            }
+
+            // 每帧派发 enterFrame。单个监听器抛错只摘掉它自己，不影响其它监听器与整帧。
+            function dispatchItemEnterFrame(item) {
+                var listeners = item.frameListeners;
+                if (!listeners || listeners.length === 0) {
+                    return;
+                }
+
+                for (var index = listeners.length - 1; index >= 0; index--) {
+                    var entry = listeners[index];
+                    if (entry.element.expired) {
+                        listeners.splice(index, 1);
+                        continue;
+                    }
+
+                    var previous = activeItem;
+                    activeItem = item;
+                    try {
+                        entry.listener.call(entry.element, { type: "enterFrame" });
+                    } catch (error) {
+                        listeners.splice(index, 1);
+                        if (!recoverItemFromCallbackError(item, error)) {
+                            reportRuntimeError(error, item.model.id);
+                        }
+
+                        // 补救会整条重跑（监听表已重建），这一轮不要再往下走。
+                        return;
+                    } finally {
+                        activeItem = previous;
+                        item.createParent = null;
+                    }
+                }
+
+                dirty = true;
+            }
+
+            // ---- Flash DisplayObject 的显示列表 / 变换 / 混合模式 ----
+
+            // 遮罩引用计数：被当作遮罩的元件不参与绘制（Flash 语义）。
+            // 计数而不是布尔：同一个元件可能同时是多个元素/层级的遮罩。
+            function retainMaskReference(maskElement) {
+                if (!maskElement || !maskElement.kind) {
+                    return;
+                }
+
+                defineHiddenValue(maskElement, "maskUseCount", (maskElement.maskUseCount || 0) + 1);
+            }
+
+            function releaseMaskReference(maskElement) {
+                if (!maskElement || !maskElement.kind) {
+                    return;
+                }
+
+                defineHiddenValue(
+                    maskElement,
+                    "maskUseCount",
+                    Math.max(0, (maskElement.maskUseCount || 0) - 1));
+            }
+
+            function isUsedAsMask(element) {
+                return (element.maskUseCount || 0) > 0;
+            }
+
+            // Flash 的 BlendMode → canvas globalCompositeOperation。
+            // 未知值一律退回 normal（不抛错）——脚本里的取值集合远大于 canvas 能表达的。
+            var BLEND_MODE_COMPOSITES = {
+                normal: "source-over",
+                layer: "source-over",
+                alpha: "source-over",
+                darken: "darken",
+                multiply: "multiply",
+                lighten: "lighten",
+                screen: "screen",
+                overlay: "overlay",
+                difference: "difference",
+                subtract: "difference",
+                add: "lighter",
+                hardlight: "hard-light",
+                hardLight: "hard-light",
+                colordodge: "color-dodge",
+                colorDodge: "color-dodge",
+                colorburn: "color-burn",
+                colorBurn: "color-burn",
+                exclusion: "exclusion",
+                hue: "hue",
+                saturation: "saturation",
+                color: "color",
+                luminosity: "luminosity"
+            };
+
+            function blendModeToComposite(value) {
+                if (typeof value !== "string") {
+                    return "source-over";
+                }
+
+                return BLEND_MODE_COMPOSITES[value] || "source-over";
+            }
+
+            // 元素级遮罩：Flash 的 `被遮罩元素.mask = 遮罩元素`。
+            //
+            // 作用域是**被遮罩元素自己（含子树）**，不是整块画布——这是它与
+            // Player.setMask（播放器级、整块画布）的关键区别。
+            //
+            // 实现要点：这里不能用「save → 施加遮罩元件的变换 → clip → restore」，
+            // 因为 restore 会把刚建立的裁剪一起去掉（canvas 的裁剪区在状态栈里）。
+            // 而且 blitElement 的调用方可能已经压了变换。所以改为**把遮罩元件的
+            // 变换烘进路径坐标**：用 maskLocalToParent 把遮罩元件的每个点换算到
+            // 它所在的父子空间，再用当前（父）坐标系直接 clip。
+            function applyElementMaskClip(target, element) {
+                var masker = element.props.mask;
+                if (!masker || masker.expired || masker.props.visible === false) {
+                    return false;
+                }
+
+                var map = createMaskPointMapper(masker);
+                if (!traceElementClipPath(target, masker, map)) {
+                    return false;
+                }
+
+                target.clip();
+                return true;
+            }
+
+            // 遮罩元件的局部坐标 → 父坐标（与 applyElementTransform 同序：
+            // 缩放 → matrix → 旋转 → 平移）。
+            function createMaskPointMapper(masker) {
+                var props = masker.props;
+                var scaleX = toFiniteNumber(props.scaleX, 1);
+                var scaleY = toFiniteNumber(props.scaleY, 1);
+                var matrix = props.matrix;
+                var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
+                var cos = Math.cos(rotation);
+                var sin = Math.sin(rotation);
+                var offsetX = toFiniteNumber(props.x, 0);
+                var offsetY = toFiniteNumber(props.y, 0);
+                var hasMatrix = !!matrix && typeof matrix === "object";
+                return function (x, y) {
+                    var px = x * scaleX;
+                    var py = y * scaleY;
+                    if (hasMatrix) {
+                        var mx = px * toFiniteNumber(matrix.a, 1) + py * toFiniteNumber(matrix.c, 0)
+                            + toFiniteNumber(matrix.tx, 0);
+                        var my = px * toFiniteNumber(matrix.b, 0) + py * toFiniteNumber(matrix.d, 1)
+                            + toFiniteNumber(matrix.ty, 0);
+                        px = mx;
+                        py = my;
+                    }
+
+                    if (rotation) {
+                        var rx = px * cos - py * sin;
+                        var ry = px * sin + py * cos;
+                        px = rx;
+                        py = ry;
+                    }
+
+                    return { x: px + offsetX, y: py + offsetY };
+                };
+            }
+
+            // Flash 的 DisplayObjectContainer 显示列表查询。
+            // 注意 numChildren 必须是元素自己的 **own property**：
+            // entry_08 用 `object.hasOwnProperty("numChildren")` 判断「这是不是一个
+            // 显示对象」，定义在原型/外部对象上会被判成非显示对象、整条克隆路径走偏。
+            function attachDisplayListApi(element) {
+                Object.defineProperty(element, "numChildren", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.childList.length;
+                    }
+                });
+
+                element.getChildAt = function (index) {
+                    var position = Math.floor(toFiniteNumber(index, -1));
+                    // Flash 越界会抛 RangeError；脚本里都是按 numChildren 正常遍历，
+                    // 这里返回 null 而不是抛错，坏索引不至于毁掉整条脚本。
+                    return position >= 0 && position < element.childList.length
+                        ? element.childList[position]
+                        : null;
+                };
+
+                element.getChildIndex = function (child) {
+                    return element.childList.indexOf(child);
+                };
+
+                element.setChildIndex = function (child, index) {
+                    var from = element.childList.indexOf(child);
+                    if (from < 0) {
+                        return;
+                    }
+
+                    var to = Math.floor(toFiniteNumber(index, from));
+                    if (to < 0 || to >= element.childList.length) {
+                        return;
+                    }
+
+                    element.childList.splice(from, 1);
+                    element.childList.splice(to, 0, child);
+                    element.compositeDirty = true;
+                    dirty = true;
+                };
+
+                element.getChildByName = function (name) {
+                    for (var index = 0; index < element.childList.length; index++) {
+                        if (element.childList[index].name === name) {
+                            return element.childList[index];
+                        }
+                    }
+
+                    return null;
+                };
+
+                element.contains = function (child) {
+                    var current = child;
+                    while (current) {
+                        if (current === element) {
+                            return true;
+                        }
+
+                        current = current.treeParent;
+                    }
+
+                    return false;
+                };
+
+                element.swapChildren = function (left, right) {
+                    var leftIndex = element.childList.indexOf(left);
+                    var rightIndex = element.childList.indexOf(right);
+                    if (leftIndex < 0 || rightIndex < 0) {
+                        return;
+                    }
+
+                    element.childList[leftIndex] = right;
+                    element.childList[rightIndex] = left;
+                    element.compositeDirty = true;
+                    dirty = true;
+                };
+
+                // addChild / addChildAt / removeChild / removeChildAt：显示列表的写操作。
+                element.addChild = function (child) {
+                    return addChildToParent(child, element);
+                };
+
+                element.addChildAt = function (child, index) {
+                    addChildToParent(child, element);
+                    var position = Math.floor(toFiniteNumber(index, 0));
+                    var current = element.childList.indexOf(child);
+                    if (current >= 0 && position >= 0 && position < element.childList.length - 1) {
+                        element.childList.splice(current, 1);
+                        element.childList.splice(position, 0, child);
+                        element.compositeDirty = true;
+                        dirty = true;
+                    }
+
+                    return child;
+                };
+
+                element.removeChild = function (child) {
+                    return removeChildFromParent(child);
+                };
+
+                element.removeChildAt = function (index) {
+                    var child = element.getChildAt(index);
+                    return child ? removeChildFromParent(child) : null;
+                };
+
+                // Flash 的 EventDispatcher：DisplayObject 可以挂监听。
+                // 本宿主只真正派发 "enterFrame"（见 dispatchItemEnterFrame），
+                // 其余事件类型登记了也不会被派发（不抛错）。
+                element.addEventListener = function (type, listener) {
+                    if (typeof listener !== "function" || !type) {
+                        return;
+                    }
+
+                    var bucket = element.eventListeners[type];
+                    if (!bucket) {
+                        bucket = [];
+                        element.eventListeners[type] = bucket;
+                    }
+
+                    if (bucket.indexOf(listener) < 0) {
+                        bucket.push(listener);
+                    }
+
+                    if (type === "enterFrame") {
+                        registerItemFrameListener(element, listener);
+                    }
+                };
+
+                element.removeEventListener = function (type, listener) {
+                    var bucket = element.eventListeners[type];
+                    if (!bucket) {
+                        return;
+                    }
+
+                    var index = bucket.indexOf(listener);
+                    if (index >= 0) {
+                        bucket.splice(index, 1);
+                    }
+
+                    if (type === "enterFrame") {
+                        unregisterItemFrameListener(element, listener);
+                    }
+                };
+
+                element.hasEventListener = function (type) {
+                    var bucket = element.eventListeners[type];
+                    return !!bucket && bucket.length > 0;
+                };
+
+                element.dispatchEvent = function (event) {
+                    var type = event && event.type ? event.type : String(event);
+                    var bucket = element.eventListeners[type];
+                    if (!bucket) {
+                        return true;
+                    }
+
+                    for (var index = 0; index < bucket.length; index++) {
+                        bucket[index].call(element, event);
+                    }
+
+                    return true;
+                };
+
+                element.removeAllChildren = function () {
+                    while (element.childList.length > 0) {
+                        removeChildFromParent(element.childList[element.childList.length - 1]);
+                    }
+                };
+
+                return element;
+            }
+
+            // 脚本读回来的 blendMode 必须是它自己写进去的那个值（entry_08 在
+            // 图层之间互相拷贝 blendMode），所以存储原样保留、只在绘制时映射。
+            function applyElementBlendMode(target, element) {
+                target.globalCompositeOperation = blendModeToComposite(element.props.blendMode);
+            }
+
             // M8 的 parent / children 是普通可写成员：赋值即换父节点。
             function defineTreeProperties(element) {
                 Object.defineProperty(element, "parent", {
@@ -1980,6 +2508,40 @@
                     endFill: function () {
                         graphics.__fill = null;
                     },
+                    // Flash 的 beginGradientFill(type, colors, alphas, ratios,
+                    // matrix, spreadMethod, interpolationMethod, focalPointRatio)。
+                    // type 为 "radial" 时按径向，其余按线性（Flash 只认 linear/radial）。
+                    // spreadMethod / interpolationMethod / focalPointRatio 本宿主
+                    // 未参与计算（canvas 的渐变不支持 spread，见文档 §3 的已知近似）。
+                    beginGradientFill: function (type, colors, alphas, ratios, matrix) {
+                        graphics.__fill = {
+                            color: 0,
+                            alpha: 1,
+                            gradient: {
+                                type: type === "radial" ? "radial" : "linear",
+                                colors: colors,
+                                alphas: alphas,
+                                ratios: ratios,
+                                box: matrix && matrix.gradientBox ? matrix.gradientBox : null
+                            }
+                        };
+                    },
+                    // Flash 的 lineGradientStyle：与 lineStyle 配对使用（先 lineStyle
+                    // 启用笔触，再换成渐变）。参数与 beginGradientFill 一致。
+                    lineGradientStyle: function (type, colors, alphas, ratios, matrix) {
+                        graphics.__line = {
+                            width: graphics.__line ? graphics.__line.width : 1,
+                            color: 0,
+                            alpha: 1,
+                            gradient: {
+                                type: type === "radial" ? "radial" : "linear",
+                                colors: colors,
+                                alphas: alphas,
+                                ratios: ratios,
+                                box: matrix && matrix.gradientBox ? matrix.gradientBox : null
+                            }
+                        };
+                    },
                     lineStyle: function (thickness, color, alpha) {
                         graphics.__line = {
                             width: toFiniteNumber(thickness, 1),
@@ -2087,13 +2649,67 @@
                             line: graphics.__line
                         });
                     },
-                    // Flash 的 drawGraphicsData / drawPath 依赖完整路径数据模型，
-                    // 当前只覆盖常用图元，遇到未支持的调用显式报错而不是静默画错。
+                    // Flash 的 Graphics.drawPath(commands, data, winding)。
+                    // 复用 moveTo / lineTo / curveTo 的路径模型，因此描边、填充与
+                    // 包围盒计算全都自动生效（元素级遮罩的路径描摹也认这条路径）。
+                    //
+                    // 命令码按 Flash：1 MOVE_TO / 2 LINE_TO / 3 CURVE_TO(二次) /
+                    // 4 WIDE_MOVE_TO / 5 WIDE_LINE_TO / 6 CUBIC_CURVE_TO。
+                    // 6 号（三次曲线）本宿主的路径只表达二次曲线，取第一个控制点近似
+                    // （见文档 §3 的已知近似）；其余命令码忽略该段、不抛错。
+                    drawPath: function (commands, data) {
+                        if (!commands || !data) {
+                            return;
+                        }
+
+                        var dataIndex = 0;
+                        for (var index = 0; index < commands.length; index++) {
+                            switch (commands[index]) {
+                                case 1:
+                                case 4:
+                                    graphics.moveTo(data[dataIndex], data[dataIndex + 1]);
+                                    dataIndex += 2;
+                                    break;
+                                case 2:
+                                case 5:
+                                    // 没有前置 MOVE_TO 时，Flash 把首个 LINE_TO 当起点。
+                                    if (!graphics.__path || graphics.__path.kind !== "poly") {
+                                        graphics.moveTo(data[dataIndex], data[dataIndex + 1]);
+                                    } else {
+                                        graphics.lineTo(data[dataIndex], data[dataIndex + 1]);
+                                    }
+
+                                    dataIndex += 2;
+                                    break;
+                                case 3:
+                                    graphics.curveTo(
+                                        data[dataIndex],
+                                        data[dataIndex + 1],
+                                        data[dataIndex + 2],
+                                        data[dataIndex + 3]);
+                                    dataIndex += 4;
+                                    break;
+                                case 6:
+                                    graphics.curveTo(
+                                        data[dataIndex],
+                                        data[dataIndex + 1],
+                                        data[dataIndex + 4],
+                                        data[dataIndex + 5]);
+                                    dataIndex += 6;
+                                    break;
+                                default:
+                                    break;
+                            }
+                        }
+
+                        element.propertyDirty["*"] = true;
+                        scheduleElementCache(element);
+                    },
+                    // drawGraphicsData 需要完整的 IGraphicsData 对象模型（IGraphicsPath /
+                    // IGraphicsStroke / IGraphicsSolidFill …），两条真实脚本里 0 次使用，
+                    // 保持显式报错而不是静默画错。
                     drawGraphicsData: function () {
                         throw new Error("drawGraphicsData 尚未支持");
-                    },
-                    drawPath: function () {
-                        throw new Error("drawPath 尚未支持");
                     }
                 };
                 return graphics;
@@ -2109,6 +2725,8 @@
                 element.shapeItems = [];
                 element.graphics = createGraphics(element);
                 element.autoCached = true;
+                // 构造期后加的字段也要不可枚举（脚本用 foreach/hasOwnProperty 探测显示对象）。
+                hideElementInternals(element);
                 return element;
             }
 
@@ -2122,6 +2740,8 @@
                 defineContentProperties(element);
                 applyInitialValues(element, normalizeStyle(style));
                 element.autoCached = true;
+                // 构造期后加的字段也要不可枚举（脚本用 foreach/hasOwnProperty 探测显示对象）。
+                hideElementInternals(element);
                 return element;
             }
 
@@ -2166,6 +2786,8 @@
                 defineContentProperties(element);
 
                 loadImageElement(element);
+                // 构造期后加的字段也要不可枚举（脚本用 foreach/hasOwnProperty 探测显示对象）。
+                hideElementInternals(element);
                 return element;
             }
 
@@ -2425,15 +3047,87 @@
 
             function applyStrokeStyle(target, line) {
                 target.lineWidth = Math.max(0.1, line.width);
-                target.strokeStyle = "rgba(" + ((line.color >> 16) & 0xFF) + ","
-                    + ((line.color >> 8) & 0xFF) + ","
-                    + (line.color & 0xFF) + "," + line.alpha + ")";
+                if (line.gradient) {
+                    var gradient = createCanvasGradient(target, line.gradient);
+                    if (gradient) {
+                        target.strokeStyle = gradient;
+                        return;
+                    }
+                }
+
+                target.strokeStyle = rgbaCss(line.color, line.alpha);
+            }
+
+            function rgbaCss(color, alpha) {
+                return "rgba(" + ((color >> 16) & 0xFF) + ","
+                    + ((color >> 8) & 0xFF) + ","
+                    + (color & 0xFF) + "," + alpha + ")";
+            }
+
+            // 渐变填充：Flash 的 beginGradientFill 用「渐变框矩阵」定义颜色分布，
+            // 这里换算成 canvas 的 createLinearGradient / createRadialGradient。
+            // 渐变框（createGradientBox(w, h, rotation, tx, ty)）左边缘到右边缘
+            // 是颜色轴，中心在 (tx + w/2, ty + h/2)。
+            function createCanvasGradient(target, gradient) {
+                var box = gradient.box || { width: 0, height: 0, rotation: 0, tx: 0, ty: 0 };
+                var width = toFiniteNumber(box.width, 0);
+                var height = toFiniteNumber(box.height, 0);
+                var rotation = toFiniteNumber(box.rotation, 0);
+                var centerX = toFiniteNumber(box.tx, 0) + width / 2;
+                var centerY = toFiniteNumber(box.ty, 0) + height / 2;
+                var cos = Math.cos(rotation);
+                var sin = Math.sin(rotation);
+                var halfX = (width / 2) * cos;
+                var halfY = (width / 2) * sin;
+                var canvasGradient;
+                if (gradient.type === "radial") {
+                    // Flash 的径向渐变半径取渐变框宽度的一半（与矩形一致）。
+                    canvasGradient = target.createRadialGradient(
+                        centerX, centerY, 0, centerX, centerY, Math.abs(width) / 2);
+                } else {
+                    canvasGradient = target.createLinearGradient(
+                        centerX - halfX, centerY - halfY, centerX + halfX, centerY + halfY);
+                }
+
+                if (!canvasGradient) {
+                    return null;
+                }
+
+                var colors = gradient.colors || [];
+                var alphas = gradient.alphas || [];
+                var ratios = gradient.ratios || [];
+                for (var index = 0; index < colors.length; index++) {
+                    var ratio = toFiniteNumber(ratios[index], 0) / 255;
+                    if (ratio < 0) {
+                        ratio = 0;
+                    }
+
+                    if (ratio > 1) {
+                        ratio = 1;
+                    }
+
+                    var alpha = alphas.length > index ? toFiniteNumber(alphas[index], 1) : 1;
+                    canvasGradient.addColorStop(
+                        ratio,
+                        rgbaCss(normalizeColor(colors[index]),
+                            Math.max(0, Math.min(1, alpha))));
+                }
+
+                return canvasGradient;
             }
 
             function applyFillStyle(target, fill) {
-                target.fillStyle = "rgba(" + ((fill.color >> 16) & 0xFF) + ","
-                    + ((fill.color >> 8) & 0xFF) + ","
-                    + (fill.color & 0xFF) + "," + fill.alpha + ")";
+                // 渐变填充：fill.gradient 非空时优先（与 Flash 的 beginFill /
+                // beginGradientFill 二选一语义一致）。
+                if (fill.gradient) {
+                    var gradient = createCanvasGradient(target, fill.gradient);
+                    if (gradient) {
+                        target.fillStyle = gradient;
+                        return;
+                    }
+                }
+
+                target.fillStyle = rgbaCss(fill.color, fill.alpha);
             }
 
             function tracePolygon(target, path, offsetX, offsetY) {
@@ -2902,6 +3596,11 @@
                     return;
                 }
 
+                // 被当作遮罩的元件自己不参与渲染（Flash 语义：遮罩对象不绘制）。
+                if (isUsedAsMask(element)) {
+                    return;
+                }
+
                 if (element.childList.length > 0) {
                     if (!element.composite) {
                         rebuildComposite(element);
@@ -2912,7 +3611,9 @@
                     }
 
                     target.save();
+                    applyElementMaskClip(target, element);
                     applyElementTransform(target, element);
+                    applyElementBlendMode(target, element);
                     var compositeBoundsValue = element.compositeBounds || {
                         x: 0,
                         y: 0,
@@ -2931,7 +3632,9 @@
 
                 if (element.kind === "layer") {
                     target.save();
+                    applyElementMaskClip(target, element);
                     applyElementTransform(target, element);
+                    applyElementBlendMode(target, element);
                     target.drawImage(element.layerCanvas, 0, 0, element.layerWidth, element.layerHeight);
                     target.restore();
                     return;
@@ -2946,7 +3649,9 @@
                 }
 
                 target.save();
+                applyElementMaskClip(target, element);
                 applyElementTransform(target, element);
+                applyElementBlendMode(target, element);
                 target.drawImage(
                     element.cacheCanvas,
                     element.cacheBounds.x,
@@ -3007,6 +3712,12 @@
             // clearEl 只摘元素（元素的 tween 与定时器随之失效），不重置整个条目。
             function clearItemElements(item) {
                 for (var index = item.elements.length - 1; index >= 0; index--) {
+                    // 被 ScriptManager.popEl() 标记过的元件不清（M8 语义：
+                    // popEl 就是「从自动清理表里弹出」）。
+                    if (item.elements[index].exemptFromClear) {
+                        continue;
+                    }
+
                     releaseItemElement(item, index);
                 }
 
@@ -3117,7 +3828,9 @@
                 } catch (error) {
                     // 回调抛错只摘掉这一个触发器，不影响其它触发器与整帧。
                     removeTrigger(item, trigger);
-                    reportRuntimeError(error, item.model.id);
+                    if (!recoverItemFromCallbackError(item, error)) {
+                        reportRuntimeError(error, item.model.id);
+                    }
                 } finally {
                     activeItem = previous;
                     item.createParent = null;
@@ -3189,28 +3902,138 @@
                 clearItemTimers(item);
                 clearItemTriggers(item);
                 // 脚本在这里、也只在这里执行一次。之后每帧只推进 tween。
+                // 计数按「一次激活」算一次，重试用的是同一次激活里的重跑（见下）。
                 item.runCount++;
                 totalRunCount++;
-                try {
-                    var scriptArgs = createScriptScope(item);
-                    activeItem = item;
-                    item.run.apply(null, scriptArgs);
-                } catch (error) {
-                    if (error === STOP_EXECUTION_SIGNAL) {
-                        // 脚本自己调了 stopExecution()：正常终止，不计为错误。
-                        item.removed = false;
-                    } else {
-                        // 脚本自己抛错：该条目停用（不再推进它的补间），
-                        // 但不影响同一帧里其它条目的渲染。
-                        item.failed = true;
-                        reportRuntimeError(error, item.model.id);
+                runItemScriptWithAvm1Scope(item);
+            }
+
+            // 执行脚本正文；遇到「读未声明变量」抛 ReferenceError 时按 AVM1
+            // （Flash 8 / AS2）的宽容语义补救：**把那个标识符声明到脚本全局对象上
+            // 并置为 undefined**，然后重跑本条脚本。
+            //
+            // 为什么要这一层：M8 脚本是 AS2 时代写给 AVM1 的，那里读未声明变量得到
+            // undefined、不抛错。真实样本里 `update:function(time){if(time <
+            // startTime)...}` 的 startTime / duration 就是**翻译时丢掉的 var**——
+            // AVM1 下它们读成 undefined（比较恒为 false，正文照跑），JS 下直接
+            // ReferenceError，整条脚本停摆。
+            //
+            // 为什么修在全局对象上而不是补脚本形参：这些闭包可能**不是本条脚本创建的**。
+            // entry_10 抛错的那处 `update` 定义在 entry_08 的 Akari 库里，
+            // 它的作用域链早在 entry_08 执行时就定死了——给 entry_10 的编译结果
+            // 加形参救不了它。标识符解析对「未绑定名」是每次访问都回落到全局对象上查的，
+            // 所以只要在全局对象上把名字补出来，**已经建好的闭包也会立刻恢复正常**。
+            //
+            // 安全性：只声明「已被 ReferenceError 证明不存在」的名字，因此绝不会遮蔽
+            // 任何真实存在的名字——脚本自己声明的、或像 entry_10 那样用
+            // `Factory.extend(this, …)` 导出到全局对象上的，都照旧解析。
+            // 不做任何静态分析，也不动作用域链（不用 with）。
+            function runItemScriptWithAvm1Scope(item) {
+                for (var attempt = 0; attempt <= MAX_AVM1_SCOPE_RETRIES; attempt++) {
+                    try {
+                        var scriptArgs = createScriptScope(item);
+                        activeItem = item;
+                        item.run.apply(null, scriptArgs);
+                        return;
+                    } catch (error) {
+                        if (error === STOP_EXECUTION_SIGNAL) {
+                            // 脚本自己调了 stopExecution()：正常终止，不计为错误。
+                            item.removed = false;
+                            return;
+                        }
+
+                        if (!declareAvm1GlobalIfUndeclared(error)) {
+                            // 不是「未声明变量」这类错误，或已经修不动了：按脚本自身
+                            // 的失败处理（停用该条目，不影响同帧其它条目）。
+                            item.failed = true;
+                            reportRuntimeError(error, item.model.id);
+                            return;
+                        }
+
+                        // 上一次跑出来的元件、定时器、触发器全部作废：脚本会被完整
+                        // 重跑一遍，留着会变成两份（与 seek 重建同一条清理路径）。
+                        releaseItemForRerun(item);
+                    } finally {
+                        activeItem = null;
+                        // clearEl / clearTimer 之类的清理要发生在脚本执行之后、
+                        // 下一帧推进之前，否则被清掉的元素还会被推进一帧。
+                        item.createParent = null;
                     }
-                } finally {
-                    activeItem = null;
-                    // clearEl / clearTimer 之类的清理要发生在脚本执行之后、
-                    // 下一帧推进之前，否则被清掉的元素还会被推进一帧。
-                    item.createParent = null;
                 }
+            }
+
+            // 已按 AVM1 语义补出来的全局名（跨条目共享：同一个名字只需补一次，
+            // 补完对所有条目的闭包都生效）。
+            var avm1DeclaredGlobals = {};
+
+            // 从错误里认出「读未声明变量」，把该名字声明到全局对象上。
+            // 返回 true 表示已经补救（调用方应清理并重跑）。
+            function declareAvm1GlobalIfUndeclared(error) {
+                var missingName = readUndeclaredIdentifier(error);
+                if (missingName === null || INJECTED_SCRIPT_NAMES[missingName]) {
+                    return false;
+                }
+
+                if (avm1DeclaredGlobals[missingName]
+                    || Object.prototype.hasOwnProperty.call(window, missingName)) {
+                    // 已经补过了／其实存在：说明不是「未声明」这一个原因，别再兜圈子。
+                    return false;
+                }
+
+                avm1DeclaredGlobals[missingName] = true;
+                // 声明在脚本全局对象上，值与 AVM1 一致：undefined。
+                window[missingName] = undefined;
+                return true;
+            }
+
+            // 定时器 / 触发器回调里抛出的错误：与脚本正文走同一套 AVM1 补救。
+            //
+            // 为什么回调也要管：entry_10 的 `startTime` 不是正文里读的，而是正文建立的
+            // interval 回调里读的（`composition.update(Player.time)`）。只补正文的话
+            // 正文跑过了、回调一触发还是 ReferenceError。
+            //
+            // 补救方式只能是「补绑 → 重编译 → 整条脚本重跑」：闭包是在重跑时新建的，
+            // 新闭包才会带上补绑的形参。返回 true 表示已经补救（调用方应停止处理该错误）。
+            function recoverItemFromCallbackError(item, error) {
+                if (!declareAvm1GlobalIfUndeclared(error)) {
+                    return false;
+                }
+
+                // 补完全局还不够：抛错的那个回调所属的定时器已经停了、
+                // 半截状态也要清掉，所以把本条脚本完整重跑一遍。
+                releaseItemForRerun(item);
+                runItemScriptWithAvm1Scope(item);
+                return true;
+            }
+
+            // 从 ReferenceError 里取出未声明的标识符名（V8 / JSC / SpiderMonkey 的文案）。
+            function readUndeclaredIdentifier(error) {
+                if (!error || !(error instanceof ReferenceError)) {
+                    return null;
+                }
+
+                var message = String(error.message || "");
+                var match = /^(?:can't find variable: |)?([A-Za-z_$][A-Za-z0-9_$]*) is not defined/.exec(message)
+                    || /^([A-Za-z_$][A-Za-z0-9_$]*) is not defined/.exec(message)
+                    || /^ReferenceError: ([A-Za-z_$][A-Za-z0-9_$]*) is not defined/.exec(message);
+                if (!match) {
+                    return null;
+                }
+
+                // 保留字不能当形参，直接放弃（脚本用保留字当变量名本身就是语法错误）。
+                return RESERVED_WORDS[match[1]] ? null : match[1];
+            }
+
+            // 重跑前的清理：与 deactivateItem 同一条释放路径，但不改 activated 状态。
+            function releaseItemForRerun(item) {
+                clearItemTimers(item);
+                clearItemTriggers(item);
+                item.frameListeners = [];
+                for (var index = item.elements.length - 1; index >= 0; index--) {
+                    releaseItemElement(item, index);
+                }
+
+                item.lastAdvanceMs = -1;
             }
 
             // 条目级失败：同一处只上报一次，之后逐帧跳过，避免每帧刷屏。
@@ -3238,6 +4061,7 @@
             function deactivateItem(item) {
                 item.activated = false;
                 item.removed = true;
+                item.frameListeners = [];
                 // 定时器必须随条目一起清掉：M8 用 ScriptManager.clearTimer 解决的
                 // 正是「条目销毁后 interval 还在跑」——这里由宿主兜底，脚本不必自己清。
                 clearItemTimers(item);
@@ -3270,6 +4094,10 @@
                 } finally {
                     activeItem = null;
                 }
+
+                // Flash 的 enterFrame 派发：Akari 的整幅画面更新挂在这里，
+                // 必须早于下面「推进补间 / 重绘脏元素」，否则本帧画的是旧状态。
+                dispatchItemEnterFrame(item);
 
                 try {
                     advanceItemHandles(item, delta);
@@ -3418,6 +4246,7 @@
                     // 整批作废同样要清定时器与句柄：条目被丢弃后它们不能再跑。
                     clearItemTimers(item);
                     clearItemTriggers(item);
+                    item.frameListeners = [];
                     for (var elementIndex = 0; elementIndex < item.elements.length; elementIndex++) {
                         releaseElementCaches(item.elements[elementIndex]);
                     }
@@ -3686,7 +4515,13 @@
             // 把元件的形状描进当前路径（只建路径，不填充不描边），供 clip() 使用。
             // 形状类元件按它自己的图元描；文本 / 图片 / 复合元件退化成它的外接矩形
             // （M8 里能用文本当遮罩，这里按矩形近似，见文档 §3 的说明）。
-            function traceElementClipPath(target, element) {
+            //
+            // map 是可选的「局部坐标 → 目标坐标」换算（缺省即恒等，表示当前
+            // 上下文的变换已经就位）。元素级遮罩传 createMaskPointMapper 的结果：
+            // 那条路径不能靠 canvas 的 save/restore 压变换（restore 会把裁剪一起
+            // 撤掉），所以把变换烘进坐标里。
+            function traceElementClipPath(target, element, map) {
+                var mapper = map || null;
                 var items = element.kind === "shape" ? element.shapeItems : null;
                 if (!items || items.length === 0) {
                     var bounds = elementLocalBounds(element);
@@ -3695,14 +4530,25 @@
                     }
 
                     target.beginPath();
-                    target.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+                    tracePolygonPoints(target, [
+                        mapper ? mapper(bounds.x, bounds.y) : { x: bounds.x, y: bounds.y },
+                        mapper
+                            ? mapper(bounds.x + bounds.width, bounds.y)
+                            : { x: bounds.x + bounds.width, y: bounds.y },
+                        mapper
+                            ? mapper(bounds.x + bounds.width, bounds.y + bounds.height)
+                            : { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+                        mapper
+                            ? mapper(bounds.x, bounds.y + bounds.height)
+                            : { x: bounds.x, y: bounds.y + bounds.height }
+                    ], true);
                     return true;
                 }
 
                 target.beginPath();
                 var traced = false;
                 for (var index = 0; index < items.length; index++) {
-                    if (traceShapeItemClipPath(target, items[index])) {
+                    if (traceShapeItemClipPath(target, items[index], mapper)) {
                         traced = true;
                     }
                 }
@@ -3710,8 +4556,41 @@
                 return traced;
             }
 
+            // 折线/多边形路径：points 已换算到目标坐标系。
+            function tracePolygonPoints(target, points, close) {
+                if (!points || points.length === 0) {
+                    return;
+                }
+
+                target.moveTo(points[0].x, points[0].y);
+                for (var index = 1; index < points.length; index++) {
+                    target.lineTo(points[index].x, points[index].y);
+                }
+
+                if (close) {
+                    target.closePath();
+                }
+            }
+
+            // 采样一条参数曲线成折线（圆/椭圆/扇形在有变换时不能直接用 arc）。
+            function traceSampledCurve(target, map, sampleCount, sampleFn) {
+                var points = [];
+                for (var index = 0; index <= sampleCount; index++) {
+                    var point = sampleFn(index / sampleCount);
+                    points.push(map ? map(point.x, point.y) : point);
+                }
+
+                tracePolygonPoints(target, points, true);
+            }
+
             // 与 drawShapeItem 的几何部分一一对应，只是不落笔。
-            function traceShapeItemClipPath(target, item) {
+            // mapper 非空时所有坐标都要先换算（见 traceElementClipPath 的说明）。
+            function traceShapeItemClipPath(target, item, mapper) {
+                var map = mapper || null;
+                var point = function (x, y) {
+                    return map ? map(x, y) : { x: x, y: y };
+                };
+
                 switch (item.kind) {
                     case "line":
                     case "fill":
@@ -3719,61 +4598,183 @@
                             return false;
                         }
 
-                        tracePolygon(target, item.path, 0, 0);
+                        var points = [];
+                        var pathIndex = 0;
+                        while (pathIndex < item.path.points.length) {
+                            points.push(point(
+                                item.path.points[pathIndex],
+                                item.path.points[pathIndex + 1]));
+                            pathIndex += 2;
+                        }
+
+                        tracePolygonPoints(target, points, false);
                         return true;
                     case "rect":
-                        target.rect(item.x, item.y, item.width, item.height);
+                        tracePolygonPoints(target, [
+                            point(item.x, item.y),
+                            point(item.x + item.width, item.y),
+                            point(item.x + item.width, item.y + item.height),
+                            point(item.x, item.y + item.height)
+                        ], true);
                         return true;
                     case "roundRect":
-                        roundedRectPath(
-                            target,
-                            item.x,
-                            item.y,
-                            item.width,
-                            item.height,
-                            item.rx,
-                            item.ry);
+                        // 圆角在含旋转/错切的变换下精确换算要拆成 4 段椭圆弧；
+                        // 遮罩用途下按外接矩形近似（四角差别见文档 §3 的已知近似）。
+                        tracePolygonPoints(target, [
+                            point(item.x, item.y),
+                            point(item.x + item.width, item.y),
+                            point(item.x + item.width, item.y + item.height),
+                            point(item.x, item.y + item.height)
+                        ], true);
                         return true;
                     case "circle":
-                        target.moveTo(item.x + Math.abs(item.radius), item.y);
-                        target.arc(item.x, item.y, Math.abs(item.radius), 0, Math.PI * 2);
+                        traceSampledCurve(target, map, 32, function (t) {
+                            var angle = t * Math.PI * 2;
+                            return {
+                                x: item.x + Math.cos(angle) * Math.abs(item.radius),
+                                y: item.y + Math.sin(angle) * Math.abs(item.radius)
+                            };
+                        });
                         return true;
                     case "ellipse":
-                        target.moveTo(item.x + Math.abs(item.width) / 2, item.y);
-                        target.ellipse(
-                            item.x,
-                            item.y,
-                            Math.abs(item.width) / 2,
-                            Math.abs(item.height) / 2,
-                            0,
-                            0,
-                            Math.PI * 2);
+                        traceSampledCurve(target, map, 32, function (t) {
+                            var angle = t * Math.PI * 2;
+                            return {
+                                x: item.x + Math.cos(angle) * Math.abs(item.width) / 2,
+                                y: item.y + Math.sin(angle) * Math.abs(item.height) / 2
+                            };
+                        });
                         return true;
                     case "wedge":
-                        target.moveTo(item.x, item.y);
-                        target.arc(item.x, item.y, Math.abs(item.radius), item.startAngle, item.startAngle + item.arc);
-                        target.closePath();
+                        var start = toFiniteNumber(item.startAngle, 0);
+                        var arc = toFiniteNumber(item.arc, 0);
+                        var wedgePoints = [point(item.x, item.y)];
+                        for (var step = 0; step <= 24; step++) {
+                            var wedgeAngle = start + arc * (step / 24);
+                            wedgePoints.push(point(
+                                item.x + Math.cos(wedgeAngle) * Math.abs(item.radius),
+                                item.y + Math.sin(wedgeAngle) * Math.abs(item.radius)));
+                        }
+
+                        tracePolygonPoints(target, wedgePoints, true);
                         return true;
                     case "polygon":
                         if (!item.points || item.points.length < 4) {
                             return false;
                         }
 
-                        target.moveTo(item.points[0], item.points[1]);
-                        var pointIndex = 2;
-                        while (pointIndex < item.points.length) {
-                            target.lineTo(item.points[pointIndex], item.points[pointIndex + 1]);
-                            pointIndex += 2;
+                        var polygonPoints = [];
+                        var polygonIndex = 0;
+                        while (polygonIndex < item.points.length) {
+                            polygonPoints.push(point(
+                                item.points[polygonIndex],
+                                item.points[polygonIndex + 1]));
+                            polygonIndex += 2;
                         }
 
-                        target.closePath();
+                        tracePolygonPoints(target, polygonPoints, true);
                         return true;
                     default:
                         return false;
                 }
             }
 
+            // 元素的 transform 命名空间（Flash DisplayObject.transform）。
+            function createElementTransform(element) {
+                var transform = {
+                    // perspectiveProjection 是纯数据对象；M8 的 clone() 明确不复制函数，
+                    // 脚本也是 clone 出来当数据读，所以给默认值的普通对象即可。
+                    perspectiveProjection: createPerspectiveProjection(),
+                    // 相对变换矩阵：脚本用它做 3D 深度排序。本宿主是 2D 合成，
+                    // 按「目标元件到自己」的累计 2D 变换（平移/缩放/旋转）拼出一个
+                    // Matrix3D——z 分量恒为 0，排序退化成稳定的层序（不报错、不崩），
+                    // 这正是 2D 画布下的正确近似（见文档 §3 的已知近似）。
+                    getRelativeMatrix3D: function (target) {
+                        return createMatrix3D(relativeMatrix3DData(element, target));
+                    }
+                };
+
+                Object.defineProperty(transform, "matrix", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        if (!element.props.matrix) {
+                            element.props.matrix = createPlaceholderMatrix();
+                        }
+
+                        return element.props.matrix;
+                    },
+                    set: function (value) {
+                        setPropertyInternal(element, "matrix", value, true);
+                        markPropertyDirty(element, "matrix");
+                        dirty = true;
+                    }
+                });
+
+                // matrix3D / colorTransform：Flash 的 3D 变换与颜色变换。
+                // 本宿主是 2D 画布，这两个只存储、不参与呈现——但**必须可读可写**，
+                // entry_08 大量做 `x.transform.matrix3D = y.transform.matrix3D` 的拷贝，
+                // 读回 undefined 会让后续 `mat.append(...)` 直接崩。
+                Object.defineProperty(transform, "matrix3D", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.props.matrix3D;
+                    },
+                    set: function (value) {
+                        element.props.matrix3D = value;
+                        dirty = true;
+                    }
+                });
+
+                Object.defineProperty(transform, "colorTransform", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.props.colorTransform;
+                    },
+                    set: function (value) {
+                        element.props.colorTransform = value;
+                        dirty = true;
+                    }
+                });
+
+                return transform;
+            }
+
+            // 累计「从 target 到 element」的 2D 变换，铺成 16 元 Matrix3D rawData。
+            // target 为空或不在祖先链上时退化成元素自己的变换。
+            function relativeMatrix3DData(element, target) {
+                var accum = createPlaceholderMatrix();
+                var current = element;
+                while (current && current !== target) {
+                    var props = current.props;
+                    accum.translate(toFiniteNumber(props.x, 0), toFiniteNumber(props.y, 0));
+                    if (props.rotation) {
+                        accum.rotate(toFiniteNumber(props.rotation, 0) * Math.PI / 180);
+                    }
+
+                    accum.scale(toFiniteNumber(props.scaleX, 1), toFiniteNumber(props.scaleY, 1));
+                    current = current.treeParent;
+                }
+
+                var data = MATRIX3D_IDENTITY.slice();
+                data[0] = accum.a;
+                data[1] = accum.b;
+                data[4] = accum.c;
+                data[5] = accum.d;
+                data[12] = accum.tx;
+                data[13] = accum.ty;
+                return data;
+            }
+
             function composeElement(element) {
+                // 被当作遮罩的元件不参与合成——连「呈现记录」都不该留
+                // （否则它的 lastPaintedRect 会被后续的擦除/邻居补画逻辑当成真画过）。
+                if (isUsedAsMask(element)) {
+                    return;
+                }
+
                 // 遮罩在合成期施加：只影响「这一帧画到主画布上的可见范围」，
                 // 元素自己的离屏缓存与包围盒都不变。
                 var clipped = applyStageMask(context2d);
@@ -4115,6 +5116,8 @@
                     // 上一次推进用的条目内时间（毫秒）：帧增量 = 本帧 - 上一次。
                     // 句柄时间轴与元素寿命都按它走，暂停时自然停住。
                     lastAdvanceMs: -1,
+                    // Flash 的 enterFrame 监听表（随条目回收一起清掉）。
+                    frameListeners: [],
                     // timer / interval 登记表（条目回收 / reset / seek 越窗时统一清掉）。
                     scheduledTimers: [],
                     // commentTrigger / keyTrigger 登记表（阶段 2-4 的数据链占位）。
@@ -4236,6 +5239,8 @@
                     createTween(element, motionConfig, source);
                 }
 
+                // 创建参数可能给元素加了新字段（createParent 等），统一再隐藏一次。
+                hideElementInternals(element);
                 return element;
             }
 
@@ -4345,11 +5350,22 @@
                 // ---- 以下为占位：Flash 元件模型 / 外部库依赖，当前不生效 ----
                 // 待接数据链（阶段 2-4）：需要完整 Flash DisplayObject 模型或
                 // 位图/字体外部库，当前返回 null 让脚本不抛错继续执行。
-                createVector: function () {
-                    return toNumberArray(arguments[0], false);
+                // Flash 的 Vector（数值数组）。entry_08 里还把它当可增长的动态数组用
+                // （`var vLocal=$.toNumberVector([]); vLocal.push(...)`），
+                // 普通 Array 因此正合适。
+                createVector: function (list) {
+                    return toNumberArray(list, false);
                 },
-                createMatrix: function () {
-                    return createPlaceholderMatrix();
+                // Flash 的 Vector3D / Matrix3D：真实现（见 createVector3D / createMatrix3D）。
+                createVector3D: function (x, y, z) {
+                    return createVector3D(x, y, z);
+                },
+                createMatrix3D: function (rawData) {
+                    return createMatrix3D(rawData);
+                },
+                // Flash 的 Matrix：与元素 props.matrix 同一形状（a/b/c/d/tx/ty + 方法）。
+                createMatrix: function (a, b, c, d, tx, ty) {
+                    return createPlaceholderMatrix(a, b, c, d, tx, ty);
                 },
                 createColorTransform: function () {
                     return null;
@@ -4391,6 +5407,24 @@
                 }
             };
 
+            // `$` 自身也带舞台尺寸（M8 里 `$` 是 Display 命名空间，`$.width` / `$.height`
+            // 是舞台宽高）。entry_08 用它算居中与缩放比，缺了会得到 undefined → NaN 几何。
+            Object.defineProperty(M8Display, "width", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportWidth;
+                }
+            });
+
+            Object.defineProperty(M8Display, "height", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportHeight;
+                }
+            });
+
             function toNumberArray(list, truncate) {
                 var result = [];
                 if (list === undefined || list === null) {
@@ -4409,34 +5443,449 @@
             // 矩阵占位：M8 的 $.createMatrix() 返回可参与变换的矩阵对象，
             // 本宿主支持 a/b/c/d/tx/ty 六个分量（与 canvas transform 同序），
             // 其余（createGradientBox 等 Flash 专用方法）是 no-op。
-            function createPlaceholderMatrix() {
-                return {
-                    a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0,
-                    createBox: function () { return this; },
-                    createGradientBox: function () { return this; },
-                    identity: function () {
-                        this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.tx = 0; this.ty = 0;
-                        return this;
-                    },
-                    translate: function (x, y) {
-                        this.tx += toFiniteNumber(x, 0);
-                        this.ty += toFiniteNumber(y, 0);
-                        return this;
-                    },
-                    scale: function (x, y) {
-                        this.a *= toFiniteNumber(x, 1);
-                        this.d *= toFiniteNumber(y, 1);
-                        return this;
-                    },
-                    rotate: function (radians) {
-                        var cos = Math.cos(toFiniteNumber(radians, 0));
-                        var sin = Math.sin(toFiniteNumber(radians, 0));
-                        var a = this.a;
-                        var b = this.b;
-                        this.a = a * cos - b * sin;
-                        this.b = a * sin + b * cos;
+            // ---- 2D 变换矩阵（Flash 的 Matrix）----
+            //
+            // 与元素已有的 props.matrix 是**同一个对象**：applyElementTransform 读
+            // a/b/c/d/tx/ty 落到 canvas 变换，脚本通过 el.transform.matrix 拿到它。
+            // 不另起一套——否则脚本改了矩阵、渲染却按另一份数据走（真实脚本里
+            // `mx = glyph.transform.matrix; mx.identity();` 这种「取出→原地改→写回」
+            // 的写法必须是同一份对象才能生效）。
+            function ensureMatrixMethods(matrix) {
+                if (!matrix || typeof matrix !== "object" || typeof matrix.identity === "function") {
+                    return matrix;
+                }
+
+                matrix.identity = function () {
+                    this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.tx = 0; this.ty = 0;
+                    return this;
+                };
+                matrix.translate = function (x, y) {
+                    this.tx += toFiniteNumber(x, 0);
+                    this.ty += toFiniteNumber(y, 0);
+                    return this;
+                };
+                matrix.scale = function (x, y) {
+                    this.a *= toFiniteNumber(x, 1);
+                    this.d *= toFiniteNumber(y, 1);
+                    return this;
+                };
+                matrix.rotate = function (radians) {
+                    var cos = Math.cos(toFiniteNumber(radians, 0));
+                    var sin = Math.sin(toFiniteNumber(radians, 0));
+                    var a = this.a;
+                    var b = this.b;
+                    this.a = a * cos - b * sin;
+                    this.b = a * sin + b * cos;
+                    return this;
+                };
+                matrix.clone = function () {
+                    return createPlaceholderMatrix(this.a, this.b, this.c, this.d, this.tx, this.ty);
+                };
+                matrix.concat = function (other) {
+                    // Flash 的 Matrix.concat：this = this × other。
+                    var m = normalizeMatrixObject(other);
+                    var a = this.a * m.a + this.b * m.c;
+                    var b = this.a * m.b + this.b * m.d;
+                    var c = this.c * m.a + this.d * m.c;
+                    var d = this.c * m.b + this.d * m.d;
+                    var tx = this.tx * m.a + this.ty * m.c + m.tx;
+                    var ty = this.tx * m.b + this.ty * m.d + m.ty;
+                    this.a = a; this.b = b; this.c = c; this.d = d; this.tx = tx; this.ty = ty;
+                    return this;
+                };
+                matrix.invert = function () {
+                    var det = this.a * this.d - this.b * this.c;
+                    if (!det) {
                         return this;
                     }
+
+                    var a = this.d / det;
+                    var b = -this.b / det;
+                    var c = -this.c / det;
+                    var d = this.a / det;
+                    var tx = (this.c * this.ty - this.d * this.tx) / det;
+                    var ty = (this.b * this.tx - this.a * this.ty) / det;
+                    this.a = a; this.b = b; this.c = c; this.d = d; this.tx = tx; this.ty = ty;
+                    return this;
+                };
+                matrix.deltaTransformPoint = function (point) {
+                    return {
+                        x: point.x * this.a + point.y * this.c,
+                        y: point.x * this.b + point.y * this.d
+                    };
+                };
+                matrix.transformPoint = function (point) {
+                    return {
+                        x: point.x * this.a + point.y * this.c + this.tx,
+                        y: point.x * this.b + point.y * this.d + this.ty
+                    };
+                };
+                // Flash 的 Matrix.createGradientBox(width, height, rotation, tx, ty)：
+                // 把渐变框定义成 w×h、绕 (tx,ty) 旋转 rotation。这里除了按 Flash
+                // 的公式写出 a/b/c/d/tx/ty（脚本读得到合理值），还把框本身记在
+                // gradientBox 上——渲染时直接用它算渐变轴，比反解矩阵更准。
+                matrix.createBox = function (width, height, rotation, tx, ty) {
+                    return matrix.createGradientBox(width, height, rotation, tx, ty);
+                };
+                matrix.createGradientBox = function (width, height, rotation, tx, ty) {
+                    var w = toFiniteNumber(width, 0);
+                    var h = toFiniteNumber(height, 0);
+                    var angle = toFiniteNumber(rotation, 0);
+                    var cos = Math.cos(angle);
+                    var sin = Math.sin(angle);
+                    matrix.a = w * cos;
+                    matrix.b = w * sin;
+                    matrix.c = -h * sin;
+                    matrix.d = h * cos;
+                    matrix.tx = toFiniteNumber(tx, 0);
+                    matrix.ty = toFiniteNumber(ty, 0);
+                    matrix.gradientBox = {
+                        width: w,
+                        height: h,
+                        rotation: angle,
+                        tx: matrix.tx,
+                        ty: matrix.ty
+                    };
+                    return matrix;
+                };
+                return matrix;
+            }
+
+            function createPlaceholderMatrix(a, b, c, d, tx, ty) {
+                return ensureMatrixMethods({
+                    a: a === undefined ? 1 : toFiniteNumber(a, 1),
+                    b: b === undefined ? 0 : toFiniteNumber(b, 0),
+                    c: c === undefined ? 0 : toFiniteNumber(c, 0),
+                    d: d === undefined ? 1 : toFiniteNumber(d, 1),
+                    tx: tx === undefined ? 0 : toFiniteNumber(tx, 0),
+                    ty: ty === undefined ? 0 : toFiniteNumber(ty, 0)
+                });
+            }
+
+            // 把脚本给的东西归一成矩阵对象：null 保持 null（「不改变换」的语义），
+            // 已经是矩阵的补齐方法，其它对象按 a/b/c/d/tx/ty 取值。
+            function normalizeMatrixObject(value) {
+                if (value === null || value === undefined) {
+                    return null;
+                }
+
+                if (typeof value !== "object") {
+                    return null;
+                }
+
+                if (typeof value.a === "undefined" && typeof value.d === "undefined") {
+                    return null;
+                }
+
+                return ensureMatrixMethods({
+                    a: toFiniteNumber(value.a, 1),
+                    b: toFiniteNumber(value.b, 0),
+                    c: toFiniteNumber(value.c, 0),
+                    d: toFiniteNumber(value.d, 1),
+                    tx: toFiniteNumber(value.tx, 0),
+                    ty: toFiniteNumber(value.ty, 0)
+                });
+            }
+
+            // ---- 3D 向量与 4×4 矩阵（Flash 的 Vector3D / Matrix3D）----
+            //
+            // entry_08 的 Akari 库用它做 3D 排序：`mat.appendRotation(...)` 拼出
+            // 相机矩阵，再用 `transformVectors(vLocal, vWorld)` 把子元件的局部坐标
+            // 投到世界坐标、按 z 排序后决定绘制顺序。因此这几个方法是真算的，
+            // 不是占位——算错了排序就错，画面会明显不对。
+            //
+            // rawData 用 Flash 的列主序布局（与 OpenGL 同）：
+            //   [0] [4] [8]  [12]
+            //   [1] [5] [9]  [13]
+            //   [2] [6] [10] [14]
+            //   [3] [7] [11] [15]
+            var MATRIX3D_IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+            function createVector3D(x, y, z) {
+                return {
+                    x: toFiniteNumber(x, 0),
+                    y: toFiniteNumber(y, 0),
+                    z: toFiniteNumber(z, 0),
+                    w: 0,
+                    length: function () {
+                        return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
+                    },
+                    clone: function () {
+                        return createVector3D(this.x, this.y, this.z);
+                    },
+                    add: function (other) {
+                        return createVector3D(
+                            this.x + toFiniteNumber(other && other.x, 0),
+                            this.y + toFiniteNumber(other && other.y, 0),
+                            this.z + toFiniteNumber(other && other.z, 0));
+                    },
+                    subtract: function (other) {
+                        return createVector3D(
+                            this.x - toFiniteNumber(other && other.x, 0),
+                            this.y - toFiniteNumber(other && other.y, 0),
+                            this.z - toFiniteNumber(other && other.z, 0));
+                    },
+                    normalize: function () {
+                        var length = this.length();
+                        if (length > 0) {
+                            this.x /= length;
+                            this.y /= length;
+                            this.z /= length;
+                        }
+
+                        return this;
+                    }
+                };
+            }
+
+            function createMatrix3D(rawData) {
+                var matrix = {
+                    // 元素顺序与 Flash 一致；脚本里出现过 `mat.position` 这类读法。
+                    rawData: MATRIX3D_IDENTITY.slice(),
+                    index: 0
+                };
+
+                if (rawData && rawData.length) {
+                    for (var index = 0; index < 16; index++) {
+                        matrix.rawData[index] = toFiniteNumber(rawData[index], MATRIX3D_IDENTITY[index]);
+                    }
+                }
+
+                Object.defineProperty(matrix, "position", {
+                    enumerable: true,
+                    configurable: true,
+                    get: function () {
+                        return createVector3D(
+                            matrix.rawData[12], matrix.rawData[13], matrix.rawData[14]);
+                    },
+                    set: function (value) {
+                        matrix.rawData[12] = toFiniteNumber(value && value.x, 0);
+                        matrix.rawData[13] = toFiniteNumber(value && value.y, 0);
+                        matrix.rawData[14] = toFiniteNumber(value && value.z, 0);
+                    }
+                });
+
+                matrix.identity = function () {
+                    matrix.rawData = MATRIX3D_IDENTITY.slice();
+                    return matrix;
+                };
+
+                // this = this × other（Flash 的 append 语义）。
+                matrix.append = function (other) {
+                    if (!other || !other.rawData) {
+                        return matrix;
+                    }
+
+                    matrix.rawData = multiplyMatrix3D(matrix.rawData, other.rawData);
+                    return matrix;
+                };
+
+                matrix.prepend = function (other) {
+                    if (!other || !other.rawData) {
+                        return matrix;
+                    }
+
+                    matrix.rawData = multiplyMatrix3D(other.rawData, matrix.rawData);
+                    return matrix;
+                };
+
+                matrix.appendTranslation = function (x, y, z) {
+                    var translation = MATRIX3D_IDENTITY.slice();
+                    translation[12] = toFiniteNumber(x, 0);
+                    translation[13] = toFiniteNumber(y, 0);
+                    translation[14] = toFiniteNumber(z, 0);
+                    return matrix.append({ rawData: translation });
+                };
+
+                matrix.prependTranslation = function (x, y, z) {
+                    var translation = MATRIX3D_IDENTITY.slice();
+                    translation[12] = toFiniteNumber(x, 0);
+                    translation[13] = toFiniteNumber(y, 0);
+                    translation[14] = toFiniteNumber(z, 0);
+                    return matrix.prepend({ rawData: translation });
+                };
+
+                matrix.appendRotation = function (degrees, axis) {
+                    return matrix.append(createRotationMatrix3D(degrees, axis));
+                };
+
+                matrix.prependRotation = function (degrees, axis) {
+                    return matrix.prepend(createRotationMatrix3D(degrees, axis));
+                };
+
+                matrix.appendScale = function (x, y, z) {
+                    var scale = MATRIX3D_IDENTITY.slice();
+                    scale[0] = toFiniteNumber(x, 1);
+                    scale[5] = toFiniteNumber(y, 1);
+                    scale[10] = toFiniteNumber(z, 1);
+                    return matrix.append({ rawData: scale });
+                };
+
+                matrix.transformVector = function (vector) {
+                    var data = matrix.rawData;
+                    var x = toFiniteNumber(vector && vector.x, 0);
+                    var y = toFiniteNumber(vector && vector.y, 0);
+                    var z = toFiniteNumber(vector && vector.z, 0);
+                    var result = createVector3D(
+                        x * data[0] + y * data[4] + z * data[8] + data[12],
+                        x * data[1] + y * data[5] + z * data[9] + data[13],
+                        x * data[2] + y * data[6] + z * data[10] + data[14]);
+                    result.w = x * data[3] + y * data[7] + z * data[11] + data[15];
+                    if (result.w !== 0 && result.w !== 1) {
+                        result.x /= result.w;
+                        result.y /= result.w;
+                        result.z /= result.w;
+                    }
+
+                    return result;
+                };
+
+                matrix.deltaTransformVector = function (vector) {
+                    var data = matrix.rawData;
+                    var x = toFiniteNumber(vector && vector.x, 0);
+                    var y = toFiniteNumber(vector && vector.y, 0);
+                    var z = toFiniteNumber(vector && vector.z, 0);
+                    return createVector3D(
+                        x * data[0] + y * data[4] + z * data[8],
+                        x * data[1] + y * data[5] + z * data[9],
+                        x * data[2] + y * data[6] + z * data[10]);
+                };
+
+                // Flash 的 transformVectors(vector, resultVector)：vector 是 xyz 三元组
+                // 的扁平淡数组，结果**写进第二个参数**（就地填充，不是返回新数组）。
+                // Akari 的排序正是 `transform.transformVectors(vLocal, vWorld)` 之后
+                // 读 `vWorld[b*3+2]` 取 z，所以这里必须原地填。
+                matrix.transformVectors = function (source, target) {
+                    if (!source || !target) {
+                        return target;
+                    }
+
+                    // 单个 Vector3D 形态的入参：也支持（注意 Vector3D 自带 length 方法，
+                    // 不能用 source.length 判类型，要用 Array.isArray）。
+                    if (!Array.isArray(source)) {
+                        var single = matrix.transformVector(source);
+                        target.x = single.x;
+                        target.y = single.y;
+                        target.z = single.z;
+                        return target;
+                    }
+
+                    var count = Math.floor(source.length / 3);
+                    for (var index = 0; index < count; index++) {
+                        var transformed = matrix.transformVector(createVector3D(
+                            source[index * 3],
+                            source[index * 3 + 1],
+                            source[index * 3 + 2]));
+                        target[index * 3] = transformed.x;
+                        target[index * 3 + 1] = transformed.y;
+                        target[index * 3 + 2] = transformed.z;
+                    }
+
+                    return target;
+                };
+
+                matrix.clone = function () {
+                    return createMatrix3D(matrix.rawData);
+                };
+
+                matrix.invert = function () {
+                    matrix.rawData = invertMatrix3D(matrix.rawData);
+                    return matrix;
+                };
+
+                matrix.copyFrom = function (other) {
+                    if (other && other.rawData) {
+                        matrix.rawData = other.rawData.slice();
+                    }
+
+                    return matrix;
+                };
+
+                return matrix;
+            }
+
+            function multiplyMatrix3D(left, right) {
+                var result = [];
+                for (var column = 0; column < 4; column++) {
+                    for (var row = 0; row < 4; row++) {
+                        var sum = 0;
+                        for (var k = 0; k < 4; k++) {
+                            sum += left[k * 4 + row] * right[column * 4 + k];
+                        }
+
+                        result[column * 4 + row] = sum;
+                    }
+                }
+
+                return result;
+            }
+
+            // 绕任意轴旋转（度）。轴为零向量时退回单位矩阵，不抛错。
+            function createRotationMatrix3D(degrees, axis) {
+                var ax = toFiniteNumber(axis && axis.x, 0);
+                var ay = toFiniteNumber(axis && axis.y, 0);
+                var az = toFiniteNumber(axis && axis.z, 0);
+                var length = Math.sqrt(ax * ax + ay * ay + az * az);
+                if (length === 0) {
+                    return { rawData: MATRIX3D_IDENTITY.slice() };
+                }
+
+                ax /= length;
+                ay /= length;
+                az /= length;
+                var radians = toFiniteNumber(degrees, 0) * Math.PI / 180;
+                var cos = Math.cos(radians);
+                var sin = Math.sin(radians);
+                var oneMinusCos = 1 - cos;
+                var data = MATRIX3D_IDENTITY.slice();
+                data[0] = cos + ax * ax * oneMinusCos;
+                data[1] = ay * ax * oneMinusCos + az * sin;
+                data[2] = az * ax * oneMinusCos - ay * sin;
+                data[4] = ax * ay * oneMinusCos - az * sin;
+                data[5] = cos + ay * ay * oneMinusCos;
+                data[6] = az * ay * oneMinusCos + ax * sin;
+                data[8] = ax * az * oneMinusCos + ay * sin;
+                data[9] = ay * az * oneMinusCos - ax * sin;
+                data[10] = cos + az * az * oneMinusCos;
+                return { rawData: data };
+            }
+
+            function invertMatrix3D(data) {
+                // 4×4 求逆用「伴随矩阵 / 行列式」的展开式过于冗长；这里用
+                // 分块（左上 3×3 + 平移列）求逆——脚本里的矩阵都由平移/旋转/缩放
+                // 组成，属于这一族，反解足够正确。
+                var a = data[0], b = data[4], c = data[8];
+                var d = data[1], e = data[5], f = data[9];
+                var g = data[2], h = data[6], i = data[10];
+                var det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+                if (!det) {
+                    return MATRIX3D_IDENTITY.slice();
+                }
+
+                var inverse = MATRIX3D_IDENTITY.slice();
+                inverse[0] = (e * i - f * h) / det;
+                inverse[1] = (c * h - b * i) / det;
+                inverse[2] = (b * f - c * e) / det;
+                inverse[4] = (f * g - d * i) / det;
+                inverse[5] = (a * i - c * g) / det;
+                inverse[6] = (c * d - a * f) / det;
+                inverse[8] = (d * h - e * g) / det;
+                inverse[9] = (b * g - a * h) / det;
+                inverse[10] = (a * e - b * d) / det;
+                var tx = data[12], ty = data[13], tz = data[14];
+                inverse[12] = -(tx * inverse[0] + ty * inverse[4] + tz * inverse[8]);
+                inverse[13] = -(tx * inverse[1] + ty * inverse[5] + tz * inverse[9]);
+                inverse[14] = -(tx * inverse[2] + ty * inverse[6] + tz * inverse[10]);
+                return inverse;
+            }
+
+            // Flash 的 PerspectiveProjection：纯数据对象（M8 的 clone() 明确不复制
+            // 函数，脚本也是 clone 出来当数据用），默认值与 Flash 一致。
+            function createPerspectiveProjection() {
+                return {
+                    fieldOfView: 55,
+                    focalLength: 633.9496459960938,
+                    projectionCenter: createVector3D(0, 0, 0)
                 };
             }
 
@@ -4794,7 +6243,13 @@
                     } catch (error) {
                         // 回调抛错只停这一个定时器，不影响同条目其它定时器。
                         timer.running = false;
-                        reportRuntimeError(error, item.model.id);
+                        // 若是「读未声明变量」，先按 AVM1 语义补绑并整条重跑
+                        // （重跑会重建定时器登记表，受 MAX_AVM1_SCOPE_RETRIES 约束）。
+                        if (!recoverItemFromCallbackError(item, error)) {
+                            reportRuntimeError(error, item.model.id);
+                        }
+
+                        return;
                     }
 
                     if (timer.remaining <= 0) {
@@ -4871,10 +6326,18 @@
                         clearItemTriggers(item);
                     }
                 },
-                // M8 移植层里的 popEl（entry_08 真实脚本在用）：把元素从渲染中摘除。
+                // M8 的 popEl(el)：把元素从「脚本资源管理器会自动清掉的元件表」里
+                // **弹出**，让它不被 clearEl() 清掉——不是把元素从显示列表里摘掉。
+                //
+                // 这条语义 entry_08 的 Akari 依赖得很深：
+                //   Akari.root=function(){ ... var sprite=$.createCanvas({lifeTime:810114514});
+                //                            ScriptManager.popEl(sprite); return sprite; }();
+                // 整幅作品都挂在这个常驻 root 下，popEl 是为了让它跨脚本存活。
+                // 早先把它实现成 el.remove()（摘离渲染树）——结果整棵树被摘下、
+                // 一个像素都画不出来（实测 topLevel=0、26797 个元件全在树下）。
                 popEl: function (element) {
-                    if (element && typeof element.remove === "function") {
-                        element.remove();
+                    if (element) {
+                        defineHiddenValue(element, "exemptFromClear", true);
                     }
 
                     return element;
@@ -4932,8 +6395,21 @@
                 return writeTrace([text]);
             }
 
+            // M8 的 foreach(loop:Object, f:Function)：回调签名是 (key, value)。
+            //
+            // **只遍历真正的对象**：原始值（string / number / boolean）一律不遍历。
+            // 这不是可选的洁癖，是让真实脚本能终止的必要条件——entry_08 的
+            // Factory.clone 是 `foreach(object, function(key, object){ ...
+            // clone(object) ... })`，递归到字符串时若去枚举它的字符下标，
+            // clone("a") 会调 clone("a") 无限递归（实测：Maximum call stack size
+            // exceeded）。M8 文档把参数标成 Object，Flash 的 for-in 对原始值
+            // 也不产生可枚举属性，因此「原始值 → 零次迭代」才是正确语义。
             function foreach(loop, callback) {
                 if (typeof callback !== "function" || loop === undefined || loop === null) {
+                    return;
+                }
+
+                if (typeof loop !== "object" && typeof loop !== "function") {
                     return;
                 }
 
@@ -4994,13 +6470,13 @@
                 item.activeNow = state.positionMs;
                 item.createParent = null;
                 item.lastAdvanceMs = -1;
+                // 顺序必须与 compileItem 的形参逐字对应。
+                // 注意 `Global` 与 `$G` 是同一个对象（M8 文档里的两个名字，
+                // 真实脚本两种都在用：样本里 Global 出现 90 次、$G 若干次）。
                 return [
                     M8Display,
                     Player,
                     Global,
-                    // `Global` 是 $G 在 M8 文档里的另一个名字；真实脚本两种都在用
-                    // （av2669196 的脚本里 Global 出现 90 次、$G 若干次），
-                    // 因此两个名字注入同一个对象。
                     Global,
                     Tween,
                     Utils,
