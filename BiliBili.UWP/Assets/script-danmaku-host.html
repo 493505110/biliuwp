@@ -697,6 +697,11 @@
                     // 否则 visible=false 之后画面里永远留着它的最后一帧。
                     if (name === "visible" && value === false) {
                         markElementHidden(element);
+                    } else if (name === "alpha" && toFiniteNumber(value, 1) <= 0) {
+                        // alpha 归零等同隐藏：像素必须从主画布上撤掉。M8 作品的
+                        // 整幅背景层常用关键帧 alpha 淡出，不擦就会留下整块残影
+                        // （复现：Comp0 的「背景2」层 outPoint=3750 淡出后仍在画布上）。
+                        markElementHidden(element);
                     } else if (value !== false) {
                         // 变换类属性变了：元素在屏幕上的位置随之改变，
                         // 必须把上一帧的包围盒入队擦除，否则留下拖影。
@@ -710,7 +715,16 @@
             // 元素被脚本隐藏：它的旧像素要擦掉，且它不再参与合成。
             function markElementHidden(element) {
                 if (element.painted || element.lastPaintedRect) {
+                    var hadOwnRect = !!element.lastPaintedRect;
                     enqueueElementErase(element);
+                    if (!hadOwnRect) {
+                        // 嵌套元件自己在主画布上没有矩形（像素画在祖先的复合层里），
+                        // 要向上找最近一个画到主画布上的祖先，擦掉它的旧矩形。
+                        // Akari 的图层切换就是给图层 canvas 置 visible=false——
+                        // 漏掉这一步就会「该消失的整层留在画布上」。
+                        retirePaintedAncestorRect(element);
+                    }
+
                     element.lastPaintedRect = null;
                     dirty = true;
                 }

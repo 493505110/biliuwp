@@ -1811,4 +1811,72 @@ test('D26 最后一个条目离开窗口后，画布要整幅清空', () => {
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
+test('D27 隐藏嵌套元件（visible=false）必须擦掉它在主画布上的旧像素', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d27', 0, 10,
+            'var group = $.createShape();'
+            + 'var dot = $.createShape({ parent: group, x: 120, y: 60 });'
+            + 'dot.graphics.beginFill(0xFF6600, 1);'
+            + 'dot.graphics.drawRect(0, 0, 40, 40);'
+            + 'dot.graphics.endFill();'
+            + 'window.__dot = dot;')
+    ]);
+    host.runFrames(3);
+
+    const canvas = host.mainCanvas();
+    const dotRect = { x: 120, y: 60, width: 40, height: 40 };
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, dotRect)),
+        '前置条件：嵌套元件应已画到主画布上');
+
+    const before = canvas.__ops.length;
+    host.sandbox.__dot.visible = false;
+    host.runFrames(1);
+
+    const ops = canvas.__ops.slice(before);
+    const eraseIndex = ops.findIndex(
+        (op) => op.type === 'clearRect' && rectsOverlap(op.rect, dotRect));
+    assert.notEqual(
+        eraseIndex, -1,
+        '隐藏嵌套元件后必须擦掉它在主画布上的旧像素，否则 visible=false 之后画面里永远留着它'
+        + '（Akari 的图层切换就是给图层 canvas 置 visible=false，漏掉就会出现「整层该消失却留在画布上」）；ops='
+        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+});
+
+test('D28 alpha 归零的嵌套元件必须擦掉它在主画布上的旧像素', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d28', 0, 10,
+            'var group = $.createShape();'
+            + 'var dot = $.createShape({ parent: group, x: 120, y: 60 });'
+            + 'dot.graphics.beginFill(0xFF6600, 1);'
+            + 'dot.graphics.drawRect(0, 0, 40, 40);'
+            + 'dot.graphics.endFill();'
+            + 'window.__dot = dot;')
+    ]);
+    host.runFrames(3);
+
+    const canvas = host.mainCanvas();
+    const dotRect = { x: 120, y: 60, width: 40, height: 40 };
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, dotRect)),
+        '前置条件：嵌套元件应已画到主画布上');
+
+    const before = canvas.__ops.length;
+    host.sandbox.__dot.alpha = 0;
+    host.runFrames(1);
+
+    const ops = canvas.__ops.slice(before);
+    const eraseIndex = ops.findIndex(
+        (op) => op.type === 'clearRect' && rectsOverlap(op.rect, dotRect));
+    assert.notEqual(
+        eraseIndex, -1,
+        'alpha 归零的嵌套元件必须擦掉旧像素，否则整幅背景层用关键帧 alpha 淡出后'
+        + '会留下整块残影（真作品 Comp0「背景2」层即此形）；ops='
+        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+});
+
 run();
