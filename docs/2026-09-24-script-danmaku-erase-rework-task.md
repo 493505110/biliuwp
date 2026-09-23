@@ -103,13 +103,13 @@
 它们是「候选」不是「结论」：**两条路都没收敛**，上手时请把它们当反例读，别再原样重推。
 
 **候选补丁 A：精确擦除** —— `docs/patches/2026-09-24-script-danmaku-erase-wip-precise-erase.patch`
-（改 `script-danmaku-host.html` + `tests/host/retained-mode.test.js`；本地另有同名 stash `stash@{1}`）：
+（改 `script-danmaku-host.html` + `tests/host/retained-mode.test.js`；这是唯一权威副本，原先的本地 stash 已删除）：
 - 做法：新增「把元件本地包围盒沿祖先链逐级套变换」的落点计算，隐藏/淡出时只擦元件自身落点，而非最近祖先的整块矩形；配套用例 D29（隐藏小元件不得擦到同组远处的兄弟）。
 - 实测：中段回来了（118s 0.4320 / 120s 0.4544 / 122s 0.7163，与 v6 同级），**尾部又脏**（124s 之后 0.35~0.50）。
 - 未定论：形状类元件上坐标是对的（D29 反向验证通过），容器/图层分支的落点还没与宿主既有 `compositeChildBounds` 对齐。
 
 **候选补丁 B：粗粒度 + 补画缺口** —— `docs/patches/2026-09-24-script-danmaku-erase-wip-repaint-gaps.patch`
-（只改 `script-danmaku-host.html`；本地另有同名 stash `stash@{0}`）：
+（只改 `script-danmaku-host.html`；这是唯一权威副本，原先的本地 stash 已删除）：
 - 做法：在 `paintDirtyElements` 里补三处——① 邻居包围盒未知（`lastPaintedRect` 为 null）也补画；② 候选元素「矩形没变就跳过」的短路，改为「被擦除矩形命中则不跳过」；③ alpha 归零的邻居不参与补画。
 - 实测：①+② 让中段改善（119s 0.5823、**121s 1.0000 与原录屏一致**），但尾部出现实心块（128s/136s 经看图确认有灰蓝块与黑块，亮像素 0.099~0.135）；再加 ③ 后尾部反而恶化到 **0.547~0.888**（大面积实心）。
 
