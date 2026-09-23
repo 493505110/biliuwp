@@ -112,6 +112,9 @@
             var canvas = null;
             var context2d = null;
             var items = [];
+            // 上一帧是否还有条目在时间窗内。用来捕捉「最后一个条目离开窗口」
+            // 这一瞬间，好把画布整幅清空（见 updateItems）。
+            var hadActiveItem = false;
             var elements = [];
             var rootElement = createRetainedElement("group");
             var generation = 0;
@@ -2922,7 +2925,16 @@
                 var parent = element.treeParent;
                 // 从复合层里摘出来的子元素，旧像素还在父层的复合缓存里：
                 // 擦除它的主画布矩形并让父层重烘。
+                // 嵌套元件自己在主画布上没有矩形（像素画在祖先的复合层里），
+                // 这时要向上找最近一个画到主画布上的祖先，把它的旧矩形入队擦除并
+                // 让它本帧重烘重合成，否则父层重烘后透明处盖不住旧像素，会留下残影。
+                // 只在这里（摘除）做，普通移动不能擦，见 markElementMoved。
+                var hadOwnRect = !!element.lastPaintedRect;
                 markElementMoved(element);
+                if (!hadOwnRect) {
+                    retirePaintedAncestorRect(element);
+                }
+
                 parent.compositeDirty = true;
                 var siblings = parent.childList;
                 var index = siblings.indexOf(element);
@@ -2953,6 +2965,12 @@
             }
 
             function detachElement(element) {
+                // 摘链前先处理旧像素：嵌套元件要靠 treeParent 向上找祖先，
+                // 摘了链就找不到它的复合层了。
+                if (!element.lastPaintedRect) {
+                    retirePaintedAncestorRect(element);
+                }
+
                 if (element.treeParent) {
                     var parent = element.treeParent;
                     var siblings = parent.childList;
@@ -4151,6 +4169,18 @@
                     }
                 }
 
+                // 从「还有条目在窗口内」到「一条都不剩」的那一帧，整幅清空一次。
+                // 元素级擦除只覆盖还登记在条目名下的元素；脚本自己摘出去
+                // （el.remove()）或重新挂到别处的像素不在名下，靠元素擦除
+                // 永远清不掉，会在作品结束后永久留在画布上。原版 M8 也是
+                // 条目结束即整层消失，所以这里按「画面作废」处理。
+                if (!anyActive && hadActiveItem) {
+                    clearSurface();
+                    dirty = true;
+                }
+
+                hadActiveItem = anyActive;
+
                 return anyActive;
             }
 
@@ -4419,6 +4449,9 @@
             // 嵌套元件的像素落在祖先的复合层里，只有「画到主画布上」的祖先才有
             // lastPaintedRect。从元件自己往上找最近这样一个祖先，把它的旧矩形入队
             // 擦除并让它本帧重烘重合成；整条链都没矩形就什么都不用做。
+            // 只在「摘除」路径调用（removeChildFromParent / detachElement）。
+            // 普通移动不能走这里：祖先的主画布矩形那时仍然有效，擦了会在画布上
+            // 留下空洞——实测把一段真作品的画面打薄了一半。
             function retirePaintedAncestorRect(element) {
                 var current = element;
                 while (current && current !== rootElement) {
@@ -4446,15 +4479,12 @@
                     return;
                 }
 
-                var hadOwnRect = !!element.lastPaintedRect;
-                if (element.painted || hadOwnRect) {
+                // 只处理「自己有主画布矩形」的元件。嵌套元件的主画布矩形属于它的祖先，
+                // 这里不能擦：普通移动只让父复合层重烘，祖先在主画布上的矩形仍然有效，
+                // 擦了会在画布上留下空洞（祖先本帧不一定会重烘）。摘除另走
+                // retirePaintedAncestorRect 的调用点。
+                if (element.painted || element.lastPaintedRect) {
                     enqueueElementErase(element);
-                }
-
-                if (!hadOwnRect) {
-                    // 自己在主画布上没有矩形（像素落在祖先的复合层里）：祖先重烘后
-                    // 透明处盖不住旧像素，必须向上找最近一个画到主画布上的祖先擦掉。
-                    retirePaintedAncestorRect(element);
                 }
 
                 dirty = true;

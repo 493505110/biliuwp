@@ -1710,4 +1710,105 @@ test('D23 嵌套元件被摘除后，主画布上它占过的像素要被擦掉'
         '擦除必须发生在本帧重新合成父层之前');
 });
 
+test('D24 移动嵌套元件不该擦掉祖先的主画布矩形', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d24', 0, 10,
+            'var group = $.createShape();'
+            + 'var a = $.createShape({ parent: group, x: 100, y: 50 });'
+            + 'a.graphics.beginFill(0xFF0000, 1);'
+            + 'a.graphics.drawRect(0, 0, 40, 40);'
+            + 'a.graphics.endFill();'
+            + 'var b = $.createShape({ parent: group, x: 400, y: 300 });'
+            + 'b.graphics.beginFill(0x00FF00, 1);'
+            + 'b.graphics.drawRect(0, 0, 40, 40);'
+            + 'b.graphics.endFill();'
+            + 'window.__a = a;')
+    ]);
+    host.runFrames(3);
+
+    const canvas = host.mainCanvas();
+    const siblingRect = { x: 400, y: 300, width: 40, height: 40 };
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, siblingRect)),
+        '前置条件：同组另一个元件应已画到主画布上');
+
+    const before = canvas.__ops.length;
+    host.sandbox.__a.x = 160;
+    host.runFrames(1);
+
+    const ops = canvas.__ops.slice(before);
+    const eraseIndex = ops.findIndex(
+        (op) => op.type === 'clearRect' && rectsOverlap(op.rect, siblingRect));
+    assert.equal(
+        eraseIndex, -1,
+        '移动嵌套元件不能擦祖先的主画布矩形：祖先本帧不保证重烘，擦完会留下空洞，'
+        + '把同层其它元件的像素一起抹掉；ops='
+        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+});
+
+test('D25 条目窗口结束后，嵌套元件不能在画布上留下最后一帧', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d25', 0, 1,
+            'var group = $.createShape();'
+            + 'var dot = $.createShape({ parent: group, x: 200, y: 100 });'
+            + 'dot.graphics.beginFill(0xFFAA00, 1);'
+            + 'dot.graphics.drawRect(0, 0, 60, 60);'
+            + 'dot.graphics.endFill();')
+    ]);
+    host.runFrames(30);
+
+    const canvas = host.mainCanvas();
+    const dotRect = { x: 200, y: 100, width: 60, height: 60 };
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, dotRect)),
+        '前置条件：嵌套元件应已画到主画布上');
+
+    const before = canvas.__ops.length;
+    host.runFrames(90);
+
+    const ops = canvas.__ops.slice(before);
+    const eraseIndex = ops.findIndex(
+        (op) => op.type === 'clearRect' && rectsOverlap(op.rect, dotRect));
+    assert.notEqual(
+        eraseIndex, -1,
+        '条目窗口结束后必须擦掉嵌套元件的主画布像素，否则画面停住时留着它最后一帧；ops='
+        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+});
+
+test('D26 最后一个条目离开窗口后，画布要整幅清空', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d26', 0, 1,
+            'var s = $.createShape({ x: 80, y: 40 });'
+            + 's.graphics.beginFill(0x00AAFF, 1);'
+            + 's.graphics.drawRect(0, 0, 50, 50);'
+            + 's.graphics.endFill();')
+    ]);
+    host.runFrames(30);
+
+    const canvas = host.mainCanvas();
+    const rect = { x: 80, y: 40, width: 50, height: 50 };
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, rect)),
+        '前置条件：元素应已画到主画布上');
+
+    const before = canvas.__ops.length;
+    host.runFrames(90);
+
+    const ops = canvas.__ops.slice(before);
+    const fullClear = ops.some((op) => op.type === 'clearRect'
+        && op.rect.x <= 0 && op.rect.y <= 0
+        && op.rect.width >= canvas.width && op.rect.height >= canvas.height);
+    assert.ok(
+        fullClear,
+        '最后一个条目离开窗口后必须整幅清空画布：脚本自己摘出去或重新挂载的像素不在任何条目名下，'
+        + '元素级擦除清不掉，作品结束时画面会留着最后一帧；ops='
+        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+});
+
 run();

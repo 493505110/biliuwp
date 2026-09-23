@@ -1036,10 +1036,12 @@ namespace BiliBili.Tests
 
             // 第四条路径是本轮新增的：换遮罩（Player.setMask）改变了可见区域，
             // 主画布上已有像素全部作废，必须整屏清掉再重合成。
+            // 第五条路径是本轮新增的：最后一个条目离开时间窗时整幅作废
+            // （元素级擦除盖不住脚本自己摘出去 / 重新挂载的像素，会留下残影）。
             Assert.AreEqual(
-                4,
+                5,
                 callSites.Count,
-                "clearSurface() 应只有 tick 隐藏分支、stopRunning、reset、setStageMask 四处调用点");
+                "clearSurface() 应只有 tick 隐藏分支、stopRunning、reset、setStageMask、updateItems 收口五处调用点");
 
             var resetStart = source.IndexOf("reset: function (", System.StringComparison.Ordinal);
             Assert.IsTrue(resetStart >= 0, "未找到 reset 命令");
@@ -1054,14 +1056,18 @@ namespace BiliBili.Tests
             var stopStart = source.IndexOf("function stopRunning() {", System.StringComparison.Ordinal);
             var maskBody = TestRepository.MethodBody(source, "function setStageMask(element) {");
             var maskStart = source.IndexOf("function setStageMask(element) {", System.StringComparison.Ordinal);
+            var itemsBody = TestRepository.MethodBody(source, "function updateItems(now) {");
+            var itemsStart = source.IndexOf("function updateItems(now) {", System.StringComparison.Ordinal);
+            Assert.IsTrue(itemsStart >= 0, "未找到 updateItems");
             foreach (var callSite in callSites)
             {
                 Assert.IsTrue(
                     (callSite > tickStart && callSite < tickStart + tickBody.Length)
                         || (callSite > stopStart && callSite < stopStart + stopBody.Length)
                         || (callSite > resetStart && callSite < resetStart + 900)
-                        || (callSite > maskStart && callSite < maskStart + maskBody.Length),
-                    "clearSurface() 只允许出现在隐藏 / 停止 / reset / 换遮罩四条整幅作废的路径上");
+                        || (callSite > maskStart && callSite < maskStart + maskBody.Length)
+                        || (callSite > itemsStart && callSite < itemsStart + itemsBody.Length),
+                    "clearSurface() 只允许出现在隐藏 / 停止 / reset / 换遮罩 / 条目收口五条整幅作废的路径上");
             }
         }
 

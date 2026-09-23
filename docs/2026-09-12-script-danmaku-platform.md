@@ -472,17 +472,23 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
 保真核对时挖到的真差异。把条目的播放窗口设成与当年一致（`duration=122s`——原作录屏里弹幕层正是在 ~122s 整层消失）后，
 原录屏 122s 之后是干净的（只剩零散几个元件），宿主却会在画布上留一块灰蓝残影，一直不散。
 
-- **根因**：`markElementMoved` 只处理「自己有主画布矩形（`lastPaintedRect`）」的元件。嵌套元件在主画布上没有像素
-  （它画在祖先的复合层里），但 `element.painted` 是 true，于是走了「擦自己」这条空路径——没有任何矩形入队；
-  祖先复合层重烘后「透明处盖不住旧像素」，被摘掉的子元件就永久留在画布上。
-- **修法**：`markElementMoved` 先记 `hadOwnRect`；自己没有矩形时调用新增的 `retirePaintedAncestorRect()`，
-  从元件自己向上找最近一个带 `lastPaintedRect` 的祖先，把它的旧矩形入队擦除并让它本帧重烘重合成。
-  自己有矩形时行为与改动前逐字一致。
-- **回归护栏**：`tests/host/retained-mode.test.js` 新增 D23，断言摘除嵌套元件后本帧出现覆盖其旧像素的 `clearRect`，
-  且发生在重新合成父层之前。该用例在修复前的宿主上失败（22/23），修复后通过（23/23）；可按
-  `node tests/host/retained-mode.test.js <另一份宿主>` 反向验证。
-- **端到端复现**：重建探针页（内联当前宿主）后以 `duration=122s` 跑到窗口结束，播放头 123.1s 起画布墨迹为 0.000
-  （修复前同一工况是恒定的 0.231 残影）。
+- **根因**：条目结束时元素逐个摘除，而元素的像素并不一定在主画布上——嵌套元件画在祖先的复合层里，
+  它在主画布上根本没有自己的矩形（只有「画到主画布上」的祖先才有 `lastPaintedRect`）；而元素级擦除只覆盖
+  还登记在条目名下的元素，脚本自己 `remove()` 出去、或重新挂载到别处的像素不在任何条目名下，靠元素擦除永远清不掉。
+- **修法（两处，缺一不可）**：
+  1. **摘除路径补祖先矩形**：`removeChildFromParent` / `detachElement` 在元件自己没有矩形时调用
+     `retirePaintedAncestorRect()`，向上找最近一个画到主画布上的祖先，把它的旧矩形入队擦除并让它重烘重合成。
+     调用点必须在**摘链之前**（否则 `treeParent` 已断，向上找不到祖先）。这条**不能放进 `markElementMoved`**：
+     后者是每帧热路径（x/y/缩放/旋转一变就走），在那里擦祖先矩形会在画布上打空洞——实测把 115s 那一帧打薄了一半。
+  2. **画面收口**：`updateItems` 在「还有条目在窗口内 → 一条都不剩」的那一帧整幅清空一次，
+     对应原版 M8「条目结束即整层消失」的语义，同时兜住第 1 条盖不住的孤儿像素。
+- **回归护栏**（`tests/host/retained-mode.test.js`）：D23 摘除嵌套元件后本帧必须擦掉它的旧像素；
+  D24 移动嵌套元件**不得**擦掉祖先的主画布矩形（防止 1 的误用）；D25 条目窗口结束后嵌套元件不留最后一帧；
+  D26 最后一个条目离开窗口后必须整幅清空。反向验证：`git show <某提交>:BiliBili.UWP/Assets/script-danmaku-host.html > /tmp/host_x.html`
+  后跑 `node tests/host/retained-mode.test.js /tmp/host_x.html`。契约测试里 `clearSurface()` 的调用点断言同步由 4 处改为 5 处。
+- **端到端复现**（真 Chromium + 11 条真脚本，探针页内联当前宿主）：窗口结束前画布有内容，窗口结束那一帧起
+  画布像素占比 0.0000 并保持到片尾；修复前同一工况是恒定 0.43 的残影。抓帧必须读 `canvas.getImageData()`：
+  只看 CDP 截图会被「页面在后台时 rAF 停摆、合成器不再出新帧」骗成残影，而那是抓帧环境的问题，不是宿主的问题。
 
 ## 验证
 
