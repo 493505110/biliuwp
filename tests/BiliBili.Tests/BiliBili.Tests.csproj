@@ -30,6 +30,7 @@
     <Compile Include="..\..\BiliBili.UWP\Modules\PlaylistPagination.cs"
              Link="Production\PlaylistPagination.cs" />
     <Compile Include="..\..\BiliBili.UWP\Helper\WbiEncodeHelper.cs" Link="Production\WbiEncodeHelper.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Helper\DanmakuViewport.cs" Link="Production\Helper\DanmakuViewport.cs" />
     <Compile Include="..\..\BiliBili.UWP\Helper\SignHelper.cs" Link="Production\SignHelper.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\HomeModels.cs" Link="Production\HomeModels.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\UserModels.cs" Link="Production\UserModels.cs" />

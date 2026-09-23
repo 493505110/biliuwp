@@ -397,6 +397,7 @@
     <Compile Include="Helper\FFmpegDashSource.cs" />
     <Compile Include="Helper\LogHelper.cs" />
     <Compile Include="Helper\CredentialVault.cs" />
+    <Compile Include="Helper\DanmakuViewport.cs" />
     <Compile Include="Helper\SettingKeys.cs" />
     <Compile Include="Helper\MediaProcessing.cs" />
     <Compile Include="Helper\MessageCenter.cs" />

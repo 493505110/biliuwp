@@ -433,6 +433,38 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
 > 已用「注入缺陷 → 确认对应测试失败 → 恢复」的方式反向验证了新契约测试的有效性（`RateChange_ResyncsBothDanmakuClocks`、`Host_DrawFrameHonoursVisibility` 均如期失败）。
 > 另修正一处文档自身的虚假陈述：本节早先写「倍速处已由 `SyncScriptDanmakuPlaybackState()` 覆盖」，实际代码当时并没有——现已补上。
 
+### 阶段 1 画布对齐修正（2026-09-23 保真核对结论）
+
+对 av2669196 的原作品做了一次像素级保真核对，结论如下：
+
+- **Akari 的缩放规则**：作品自带的 Akari 库（由 `entry_08` 条目注入）里 `maximizeInContainer` 的实现是
+  `ratio = Math.min($.width / comp.width, $.height / comp.height)`，随后把 `comp` 居中放置。
+  即**弹幕画布尺寸决定了作品整体的缩放比例与位置**——画布给错，整个作品就整体缩放并偏移。
+- **原舞台就是视频画面区**：av2669196 的原舞台为 640×360，与该作品当时的视频画面区尺寸一致。
+- **1:1 对齐证据**：把探针画布设成 640×360 后，探针渲染结果与原录屏第 115s 的帧 1:1 对齐，
+  缩放 1.0、平移 (0, 0)、NCC 0.868。画布尺寸一旦不等于视频渲染矩形，缩放与平移都会偏离这个基准。
+- **原视频的视频轨是纯黑**：对齐判据只能取脚本画出的元素（叠加层），不能取背景像素——
+  纯黑视频轨与黑底画布在像素上不可区分，用背景当判据会得到假阳性。
+- **真实弹幕池的时间原点**：真实池的 `stime` 为 0 / 0.1 / 0.2s，开场即落弹幕；
+  时间轴原点是否有偏移可以直接在这一段看出来。
+
+**由此得出的修正**：脚本弹幕画布必须等于**视频实际渲染矩形**，而不是整个播放器区域。
+`Pages/PlayerPage.xaml` 里 `scriptDanmakuControl` 与 `mediaElement` 同级铺满 `playerSurface`，
+而播放器是 `Stretch=Uniform`：非 16:9 的视频（4:3 老视频等）四周有黑边，
+画布若继续铺满播放器区域，Akari 就会按「偏大的画布」算出偏大的 ratio，作品被整体放大并居中偏移。
+
+**落地**：
+
+| 位置 | 内容 |
+|---|---|
+| `Helper/DanmakuViewport.cs`（新增） | 不依赖 UWP API 的纯静态类。`TryFit(naturalWidth, naturalHeight, areaWidth, areaHeight, out width, out height)` 返回等比（`Stretch=Uniform`）内容矩形的尺寸；任一参数非正数或非有限值（NaN/Infinity）时返回 false 并输出 0 |
+| `Pages/PlayerPage.xaml.cs`（新增 `UpdateScriptDanmakuViewport()`） | 取 `mediaElement.MediaPlayer.PlaybackSession` 的 `NaturalVideoWidth/Height` 与 `playerSurface.ActualWidth/Height` 交给 `TryFit`；成功则把 `scriptDanmakuControl` 设为 `Center` 对齐并写入算出的 `Width/Height`；失败（媒体未打开、布局未完成）时**保持控件现状**，不清空以免闪断 |
+| 6 处并列各调用一次 | `PlaybackSession_NaturalVideoSizeChanged`、`MediaPlayer_MediaOpened`、`UserControl_SizeChanged`、`mediaElement_MediaOpened`、`menuitem_LoadScriptDanmaku_Click`、`menuitem_LoadDemoScriptDanmaku_Click`（加载脚本后立刻要算一次）。这些方法体的其他逻辑一行未动 |
+
+只改脚本弹幕这一个控件；BAS / 互动弹幕不在本次范围。
+测试：`DanmakuViewportTests`（6 例：16:9 进 4:3、4:3 进 16:9、正方形、等比即满区域、非法参数、越界/宽高比不变式）与
+`ScriptDanmakuPlayerPageContractTests.ScriptViewport_MatchesVideoRenderingRect`（6 个挂钩点 + Center 对齐的源码契约）。
+
 ## 验证
 
 - **构建**：VS 打开 `BiliBili.sln`，`Debug|x86` 生成（不要用 `dotnet build`）。
@@ -444,13 +476,14 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
   3.6. **M8 API 面验收**：把一条**真实的旧 M8 脚本**（当年作品导出的 mode=8 文本）原样贴进 `.js` 加载，确认不抛错、能画出来；重点核 `Player.time` 在 `interval` 回调里是**实时值**（不是激活快照）、`$G` 跨条目共享、条目结束后 `interval` 不再触发（定时器随条目回收）。
   3.7. **数据链与输入链验收**（必须真机，单测只能证明消息通了）：① 加载一条读 `Player.commentList` 的脚本（按 M8 官方示例数「是/否」），确认读到的条数与实际弹幕池一致；② 发一条弹幕后确认 `commentTrigger` 回调被触发且内容/颜色/时间正确；③ 按方向键确认 `keyTrigger` 收到键值，按住不放/松开能区分 `keyDown` 与 `keyUp`（`up=true`）；④ 条目窗口结束后再发弹幕/按键，确认不再触发；⑤ `Player.setMask` 用一个矩形遮罩确认弹幕只在遮罩内出现，`setMask(null)` 后恢复；⑥ `Player.play()/pause()/seek()/jump()` 各验一次（**这条要在 Windows 上跑**，本环境编不了 UWP）。
   3.8. **性能回归点**：未加载任何脚本时，播放 / 切集 / 输入路径不得因本轮新增的推入而出现可感知开销（控件应在懒初始化闸门上直接返回，且分页加载不重复推同一份池子）。
+  3.9. **画布对齐验收**（对应 §阶段 1 画布对齐修正）：① 用一条能画出可辨识图案的脚本，在 **4:3 老视频**上确认作品内缩到视频画面区、四周黑边上没有作品内容（画面区边界可用探针脚本对齐原录屏第 115s 帧的做法复核）；② 全屏进出 / 窗口缩放 / 切集（自然尺寸变化）后画布跟随重算，不残留旧尺寸；③ 16:9 视频下画布应等于整个画面区——与改动前表现一致，作为无回归判据；④ 加载脚本时媒体尚未打开（自然尺寸为 0）不得把画布清成 0 尺寸。
   4. 四类拦截各验一次：点击被消费、播放操作被阻止、弹幕被拦下、发送被拦下。
   5. 三类交互各验一次：读到弹幕数据、屏蔽一条、发送一条。
   6. 弹幕总开关关闭 → 脚本弹幕隐藏；未加载时不初始化 WebView2。
   7. **未注册任何拦截器时，播放/弹幕/输入路径无可感知开销**（性能回归点）。
 - **接口可用性前置**：阶段 4 开工前，先按 `Controls/SendDanmakuDialog.xaml.cs:57` 的参数与签名形态实测 `x/v2/dm/post`，确认可用后再决定抽取方式（见 §6③）。不要先按 `PlayerAPI.SendDanmu` 实现。
 - **回归**：BAS 弹幕（mode9）行为不变。
-- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（8 例）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，22 例 D1~D22，见上）与真实脚本集成测试 `tests/host/real-m8-scripts.test.js`（5 例，夹具缺失时跳过）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
+- **测试**：`tests/BiliBili.Tests`（net8.0 + MSTest）。阶段 1 已补 `ScriptDanmakuParserTests`（18 例）、`ScriptDanmakuHostContractTests`（37 例，含保留模式改造后的断言）、`ScriptDanmakuPlayerPageContractTests`（13 例，含画布对齐契约 `ScriptViewport_MatchesVideoRenderingRect`）、`DanmakuViewportTests`（6 例，见 §阶段 1 画布对齐修正）；另有宿主行为测试 `tests/host/retained-mode.test.js`（纯 node、零依赖，22 例 D1~D22，见上）与真实脚本集成测试 `tests/host/real-m8-scripts.test.js`（5 例，夹具缺失时跳过）。**CI 已接入**：`.github/workflows/ci.yml` 的 `test` job 在 `dotnet test` 之前跑 `node tests/host/retained-mode.test.js`（运行器自带 node，无需 `setup-node`）。覆盖不到的部分——实际渲染、时间同步、性能——必须走页面级验证。
 - **日志**：`LogHelper` 无脚本弹幕渲染失败。
 
 ## 风险
