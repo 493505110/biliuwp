@@ -4,6 +4,7 @@
 - 分支：`feature/script-danmaku-platform`
 - 起点提交：`2ee4357`（远端 tip 与本地一致）
 - 工作面：`BiliBili.UWP/Assets/script-danmaku-host.html`（脚本弹幕宿主，保留模式渲染器）
+- 候选补丁：`docs/patches/`（两份，两条已否证的方向，见 4.3 与第九节）
 - 交付方式：改动留在工作区，**不 commit、不 push**；由署名方抽验后统一提交
 
 ---
@@ -96,14 +97,19 @@
 - v7 尾部 0.014~0.041 ≈ 原录屏，**尾部这条已解决**；
 - v7 中段 110/115/119/121s 分别 0.6461/0.5846/0.5098/0.7871，其中 119s、121s 明显低于原录屏（0.9998/1.0000）——**中段偏暗是当前主要缺陷**。
 
-### 4.3 已试过但不成立的两个方向（本地 stash，未推送）
+### 4.3 已试过但不成立的两个方向（补丁已入库，见 `docs/patches/`）
 
-`git stash show -p 'stash@{1}'`（精确擦除版）：
+两份补丁都**能对 `2ee4357` 干净应用**（`git apply --check` 通过），因此可直接复现，不必重新摸索。
+它们是「候选」不是「结论」：**两条路都没收敛**，上手时请把它们当反例读，别再原样重推。
+
+**候选补丁 A：精确擦除** —— `docs/patches/2026-09-24-script-danmaku-erase-wip-precise-erase.patch`
+（改 `script-danmaku-host.html` + `tests/host/retained-mode.test.js`；本地另有同名 stash `stash@{1}`）：
 - 做法：新增「把元件本地包围盒沿祖先链逐级套变换」的落点计算，隐藏/淡出时只擦元件自身落点，而非最近祖先的整块矩形；配套用例 D29（隐藏小元件不得擦到同组远处的兄弟）。
 - 实测：中段回来了（118s 0.4320 / 120s 0.4544 / 122s 0.7163，与 v6 同级），**尾部又脏**（124s 之后 0.35~0.50）。
 - 未定论：形状类元件上坐标是对的（D29 反向验证通过），容器/图层分支的落点还没与宿主既有 `compositeChildBounds` 对齐。
 
-`git stash show -p 'stash@{0}'`（粗粒度 + 补画缺口版）：
+**候选补丁 B：粗粒度 + 补画缺口** —— `docs/patches/2026-09-24-script-danmaku-erase-wip-repaint-gaps.patch`
+（只改 `script-danmaku-host.html`；本地另有同名 stash `stash@{0}`）：
 - 做法：在 `paintDirtyElements` 里补三处——① 邻居包围盒未知（`lastPaintedRect` 为 null）也补画；② 候选元素「矩形没变就跳过」的短路，改为「被擦除矩形命中则不跳过」；③ alpha 归零的邻居不参与补画。
 - 实测：①+② 让中段改善（119s 0.5823、**121s 1.0000 与原录屏一致**），但尾部出现实心块（128s/136s 经看图确认有灰蓝块与黑块，亮像素 0.099~0.135）；再加 ③ 后尾部反而恶化到 **0.547~0.888**（大面积实心）。
 
@@ -161,6 +167,16 @@
 ---
 
 ## 九、附：可复用的现场资料（本机，`/tmp` 可能被清理）
+
+**入库的候选补丁（durable，优先用这两份）**：
+
+```sh
+git apply docs/patches/2026-09-24-script-danmaku-erase-wip-precise-erase.patch   # 候选 A：精确擦除 + 用例 D29
+git apply docs/patches/2026-09-24-script-danmaku-erase-wip-repaint-gaps.patch    # 候选 B：粗粒度 + 补画缺口
+```
+- 两份都基于 `2ee4357`，可各自单独应用（A 改宿主 + 行为套件的 D29；B 只改宿主）。
+- 应用后按第六节的量法复现第 4.3 节的数据；`git checkout -- <path>` 即可回退。
+- 它们的存在价值是**反例**：说明「只擦得准」和「只补得全」各自都不够，正解要同时满足两边。
 
 - `/tmp/ref_1080p.mp4`：原录屏 1080p（21 MB，判据基准）。
 - `/tmp/m8v/v6/m8_render.mp4`、`/tmp/m8v/v7/m8_render.mp4`：上表两版的渲染（1280×720，≈55.3s）。

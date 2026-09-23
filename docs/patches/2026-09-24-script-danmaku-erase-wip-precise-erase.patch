@@ -1,0 +1,193 @@
+diff --git a/BiliBili.UWP/Assets/script-danmaku-host.html b/BiliBili.UWP/Assets/script-danmaku-host.html
+index 7f23d68..91899d8 100644
+--- a/BiliBili.UWP/Assets/script-danmaku-host.html
++++ b/BiliBili.UWP/Assets/script-danmaku-host.html
+@@ -715,14 +715,23 @@
+             // 元素被脚本隐藏：它的旧像素要擦掉，且它不再参与合成。
+             function markElementHidden(element) {
+                 if (element.painted || element.lastPaintedRect) {
+-                    var hadOwnRect = !!element.lastPaintedRect;
+-                    enqueueElementErase(element);
+-                    if (!hadOwnRect) {
+-                        // 嵌套元件自己在主画布上没有矩形（像素画在祖先的复合层里），
+-                        // 要向上找最近一个画到主画布上的祖先，擦掉它的旧矩形。
+-                        // Akari 的图层切换就是给图层 canvas 置 visible=false——
+-                        // 漏掉这一步就会「该消失的整层留在画布上」。
+-                        retirePaintedAncestorRect(element);
++                    if (element.lastPaintedRect) {
++                        // 顶层元件：它自己的矩形就是主画布上的落点。
++                        enqueueElementErase(element);
++                    } else {
++                        // 嵌套元件：主画布上没有它自己的矩形，但「本地包围盒沿祖先链换算」
++                        // 出来的矩形就是它真正压住的那块像素。只擦这一块——擦最近祖先的
++                        // 整块矩形会连同一层其它内容一起抹掉（实测中段被擦暗约一半）。
++                        // Akari 的图层切换就是给图层 canvas 写 visible=false。
++                        var pageRect = computeElementPageRect(element);
++                        if (pageRect) {
++                            pendingEraseRects.push(toEraseRect(pageRect));
++                            markAncestorsCompositeDirty(element);
++                        } else {
++                            // 落点算不出来（子树还没烘过等）时退回粗粒度：
++                            // 宁可多擦一点，也不能把旧像素留在画布上。
++                            retirePaintedAncestorRect(element);
++                        }
+                     }
+ 
+                     element.lastPaintedRect = null;
+@@ -730,6 +739,15 @@
+                 }
+             }
+ 
++            // 元件隐藏后祖先的复合层要重烘重合成，才能把仍然可见的那部分重新画出来。
++            function markAncestorsCompositeDirty(element) {
++                var current = element.treeParent;
++                while (current && current !== rootElement) {
++                    current.compositeDirty = true;
++                    current = current.treeParent;
++                }
++            }
++
+             function markElementDirty(element) {
+                 if (!element) {
+                     return;
+@@ -4410,6 +4428,93 @@
+                 };
+             }
+ 
++            // 把一个矩形按某元件的变换（缩放 → 旋转 → 平移，与 applyElementTransform 同序）
++            // 换算到它的父坐标系。
++            function transformRectByProps(rect, props) {
++                var scaleX = toFiniteNumber(props.scaleX, 1);
++                var scaleY = toFiniteNumber(props.scaleY, 1);
++                var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
++                var cos = Math.cos(rotation);
++                var sin = Math.sin(rotation);
++                var originX = toFiniteNumber(props.x, 0);
++                var originY = toFiniteNumber(props.y, 0);
++                var corners = [
++                    [rect.x, rect.y],
++                    [rect.x + rect.width, rect.y],
++                    [rect.x + rect.width, rect.y + rect.height],
++                    [rect.x, rect.y + rect.height]
++                ];
++
++                var minX = Infinity;
++                var minY = Infinity;
++                var maxX = -Infinity;
++                var maxY = -Infinity;
++                for (var index = 0; index < corners.length; index++) {
++                    var localX = corners[index][0] * scaleX;
++                    var localY = corners[index][1] * scaleY;
++                    var pageX = localX * cos - localY * sin + originX;
++                    var pageY = localX * sin + localY * cos + originY;
++                    if (pageX < minX) {
++                        minX = pageX;
++                    }
++
++                    if (pageY < minY) {
++                        minY = pageY;
++                    }
++
++                    if (pageX > maxX) {
++                        maxX = pageX;
++                    }
++
++                    if (pageY > maxY) {
++                        maxY = pageY;
++                    }
++                }
++
++                return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
++            }
++
++            // 元件在主画布上的落点：本地包围盒沿祖先链逐级套用变换。
++            // 嵌套元件在主画布上没有自己的矩形（lastPaintedRect 恒为 null），
++            // 但这条链算出来的矩形就是它真正压住的那块像素——按它擦才不会连累
++            // 同层其它内容（擦最近祖先的整块矩形会把中段打暗，见 D29）。
++            function computeElementPageRect(element) {
++                var bounds;
++                if (element.childList.length > 0) {
++                    if (!element.composite || !element.compositeBounds) {
++                        return null;
++                    }
++
++                    bounds = element.compositeBounds;
++                } else if (element.kind === "layer") {
++                    bounds = { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
++                } else if (element.cacheBounds) {
++                    bounds = element.cacheBounds;
++                } else {
++                    return null;
++                }
++
++                var rect = bounds;
++                var current = element;
++                while (current && current !== rootElement) {
++                    rect = transformRectByProps(rect, current.props);
++                    current = current.treeParent;
++                }
++
++                return rect;
++            }
++
++            // 擦除队列用的设备像素矩形（带 dirty padding），与 lastPaintedRect 同单位。
++            function toEraseRect(pageRect) {
++                var ratio = window.devicePixelRatio || 1;
++                return {
++                    x: Math.floor((pageRect.x - DIRTY_RECT_PADDING) * ratio),
++                    y: Math.floor((pageRect.y - DIRTY_RECT_PADDING) * ratio),
++                    width: Math.ceil((pageRect.width + DIRTY_RECT_PADDING * 2) * ratio),
++                    height: Math.ceil((pageRect.height + DIRTY_RECT_PADDING * 2) * ratio)
++                };
++            }
++
+             // 元素这一帧在主画布上实际占据的矩形（供下一帧擦除用）。
+             function recordElementRect(element) {
+                 element.lastPaintedRect = computeElementCanvasRect(element);
+diff --git a/tests/host/retained-mode.test.js b/tests/host/retained-mode.test.js
+index a3f62ac..868ef78 100644
+--- a/tests/host/retained-mode.test.js
++++ b/tests/host/retained-mode.test.js
+@@ -1879,4 +1879,42 @@ test('D28 alpha 归零的嵌套元件必须擦掉它在主画布上的旧像素'
+         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+ });
+ 
++test('D29 隐藏嵌套元件时不得擦掉同组里远处的兄弟', () => {
++    const host = loadHost();
++    host.reset(0, true, 1, true);
++    host.append([
++        scriptItem('d29', 0, 10,
++            'var group = $.createShape();'
++            + 'var a = $.createShape({ parent: group, x: 100, y: 50 });'
++            + 'a.graphics.beginFill(0xFF0000, 1);'
++            + 'a.graphics.drawRect(0, 0, 40, 40);'
++            + 'a.graphics.endFill();'
++            + 'var b = $.createShape({ parent: group, x: 400, y: 300 });'
++            + 'b.graphics.beginFill(0x00FF00, 1);'
++            + 'b.graphics.drawRect(0, 0, 40, 40);'
++            + 'b.graphics.endFill();'
++            + 'window.__a = a;')
++    ]);
++    host.runFrames(3);
++
++    const canvas = host.mainCanvas();
++    const aRect = { x: 100, y: 50, width: 40, height: 40 };
++    const bRect = { x: 400, y: 300, width: 40, height: 40 };
++    assert.ok(canvas.__marks.some((mark) => rectsOverlap(mark, aRect)), '前置条件：A 已画到主画布上');
++    assert.ok(canvas.__marks.some((mark) => rectsOverlap(mark, bRect)), '前置条件：B 已画到主画布上');
++
++    const before = canvas.__ops.length;
++    host.sandbox.__a.visible = false;
++    host.runFrames(1);
++
++    const ops = canvas.__ops.slice(before);
++    const dump = JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect)));
++    const erasedA = ops.some((op) => op.type === 'clearRect' && rectsOverlap(op.rect, aRect));
++    const erasedB = ops.some((op) => op.type === 'clearRect' && rectsOverlap(op.rect, bRect));
++    assert.ok(erasedA, 'A 自己的旧像素必须被擦掉，否则隐藏后画面里留着它；ops=' + dump);
++    assert.ok(!erasedB,
++        '不能擦到同组里远处的兄弟 B：擦「最近祖先的整块矩形」就会连它一起抹掉，'
++        + '真作品的中段就是这样被打暗的；应按 A 自己的落点擦。ops=' + dump);
++});
++
+ run();

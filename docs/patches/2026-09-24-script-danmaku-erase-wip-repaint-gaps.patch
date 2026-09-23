@@ -1,0 +1,38 @@
+diff --git a/BiliBili.UWP/Assets/script-danmaku-host.html b/BiliBili.UWP/Assets/script-danmaku-host.html
+index 7f23d68..16f45c5 100644
+--- a/BiliBili.UWP/Assets/script-danmaku-host.html
++++ b/BiliBili.UWP/Assets/script-danmaku-host.html
+@@ -4878,13 +4878,21 @@
+                 // 擦除是元素级的无差别矩形，可能盖住了别的（静止的）元素：
+                 // 先补画「被擦到但不是本帧脏元素」的邻居，再合成脏元素，
+                 // 这样既不留洞，也不会把层叠顺序反过来。
++                // 包围盒未知（从未合成、刚被清空）的邻居也一并补画：宁多画一张，
++                // 也不能少画——少画一次就在画布上留一块再也补不回来的空洞。
+                 for (index = 0; index < topLevel.length; index++) {
+                     var neighbor = topLevel[index];
+                     if (neighbor.dirtyCandidate || !isElementVisible(neighbor)) {
+                         continue;
+                     }
+ 
+-                    if (intersectsAny(erasedRects, neighbor.lastPaintedRect)) {
++                    // alpha 归零的元件等同不可见：补画它是白画（甚至会按不透明重画一遍）。
++                    if (toFiniteNumber(neighbor.props.alpha, 1) <= 0) {
++                        continue;
++                    }
++
++                    if (!neighbor.lastPaintedRect
++                        || intersectsAny(erasedRects, neighbor.lastPaintedRect)) {
+                         composeElement(neighbor);
+                     }
+                 }
+@@ -4899,7 +4907,10 @@
+                     // 位置与上一帧完全一致、内容也没重建的元素不必再合成。
+                     // 这是「静态元素首帧之后不再重绘」的落点。
+                     // （本帧移动过的元素 lastPaintedRect 已被清空，一定会走到合成。）
++                    // 但「本帧被擦除矩形盖住」的元素必须重画：它的像素已经被擦掉，
++                    // 矩形没变不代表画布上还有它。
+                     if (!candidate.rebuiltThisFrame && candidate.lastPaintedRect
++                        && !intersectsAny(erasedRects, candidate.lastPaintedRect)
+                         && rectsEqual(candidate.lastPaintedRect, computeElementCanvasRect(candidate))) {
+                         continue;
+                     }
