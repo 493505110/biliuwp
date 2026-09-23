@@ -467,6 +467,23 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
 测试：`DanmakuViewportTests`（6 例：16:9 进 4:3、4:3 进 16:9、正方形、等比即满区域、非法参数、越界/宽高比不变式）与
 `ScriptDanmakuPlayerPageContractTests.ScriptViewport_MatchesVideoRenderingRect`（6 个挂钩点 + Center 对齐的源码契约）。
 
+### 保留模式擦除修正：嵌套元件被摘除后留残影（2026-09-23）
+
+保真核对时挖到的真差异。把条目的播放窗口设成与当年一致（`duration=122s`——原作录屏里弹幕层正是在 ~122s 整层消失）后，
+原录屏 122s 之后是干净的（只剩零散几个元件），宿主却会在画布上留一块灰蓝残影，一直不散。
+
+- **根因**：`markElementMoved` 只处理「自己有主画布矩形（`lastPaintedRect`）」的元件。嵌套元件在主画布上没有像素
+  （它画在祖先的复合层里），但 `element.painted` 是 true，于是走了「擦自己」这条空路径——没有任何矩形入队；
+  祖先复合层重烘后「透明处盖不住旧像素」，被摘掉的子元件就永久留在画布上。
+- **修法**：`markElementMoved` 先记 `hadOwnRect`；自己没有矩形时调用新增的 `retirePaintedAncestorRect()`，
+  从元件自己向上找最近一个带 `lastPaintedRect` 的祖先，把它的旧矩形入队擦除并让它本帧重烘重合成。
+  自己有矩形时行为与改动前逐字一致。
+- **回归护栏**：`tests/host/retained-mode.test.js` 新增 D23，断言摘除嵌套元件后本帧出现覆盖其旧像素的 `clearRect`，
+  且发生在重新合成父层之前。该用例在修复前的宿主上失败（22/23），修复后通过（23/23）；可按
+  `node tests/host/retained-mode.test.js <另一份宿主>` 反向验证。
+- **端到端复现**：重建探针页（内联当前宿主）后以 `duration=122s` 跑到窗口结束，播放头 123.1s 起画布墨迹为 0.000
+  （修复前同一工况是恒定的 0.231 残影）。
+
 ## 验证
 
 - **构建**：VS 打开 `BiliBili.sln`，`Debug|x86` 生成（不要用 `dotnet build`）。

@@ -4416,6 +4416,22 @@
                 context2d.restore();
             }
 
+            // 嵌套元件的像素落在祖先的复合层里，只有「画到主画布上」的祖先才有
+            // lastPaintedRect。从元件自己往上找最近这样一个祖先，把它的旧矩形入队
+            // 擦除并让它本帧重烘重合成；整条链都没矩形就什么都不用做。
+            function retirePaintedAncestorRect(element) {
+                var current = element;
+                while (current && current !== rootElement) {
+                    if (current.lastPaintedRect) {
+                        enqueueElementErase(current);
+                        current.compositeDirty = true;
+                        return;
+                    }
+
+                    current = current.treeParent;
+                }
+            }
+
             // 元素在主画布上的变换后位置变了（或它刚被隐藏），
             // 上一帧的像素就要在下一帧被擦掉。retireElementRect 会清掉
             // lastPaintedRect，所以同一帧内重复调用不会重复入队。
@@ -4430,8 +4446,15 @@
                     return;
                 }
 
-                if (element.painted || element.lastPaintedRect) {
+                var hadOwnRect = !!element.lastPaintedRect;
+                if (element.painted || hadOwnRect) {
                     enqueueElementErase(element);
+                }
+
+                if (!hadOwnRect) {
+                    // 自己在主画布上没有矩形（像素落在祖先的复合层里）：祖先重烘后
+                    // 透明处盖不住旧像素，必须向上找最近一个画到主画布上的祖先擦掉。
+                    retirePaintedAncestorRect(element);
                 }
 
                 dirty = true;

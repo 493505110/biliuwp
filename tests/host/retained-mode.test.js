@@ -1670,4 +1670,44 @@ test('D22 popEl 不摘离渲染树；Event.ENTER_FRAME 每帧派发', () => {
     assert.equal(host.sandbox.__lastType, 'enterFrame', '派发的事件对象应带 type');
 });
 
+test('D23 嵌套元件被摘除后，主画布上它占过的像素要被擦掉', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d23', 0, 10,
+            'var group = $.createShape();'
+            + 'var dot = $.createShape({ parent: group, x: 120, y: 60 });'
+            + 'dot.graphics.beginFill(0xFF0000, 1);'
+            + 'dot.graphics.drawRect(0, 0, 40, 40);'
+            + 'dot.graphics.endFill();'
+            + 'window.__dot = dot;')
+    ]);
+    host.runFrames(3);
+
+    const canvas = host.mainCanvas();
+    const childRect = { x: 120, y: 60, width: 40, height: 40 };
+    const covered = (outer, inner) => outer.x <= inner.x && outer.y <= inner.y
+        && outer.x + outer.width >= inner.x + inner.width
+        && outer.y + outer.height >= inner.y + inner.height;
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, childRect)),
+        '前置条件：嵌套元件应已画到主画布上');
+
+    const before = canvas.__ops.length;
+    host.sandbox.__dot.remove();
+    host.runFrames(1);
+
+    const ops = canvas.__ops.slice(before);
+    const eraseIndex = ops.findIndex(
+        (op) => op.type === 'clearRect' && covered(op.rect, childRect));
+    assert.notEqual(
+        eraseIndex, -1,
+        '摘除嵌套元件后必须擦掉它在主画布上的旧像素，否则会留下残影；ops='
+        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+    const blitIndex = ops.findIndex((op, i) => i > eraseIndex && op.type === 'drawImage');
+    assert.ok(
+        blitIndex === -1 || eraseIndex < blitIndex,
+        '擦除必须发生在本帧重新合成父层之前');
+});
+
 run();
