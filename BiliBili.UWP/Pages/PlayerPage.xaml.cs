@@ -3655,6 +3655,10 @@ namespace BiliBili.UWP.Pages
                     SeekFromBasDanmaku(e.PositionSeconds);
                     break;
                 case BasDanmakuActionKind.Navigate:
+                    //跳转要关掉 BAS 弹幕的 WebView2，而这一路是从 WebView2 自己的
+                    //WebMessageReceived 事件里同步回调进来的，直接在里面销毁宿主会出问题；
+                    //先让出一条消息循环再处理
+                    await Task.Yield();
                     await NavigateFromBasDanmakuAsync(e.Url);
                     break;
             }
@@ -3691,7 +3695,10 @@ namespace BiliBili.UWP.Pages
 
             try
             {
-                mediaPlayer?.Pause();
+                //跳转目标是 Info 帧还是 Play 帧由 MessageCenter 解析决定，事先不知道，
+                //但无论哪种都必须先退出播放页：play_frame 的 z-order 在 frame 之上，
+                //不退掉就会盖住 Info 帧的目标页面，看起来像「没有跳转」
+                await ExitPlayerForNavigationAsync();
                 if (!await MessageCenter.HandleUrl(url))
                 {
                     MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), url);
@@ -3701,6 +3708,23 @@ namespace BiliBili.UWP.Pages
             {
                 LogHelper.WriteLog("处理 BAS 弹幕跳转失败", LogType.ERROR, ex);
                 Utils.ShowMessageToast("BAS 弹幕跳转失败");
+            }
+        }
+
+        /// <summary>
+        /// 跳转到别的页面之前退出播放页：停播、释放播放器、收起 play_frame。
+        /// </summary>
+        private async Task ExitPlayerForNavigationAsync()
+        {
+            BeginExit();
+            await ClosePlayerAsync();
+            if (Frame?.CanGoBack == true)
+            {
+                Frame.GoBack();
+            }
+            else
+            {
+                Frame.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -3748,16 +3772,7 @@ namespace BiliBili.UWP.Pages
                         return;
                     }
 
-                    BeginExit();
-                    await ClosePlayerAsync();
-                    if (Frame?.CanGoBack == true)
-                    {
-                        Frame.GoBack();
-                    }
-                    else
-                    {
-                        Frame.Visibility = Visibility.Collapsed;
-                    }
+                    await ExitPlayerForNavigationAsync();
 
                     MessageCenter.SendNavigateTo(
                         NavigateMode.Info,
