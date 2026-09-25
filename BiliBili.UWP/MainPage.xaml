@@ -1013,7 +1013,7 @@
         </Style>
     </Page.Resources>
 
-    <Grid Background="{ThemeResource Bili-Background}" >
+    <Grid x:Name="RootPanel" Background="{ThemeResource Bili-Background}" >
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="column_left" />
             <ColumnDefinition x:Name="column_right"/>

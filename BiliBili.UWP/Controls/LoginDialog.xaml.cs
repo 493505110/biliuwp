@@ -54,7 +54,41 @@ namespace BiliBili.UWP.Controls
         {
             this.InitializeComponent();
             account = new Account();
-            Closed += (sender, args) => StopQRTimer();
+            Closed += (sender, args) =>
+            {
+                isClosed = true;
+                StopQRTimer();
+                //对话框关闭（点取消、Esc、Hide）后 WebView2 仍在，必须显式 Close 才会结束
+                CloseWebView();
+            };
+        }
+
+        /// <summary>对话框是否已关闭。初始化是异步的，关闭可能发生在初始化途中</summary>
+        private bool isClosed;
+
+        /// <summary>
+        /// 释放登录页的 WebView2。仅 Hide 对话框或把它移出可视树都不够：
+        /// CoreWebView2 及其 Chromium 进程会一直留着，Close() 才是真正的结束。
+        /// </summary>
+        private void CloseWebView()
+        {
+            if (!webViewReady)
+            {
+                return;
+            }
+            webViewReady = false;
+            try
+            {
+                //解绑后再挂，允许同一实例被复用时不重复订阅
+                webView.NavigationStarting -= webView_NavigationStarting;
+                webView.NavigationCompleted -= webView_NavigationCompleted;
+                webView.WebMessageReceived -= webView_WebMessageReceived;
+                webView.Close();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("关闭登录页WebView2失败", LogType.ERROR, ex);
+            }
         }
 
         protected async override void OnApplyTemplate()
@@ -84,8 +118,17 @@ namespace BiliBili.UWP.Controls
                 webView.NavigationStarting += webView_NavigationStarting;
                 webView.NavigationCompleted += webView_NavigationCompleted;
                 webView.WebMessageReceived += webView_WebMessageReceived;
-                //注销时由 UserManage.Logout() 调用，清 WebView2 自己的 cookie 存储
-                WebView2CookieHelper.Register(webView.CoreWebView2);
+                //网页登录前先让 WebView2 与 App 侧的登录凭证对齐：
+                //只增不删会让换号、注销后的旧 cookie 留在 Chromium 里，网页直接是旧账号
+                await WebView2CookieHelper.CopyToWebViewAsync(webView.CoreWebView2);
+                //初始化期间对话框可能已经被取消：那时 webViewReady 还是 false，
+                //Closed 里的 CloseWebView 拦不到，只能在这里补一次关闭，否则会漏一个实例
+                if (isClosed)
+                {
+                    webViewReady = true;
+                    CloseWebView();
+                    return false;
+                }
                 webViewReady = true;
                 return true;
             }

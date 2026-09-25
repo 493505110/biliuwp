@@ -1065,6 +1065,10 @@ namespace BiliBili.UWP.Pages
                     ClearBiliJumpAds();
                     ClearSubTitle();
                     ClearBasDanmaku();
+                    //退出视频时确定性地关掉 BAS 弹幕的 WebView2。
+                    //控件自身的 Unloaded 也会兜底释放，但那条路径依赖页面被移出可视树，
+                    //这里显式释放更直接，不会留下 Chromium 进程
+                    basDanmakuControl?.Release();
                     ClearInteractiveDanmaku();
                     MTC.timer2.Stop();
                     MTC.DanmuLoaded -= MTC_DanmuLoaded;

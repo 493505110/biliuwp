@@ -113,8 +113,56 @@ namespace BiliBili.UWP
             SystemNavigationManager.GetForCurrentView().BackRequested += MainPage_BackRequested;
             DisplayInformation.GetForCurrentView().OrientationChanged += MainPage_OrientationChanged;
             Window.Current.Content.PointerPressed += MainPage_PointerEntered;
+            //注销时要清 WebView2 存储，但登录弹窗里的 WebView2 活不到那时，
+            //故由主页面临时借出一个用完即弃的载体（WebView2 每实例都会拉起一组渲染进程，不留常驻）
+            WebView2CookieHelper.CleanupHostProvider = AcquireCleanupWebViewAsync;
+            WebView2CookieHelper.CleanupHostReleaser = ReleaseCleanupWebView;
 
 
+        }
+
+        private Microsoft.UI.Xaml.Controls.WebView2 cleanupWebView;
+
+        /// <summary>
+        /// 借出一个未显示的 WebView2 作为清理载体。首次调用会拉起 Chromium 渲染进程，
+        /// 因此每次注销只在需要时创建，用完立刻由 <see cref="ReleaseCleanupWebView"/> 释放。
+        /// </summary>
+        private async Task<Microsoft.Web.WebView2.Core.CoreWebView2> AcquireCleanupWebViewAsync()
+        {
+            if (cleanupWebView == null)
+            {
+                cleanupWebView = new Microsoft.UI.Xaml.Controls.WebView2();
+                //放进可视树才能初始化；Visible 且尺寸为 0，不占布局也不接收输入
+                cleanupWebView.Width = 0;
+                cleanupWebView.Height = 0;
+                cleanupWebView.IsHitTestVisible = false;
+                cleanupWebView.HorizontalAlignment = HorizontalAlignment.Left;
+                cleanupWebView.VerticalAlignment = VerticalAlignment.Top;
+                RootPanel.Children.Add(cleanupWebView);
+            }
+            await cleanupWebView.EnsureCoreWebView2Async();
+            return cleanupWebView.CoreWebView2;
+        }
+
+        /// <summary>
+        /// 归还清理载体：关闭 CoreWebView2 并移出可视树，避免渲染进程常驻。
+        /// </summary>
+        private void ReleaseCleanupWebView()
+        {
+            if (cleanupWebView == null)
+            {
+                return;
+            }
+            try
+            {
+                cleanupWebView.Close();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("关闭WebView2清理载体失败", LogType.ERROR, ex);
+            }
+            RootPanel.Children.Remove(cleanupWebView);
+            cleanupWebView = null;
         }
       
 
@@ -496,7 +544,7 @@ namespace BiliBili.UWP
                     var data = await account.RefreshToken(SettingHelper.Get_Access_key(), SettingHelper.Get_Refresh_Token());
                     if (!data.success)
                     {
-                        UserManage.Logout();
+                        await UserManage.LogoutAsync();
                         Utils.ShowMessageToast("登录过期，请重新登录");
                         await Utils.ShowLoginDialog();
                     }
@@ -1350,13 +1398,14 @@ namespace BiliBili.UWP
             fy.Hide();
         }
 
-        private void btn_LogOut_Click(object sender, RoutedEventArgs e)
+        private async void btn_LogOut_Click(object sender, RoutedEventArgs e)
         {
-            UserManage.Logout();
+            //清理 WebView2 存储是异步的，先收起浮层再等清理完成，避免清完还带着旧账号
             btn_Login.Visibility = Visibility.Visible;
             btn_UserInfo.Visibility = Visibility.Collapsed;
             gv_User.Visibility = Visibility.Collapsed;
             fy.Hide();
+            await UserManage.LogoutAsync();
         }
 
      

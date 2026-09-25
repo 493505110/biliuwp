@@ -34,11 +34,50 @@ namespace BiliBili.UWP.Controls
         private bool rendererFailureNotified;
         private int parsedItemCount;
         private bool hasRenderedItem;
+        /// <summary>WebView2 是否已释放。Close() 是终态，释放后本控件不再可用</summary>
+        private bool isReleased;
 
         public BasDanmakuControl()
         {
             InitializeComponent();
             SizeChanged += BasDanmakuControl_SizeChanged;
+            //WinUI 的 WebView2 不会因为控件被卸载而自动关闭 CoreWebView2，
+            //宿主页（PlayerPage 不缓存）销毁后 Chromium 进程仍会留着，必须显式 Close
+            Unloaded += BasDanmakuControl_Unloaded;
+        }
+
+        private void BasDanmakuControl_Unloaded(object sender, RoutedEventArgs e)
+        {
+            Release();
+        }
+
+        /// <summary>
+        /// 释放 WebView2 及其 Chromium 进程。幂等，释放后本控件不再可用。
+        /// </summary>
+        public void Release()
+        {
+            if (isReleased)
+            {
+                return;
+            }
+            isReleased = true;
+            isPageReady = false;
+            try
+            {
+                if (webView.CoreWebView2 != null)
+                {
+                    webView.NavigationCompleted -= WebView_NavigationCompleted;
+                    webView.WebMessageReceived -= WebView_WebMessageReceived;
+                    webView.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("释放 BAS 弹幕 WebView2 失败", LogType.ERROR, ex);
+            }
+            //唤醒还在等初始化的命令，否则它们会一直挂到超时
+            navigationCompletion?.TrySetResult(false);
+            pageReadyCompletion?.TrySetResult(false);
         }
 
         public event EventHandler<BasDanmakuActionEventArgs> ActionRequested;
@@ -56,6 +95,8 @@ namespace BiliBili.UWP.Controls
                     && item.stime >= 0)
                 .ToList();
             var version = Interlocked.Increment(ref contentVersion);
+            //只有真的有内容才允许拉起 WebView2；空列表（清空）不该创建实例
+            var hasContent = list.Count > 0;
             return ExecuteCommandAsync(
                 version,
                 async () =>
@@ -87,7 +128,8 @@ namespace BiliBili.UWP.Controls
                         + ","
                         + JsonConvert.SerializeObject(safeRate)
                         + ");");
-                });
+                },
+                hasContent);
         }
 
         public Task ClearAsync()
@@ -118,7 +160,8 @@ namespace BiliBili.UWP.Controls
                         + ","
                         + JsonConvert.SerializeObject(NormalizeRate(playbackRate))
                         + ");");
-                });
+                },
+                false);
         }
 
         public Task SeekAsync(
@@ -139,7 +182,8 @@ namespace BiliBili.UWP.Controls
                         + ","
                         + JsonConvert.SerializeObject(NormalizeRate(playbackRate))
                         + ");");
-                });
+                },
+                false);
         }
 
         public Task SetVisibleAsync(bool visible)
@@ -153,7 +197,8 @@ namespace BiliBili.UWP.Controls
                         "window.basHost.visible("
                         + JsonConvert.SerializeObject(visible)
                         + ");");
-                });
+                },
+                false);
         }
 
         public async Task<bool> TryHandleTapAsync(double normalizedX, double normalizedY)
@@ -192,12 +237,20 @@ namespace BiliBili.UWP.Controls
             }
         }
 
-        private async Task ExecuteCommandAsync(int version, Func<Task> command)
+        private async Task ExecuteCommandAsync(int version, Func<Task> command, bool allowInitialize)
         {
             await commandGate.WaitAsync();
             try
             {
                 if (version != Volatile.Read(ref contentVersion))
+                {
+                    return;
+                }
+
+                //还没初始化过就说明从来没有非空内容：清空、同步进度、resize 这类命令
+                //不该把 WebView2 拉起来。否则打开任意视频（即使没有 BAS 弹幕）
+                //都会因为 ClearBasDanmaku 而创建一个 Chromium 实例
+                if (initializationTask == null && !allowInitialize)
                 {
                     return;
                 }
@@ -223,6 +276,11 @@ namespace BiliBili.UWP.Controls
 
         private async Task<bool> EnsureReadyAsync()
         {
+            //已释放的控件不再初始化，否则会重新拉起一个刚被关掉的 WebView2
+            if (isReleased)
+            {
+                return false;
+            }
             if (initializationTask == null)
             {
                 initializationTask = InitializeAsync();
@@ -236,6 +294,13 @@ namespace BiliBili.UWP.Controls
             try
             {
                 await webView.EnsureCoreWebView2Async();
+                //初始化途中控件可能已被卸载并 Release，那时 webView.CoreWebView2 还是 null，
+                //Release 拦不到这个刚建出来的实例，只能在这里补关闭
+                if (isReleased)
+                {
+                    webView.Close();
+                    return false;
+                }
                 var assetsPath = Path.Combine(
                     Package.Current.InstalledLocation.Path,
                     "Assets");
@@ -585,7 +650,8 @@ namespace BiliBili.UWP.Controls
             var version = Volatile.Read(ref contentVersion);
             await ExecuteCommandAsync(
                 version,
-                async () => await ExecuteScriptAsync("window.basHost.resize();"));
+                async () => await ExecuteScriptAsync("window.basHost.resize();"),
+                false);
         }
 
         private static double NormalizeRate(double rate)

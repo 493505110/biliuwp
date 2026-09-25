@@ -59,8 +59,16 @@
 ### 登录与 Cookie
 
 - 当前登录入口是 `Controls/LoginDialog`，支持二维码、账密登录、WebView2 网页登录及安全验证；账号业务集中在 `Modules/Account.cs` 和 `Api/User/LoginAPI.cs`。
+- **网页登录**是独立链路。`LoginDialog.BtnWebLogin_Click` 把 WebView2 导航到 `https://passport.bilibili.com/login`，人机验证由页面自行处理；`webView_NavigationCompleted` 在 `LoginMode.Web` 下要求「已离开 login 页」且「WebView2 里出现 `DedeUserID`」两个条件同时成立，才算网页侧登录成功。
+- 随后 `FinishWebLogin()` 先 `WebView2CookieHelper.CopyToHttpClientAsync()` 把 Chromium cookie 搬进 WinRT jar——两边存储独立，而后续 API 走 `ApiRequest`/`HttpBaseProtocolFilter`——再调 `Account.CookieToAccessKey()` 换 `access_key`。
+- `CookieToAccessKey()` 走 TV 端接口组合，因为旧的 `/login/app/third` 已下线（返回 code 20000）：从 WinRT jar 读 `bili_jct` 当 csrf → `QRLoginAuthCode` 申请 `auth_code` → `QRLoginConfirm` 用已有 web cookie 确认 → `PollQRTokenInfo` 轮询取 token（服务端状态有延迟，重试 5 次、间隔 800ms）。自动确认失败时退回 `LoginMode.WebConfirm`，把授权 URL 重新显示在 WebView2 里让用户手动点确认。
+- 另有两条旁路：`webView_NavigationStarting` 拦截 URL 携带 `access_key=` 的旧式授权回跳，直接 `SetLoginSuccess()`；账密登录遇到 `NeedValidate` 时先用 `CopyToWebViewAsync` 把 WinRT 侧的登录过程 cookie 回写 WebView2，再导航到验证页。
+- 拿到 `access_key` 后 `SSO(access_key)` 会调 `passport.bilibili.com/api/login/sso` 反向换回一套 web cookie 写入 WinRT jar，所以 `Account.GetCookieValue()` 读到的都是 WinRT 那一份。
 - `access_key` 已迁移到 `SettingHelper` + `CredentialVault`（Credential Locker），读取时回退到 `ApplicationData.Current.LocalSettings` 的旧键并兼容迁移；`refresh_token`、用户 ID、过期时间和 Biliplus Cookie 等仍由 `SettingHelper` 写入 `ApplicationData.Current.LocalSettings`。
-- Bilibili Web Cookie 位于 WinRT `HttpBaseProtocolFilter.CookieManager`；WebView2 使用独立的 Chromium Cookie 存储。`LoginDialog` 会在两者之间复制 Cookie，注销时两边都要清理。
+- Bilibili Web Cookie 位于 WinRT `HttpBaseProtocolFilter.CookieManager`；WebView2 使用独立的 Chromium Cookie 存储。
+- `CopyToWebViewAsync` 对登录凭证组（`SharedLoginCookieNames`）以 WinRT 侧为准做严格对齐，会删掉 Chromium 里多出来的同组 cookie。只增不删会让换号、注销后的旧 `SESSDATA` 留在 Chromium，网页直接是旧账号，也会让上面的登录完成判定误判。
+- 注销走 `UserManage.LogoutAsync()`（异步，等清理完再返回，避免紧接着弹出的登录页还带旧 cookie）：清 WinRT jar 与本地凭证后，`WebView2CookieHelper.ClearAllAsync()` 经 `CleanupHostProvider` 调用 `Profile.ClearBrowsingDataAsync(Cookies | AllDomStorage | ServiceWorkers | CacheStorage)`。
+- **清理载体用完即弃**：`CleanupHostProvider` / `CleanupHostReleaser` 由 `MainPage` 构造时注入，分别指向 `AcquireCleanupWebViewAsync` / `ReleaseCleanupWebView`。前者在 `RootPanel` 里临时挂一个 0 尺寸的 WebView2 并 `EnsureCoreWebView2Async`，后者 `Close()` 并移出可视树。WebView2 每个实例都会拉起一组 `msedgewebview2.exe` 渲染进程（实测一个空实例约 50~80MB），**不要改成常驻**。两个陷阱：不要拿登录弹窗里的 WebView2 做载体（弹窗一关就释放，旧实现用静态 `CookieManager` 引用正是这样失效的）；也不要把载体挂到 `RootGrid`——那个名字属于 MTC 控件模板，`MainPage` 内的根容器是 `RootPanel`。
 - 直播 Web API 依赖 Cookie/Wbi/web 参数。弹幕认证只有在 `getDanmuInfo` 请求实际携带 `SESSDATA` 时才应发送用户 UID，否则按游客 UID `0` 连接。
 
 ### 导航
@@ -112,6 +120,11 @@
 - `ApiRequest` 使用进程级单例 `HttpClient`，请求头统一走 `HttpRequestMessage` 传递，不要退回 per-request 新建客户端的写法。过滤器忽略 `IgnorableServerCertificateErrors.Expired`，旧层 `Helper/WebClientClass.cs` 里也有同样的放行；修改网络安全策略时需要显式评估兼容性影响。
 - `CommentV2Control.LoadComment()` 的两个重载会重新获取外层 `ScrollViewer` 并滚动到顶部；`ClearComment()` 当前只重新获取 ScrollViewer，不会自行 `ChangeView()`。切换内容时不要假定 `ClearComment()` 已完成滚动复位。
 - 包标识、发布者和版本以 `BiliBili.UWP/Package.appxmanifest` 为唯一事实来源；发版时直接核对该文件，不要在其他文档复制当前版本号。
+- **`ContentDialog` 关闭不会自动释放内部的 WebView2**：`Hide()`（含登录成功后那几处 `this.Hide()`）和用户点「取消」/Esc 都只让对话框离开视觉树，`CoreWebView2` 及其整组 `msedgewebview2.exe` 进程会一直留着。必须在 `Closed` 事件里显式 `webView.Close()`。`Controls/LoginDialog` 与 `Controls/LotteryDialog` 都已按此处理，新增带 WebView2 的对话框时照做。
+- 上面这类释放要注意**初始化竞态**：`EnsureCoreWebView2Async()` 是异步的，用户可能在它返回前就关掉对话框，那一刻 `webViewReady` 还是 `false`，`Closed` 里的释放逻辑会直接跳过。两个对话框都用 `isClosed` 标志在初始化完成后补一次 `Close()`。
+- **控件卸载同样不会释放 WebView2**，页面级宿主也要显式 `Close()`：`Controls/BasDanmakuControl` 在 `Unloaded` 里调 `Release()`（幂等；释放后 `EnsureReadyAsync` 直接返回 false，避免重新拉起刚关掉的实例），`Pages/PlayerPage.ClosePlayerAsync` 退出时也显式调一次；`Pages/Live/LiveRoomPage` 在 `OnNavigatedFrom` 里关闭简介弹层的 `web`。判断某处是否泄漏前，先确认它是「随页面缓存长期存活」还是「本该随页面销毁」。
+- **`BasDanmakuControl` 的 WebView2 必须惰性创建**：`ExecuteCommandAsync` 带一个 `allowInitialize` 参数，只有 `ReplaceAsync` 且列表非空时才为 true，`ClearAsync`/`SeekAsync`/`SetPlaybackStateAsync`/`SetVisibleAsync`/resize 都是 false。原因：`PlayerPage` 每打开一个视频都会调 `ClearBasDanmaku()`，若清空也能触发初始化，**打开任意不含 BAS 弹幕的视频都会凭空创建一个 Chromium 实例**。改动这些命令的初始化语义时留意这一点。
+- **WebView2 每个实例都会拉起一组 `msedgewebview2.exe` 渲染进程**（实测一个空实例约 50~80MB，浏览器主进程另计上百 MB）。因此：清理类载体用完即弃、不要常驻；页面级 `NavigationCacheMode` 为 `Enabled`/`Required` 的宿主页（`Pages/WebPage`、`Views/SettingPage`）其 WebView2 会随页面缓存长期存活，属有意为之，但要知道代价。
 - **`Frame` 自 Windows 10 1803 起默认自带导航动画，不要误判为「切换没有动画」**：`Frame` 会自动用 `NavigationThemeTransition` 播放 Page Refresh，即**目标页面整体「从下往上滑入 + 淡入」**，无需手动设置 `ContentTransitions`。所以**任何 `Frame.Navigate` 都会让新页面整块滑入**，页面上覆盖的元素（开屏图、遮罩等）会跟着一起滑，看起来"像导航在动"。需要禁用某一次导航的动画时，传第三个参数 `new SuppressNavigationTransitionInfo()`。另注意 `MainPage` 内部的 `main_frame` 自带 `PopupThemeTransition`（内容从下方滑入），会透过半透明的覆盖层显形。排查"页面切换时的位移/滑动"类问题时，**先确认动画发生在哪一层**（Frame 层还是页面内部），再查对应机制。
 
 ## Git 提交约定
