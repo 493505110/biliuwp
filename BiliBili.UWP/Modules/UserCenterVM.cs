@@ -68,7 +68,11 @@ namespace BiliBili.UWP.Modules
             try
             {
                 Loading = true;
-                
+
+                // 头图和详情互不依赖，和详情同时发出；否则要等详情返回后才开始请求头图，
+                // 页面先按默认图渲染，头图会明显晚一步才出来
+                _ = GetTopImage();
+
                 var api = userCenterAPI.UserCenterDetail(mid);
 
                 var results = await api.Request();
@@ -78,7 +82,6 @@ namespace BiliBili.UWP.Modules
                     if (data.success)
                     {
                         UserCenterDetail = data.data;
-                        GetTopImage();
                         SubmitVideos = new IncrementalLoadingCollection<UserSubmitVideoSource, SubmitVideoItemModel>(new UserSubmitVideoSource(mid),30);
                     }
                     else
@@ -108,7 +111,9 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                var result=await userCenterAPI.UserProfileWeb(mid).Request();
+                // x/space/acc/info 已固定被风控拦截（-401 crawler_main_space_acc_info），取不到 top_photo，
+                // 换 card 接口：带 photo=true 时 data.space 里仍有完整头图地址。
+                var result=await userCenterAPI.UserCard(mid).Request();
                 if (result.status)
                 {
                     var data =await result.GetData<JObject>();
@@ -129,17 +134,18 @@ namespace BiliBili.UWP.Modules
         }
 
         /// <summary>
-        /// top_photo 现在只返回不带协议和域名的路径（bfs/space/xxx.png），直接拿去当图源是空的；
-        /// top_photo_v2.l_img 才是完整地址，优先取它，取不到再给 top_photo 补前缀。
+        /// card 接口的头图在 data.space，l_img 是大图，s_img 是缩略图；
+        /// 不带 photo=true 时该字段为 null。
         /// </summary>
         private static string ResolveTopImage(JObject data)
         {
-            var large = data["top_photo_v2"]?["l_img"]?.ToString();
+            var space = data["space"];
+            var large = space?["l_img"]?.ToString();
             if (!string.IsNullOrWhiteSpace(large))
             {
                 return NormalizeImageUrl(large);
             }
-            return NormalizeImageUrl(data["top_photo"]?.ToString());
+            return NormalizeImageUrl(space?["s_img"]?.ToString());
         }
 
         private static string NormalizeImageUrl(string url)
