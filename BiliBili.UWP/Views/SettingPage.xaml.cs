@@ -195,6 +195,7 @@ namespace BiliBili.UWP.Views
                     grid_Stretch.Visibility = Visibility.Collapsed;
                     grid_Ver.Visibility = Visibility.Collapsed;
                     grid_Opacity.Visibility = Visibility.Collapsed;
+                    grid_FrostedGlass.Visibility = Visibility.Collapsed;
                 }
 
 
@@ -521,6 +522,7 @@ namespace BiliBili.UWP.Views
                 grid_Stretch.Visibility = Visibility.Visible;
                 grid_Ver.Visibility = Visibility.Visible;
                 grid_Opacity.Visibility = Visibility.Visible;
+                grid_FrostedGlass.Visibility = Visibility.Visible;
             }
             else
             {
@@ -531,6 +533,7 @@ namespace BiliBili.UWP.Views
                 grid_Stretch.Visibility = Visibility.Collapsed;
                 grid_Ver.Visibility = Visibility.Collapsed;
                 grid_Opacity.Visibility = Visibility.Collapsed;
+                grid_FrostedGlass.Visibility = Visibility.Collapsed;
             }
             SettingHelper.Set_CustomBG(sw_CustomBg.IsOn);
             MessageCenter.SendChangedBg();
