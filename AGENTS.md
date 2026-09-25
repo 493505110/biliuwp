@@ -11,8 +11,10 @@
 - 主应用的 `Release|x86`、`Release|ARM`、`Release|x64` 启用 `.NET Native toolchain`，依赖反射的代码在 Release 下可能有不同表现；`Debug|x64` 显式关闭该工具链。
 - 工程启用了 AppX 包签名并引用 `BiliBili.UWP/BiliBili.UWP_TemporaryKey.pfx`。PFX 被 `.gitignore` 排除；新环境缺少证书时，应在 Visual Studio 中创建或选择本地测试证书，不要提交私钥文件。
 - Git 子模块 `Libraries/NSDanmaku-Fork` 是解决方案中 `NSDanmaku` 项目的来源，克隆时必须带子模块（CI 使用 `submodules: recursive`）。
-- 测试项目为 `tests/BiliBili.Tests`(net8.0 + MSTest)，已加入 `BiliBili.sln`，并通过 `<Compile Include="..\..\BiliBili.UWP\..." Link="Production\...">` 直接编译生产源码，夹具位于 `tests/BiliBili.Tests/Fixtures`。它只覆盖不依赖 UWP 运行时的纯逻辑，不能替代页面级验证。
-- `.github/workflows/` 有 `ci.yml`（推送 master / PR 时构建 `Debug|x86` 主项目并运行单元测试）、`nightly.yml`（定时构建并发布 nightly 标签）和 `release.yml`（`v*` 标签触发，并校验 `Package.appxmanifest` 版本与标签一致）。仓库仍无 lint 或格式化配置。XML 解析、静态检查和 `git diff --check` 只能作为补充，不能替代 Visual Studio 构建和实际页面验证。
+- 测试项目为 `tests/BiliBili.Tests`(net8.0 + MSTest)，已加入 `BiliBili.sln`，并通过 `<Compile Include="..\..\BiliBili.UWP\..." Link="Production\...">` 直接编译生产源码，夹具位于 `tests/BiliBili.Tests/Fixtures`。它只覆盖不依赖 UWP 运行时的纯逻辑（含 `Modules\Playback\` 下的播放纯逻辑与 `Modules\BiliJumpAiParser.cs`），不能替代页面级验证。
+- `.github/workflows/` 有 `ci.yml`（推送 master / PR 时构建 `Debug|x86` 主项目并运行单元测试）、`nightly.yml`（定时构建并发布 nightly 标签）和 `release.yml`（`v*` 标签触发）。仓库仍无 lint 或格式化配置。XML 解析、静态检查和 `git diff --check` 只能作为补充，不能替代 Visual Studio 构建和实际页面验证。
+- 正式发版只构建 `Release|x86` 与 `Release|x64`，并附上 `biliuwp-signing.cer`；**不产出 ARM 包**（csproj 里的 ARM 配置只服务于本地调试）。
+- `release.yml` 发版时有两条硬约束：manifest 的 `Identity Version` 必须与 tag 一致；**Release 正文直接从 `CHANGELOG.md` 抽取 `## x.y.z` 段落**（跳过版本标题行），段落缺失或标题不匹配就会产出空正文。打 tag 前先补 CHANGELOG。
 - 不要使用 `dotnet build` 构建该旧式 UWP 工程。需要命令行自动化时只能使用 Visual Studio 自带的 MSBuild；最终验证仍以 Visual Studio 的生成、部署和运行结果为准。
 
 ## 架构
@@ -28,11 +30,13 @@
 
 工作区还存在 `BiliBili.JSBridge/`，但它不在解决方案中且未被 Git 跟踪（仅有 bin/obj 产物），属于历史构建残留，不要当作活跃项目。
 
+`cloudflare/bili-jump-cache/` 是**已跟踪、独立于 `BiliBili.sln`** 的子项目：字幕广告 AI 识别的 Cloudflare Worker + D1 公共缓存，与 UWP 工程没有编译期依赖，只在运行期通过 HTTP 协作。它有自己的 `AGENTS.md` 与 `README.md`，改动该目录时读那一份，不要套用根文档的构建与提交约定。
+
 ### 关键目录（`BiliBili.UWP/` 下）
 
 - `Api/`：API 定义、`ApiModel` 请求描述、`ApiRequest.cs` HTTP 客户端和 `ApiUtils.cs` 扩展方法。
-- `Helper/`：SQLite、设置与 `CredentialVault`、旧 WebClient、Wbi 签名、弹幕服务（`BiliDanmakuService`、`InteractiveDanmakuService`、`BiliLiveDanmu`）、`FFmpegDashSource`、`MediaProcessing`、`WebView2CookieHelper`、日志和消息中心等基础设施。
-- `Modules/`：业务/ViewModel 层；主要业务类继承 `IModules`，同目录也包含不继承它的响应模型。
+- `Helper/`：SQLite、设置与 `CredentialVault`（含 `SettingKeys.cs`）、旧 WebClient、Wbi 签名、弹幕服务（`BiliDanmakuService`、`InteractiveDanmakuService`、`BiliLiveDanmu`）、`FFmpegDashSource`、`MediaProcessing`、`WebView2CookieHelper`、字幕广告 AI 识别（`BiliJumpAi.cs`、`BiliJumpAiCacheService.cs`）、开屏图（`SplashImageSelector.cs`）、日志和消息中心等基础设施。
+- `Modules/`：业务/ViewModel 层；主要业务类继承 `IModules`，同目录也包含不继承它的响应模型。`Modules/Playback/` 收拢播放相关**纯逻辑**（`DashStreamSelector`、`PlaybackRequestGate`、`PlaybackPosition`、`PlaybackHistory`、`PlaybackUrl`、`PlaybackRestoreState`、`PlaybackTimelineIndex`、`PlaybackEventTimeline`），这些文件被测试项目链接编译，改动会被单元测试直接覆盖。
 - `Pages/`：内容页和详情页，部分功能再按 Home、Live、Music、User、Bangumi、FindMore、Season 分类。
 - `Views/`：主导航视图，包括 `BangumiPage`、`ChannelPage`、`FindPage`、`SettingPage`、`AttentionPage` 和直播主入口 `LiveV2Page`；首页在 `Pages/Home/HomePage`，不在 `Views/` 下。
 - `Models/`：共享数据模型和 API 响应模型。
@@ -74,6 +78,17 @@
 - BAS 弹幕与互动弹幕是两个独立控件，不共用上面的渲染链路：`Controls/BasDanmakuControl` 内是 `WebView2`，通过 `bas-host.html` / `bas.js` 渲染，数据同样来自 `BiliDanmakuService`；`Controls/InteractiveDanmakuControl` 是纯 XAML 选项面板，数据由 `Helper/InteractiveDanmakuService` 提供。
 - 直播弹幕连接与协议解析在 `Helper/BiliLiveDanmu.cs`，与上述普通视频链路无关。
 
+### 字幕广告 AI 识别（BiliJumpAi）
+
+默认关闭（`Get_BiliJumpAiEnabled()` 缺省写回 `false`）。开启后 `PlayerPage` 用字幕文本请求 AI 识别植入广告段，再按识别结果跳过。整条链路横跨客户端、Cloudflare Worker 和 AI 提供商三方：
+
+1. `PlayerPage.LoadBiliJumpAdsAsync()` 是唯一入口，前置条件包括：视频时长大于 `BiliJumpMinimumDurationSeconds`（150 秒）、`IsBiliJumpVideo()` 判定通过、以及 UP 主粉丝数不低于设置项 `BiliJumpAiMinFans`（默认 10，设为 0 表示不限）。
+2. 字幕经 `Modules/BiliJumpAiParser.cs` 的 `BuildSubtitleText()` 拼成带时间轴的文本，交给 `Helper/BiliJumpAi.cs` 的 `BiliJumpAiService`。提供商有 `zhou2008`（内置 key，默认）、`deepseek`、`custom` 三种；用户自填的 API Key 存在 `CredentialVault` 的 `BiliBili.UWP.BiliJumpAi` 资源里，不落 `LocalSettings`。
+3. 请求 AI 之前先查公共缓存 `Helper/BiliJumpAiCacheService.cs`，端点为 `https://api.zhou2008.cn/biliuwp/video_ad_jump`，走 claim / save / release 租约协议去重并发识别。该服务本身不调用 AI，只做缓存。
+4. AI 返回的 JSON 由 `BiliJumpAiParser.TryParse()` 解析，`NormalizeSegments()` 裁剪到视频时长范围内。这两个方法与 `BuildSubtitleText()` 都是纯静态逻辑，已被 `tests/BiliBili.Tests` 覆盖——改解析规则时同步补测试。
+
+`BiliJumpAiAutoJump`（默认关闭）决定命中后是自动跳过还是仅提示。
+
 ### 本地存储
 
 - **SQLite**：`ApplicationData.Current.LocalFolder\RRMJData.db`（`SqlHelper.DbPath`），用于观看历史、播放进度和下载 GUID 等数据。
@@ -90,11 +105,11 @@
 
 ## 关键陷阱
 
-- `BiliBili.Background` 与主 UWP 项目的 `SettingHelper` 是两个独立类。共享 key 的读写逻辑如有变化，需要核对两处实现。
+- `BiliBili.Background` 与主 UWP 项目的 `SettingHelper` 仍是两个独立类，各有各的实现，不要合并。但 key 常量已统一到 `BiliBili.UWP/Helper/SettingKeys.cs`，并由 `BiliBili.Background.csproj` 通过 `<Compile Include ... Link>` **跨项目编译期链接**（`SettingKeys.cs` 与 `SignHelper.cs` 都在链接列表里）。新增或改动设置 key 应只动 `SettingKeys.cs`；反之，改这两个文件会同时影响后台任务，必须两端都验证。
 - `ApiHelper.access_key` 只在 `_access_key == ""` 时回退到 `SettingHelper.Get_Access_key()`；字段默认值为 `null`，未显式赋值时会直接返回 `null`。修改登录初始化前不要忽略这一行为。
-- `ApiHelper.AndroidKey` 与 `ApiUtils.AndroidKey` 不是同一套客户端 key；`ApiHelper.AndroidKey` 对应 `ApiUtils.AndroidTVKey`。不要根据相同属性名互换使用，也不要在文档或日志中复制完整 key/secret。
+- `ApiHelper.AndroidKey` 与 `ApiUtils.AndroidKey` 不是同一套客户端 key；`ApiHelper.AndroidKey` 对应 `ApiUtils.AndroidTVKey`。不要根据相同属性名互换使用，也不要在文档或日志中复制完整 key/secret。`BiliJumpAiProviders` 里还硬编码了一个内置 AI 服务 key（`Zhou2008BuiltInApiKey`）供默认提供商使用，同样不要外泄或复制到文档、日志、提交信息里。
 - `ApiHelper.VideoKey` 的 Appkey 为空字符串，仅保留 Secret；当前仓库内没有任何调用方，视为历史遗留，改动前先确认是否真被需要。
-- `ApiRequest` 的 HTTP 过滤器忽略 `IgnorableServerCertificateErrors.Expired`。修改网络安全策略时需要显式评估兼容性影响。
+- `ApiRequest` 使用进程级单例 `HttpClient`，请求头统一走 `HttpRequestMessage` 传递，不要退回 per-request 新建客户端的写法。过滤器忽略 `IgnorableServerCertificateErrors.Expired`，旧层 `Helper/WebClientClass.cs` 里也有同样的放行；修改网络安全策略时需要显式评估兼容性影响。
 - `CommentV2Control.LoadComment()` 的两个重载会重新获取外层 `ScrollViewer` 并滚动到顶部；`ClearComment()` 当前只重新获取 ScrollViewer，不会自行 `ChangeView()`。切换内容时不要假定 `ClearComment()` 已完成滚动复位。
 - 包标识、发布者和版本以 `BiliBili.UWP/Package.appxmanifest` 为唯一事实来源；发版时直接核对该文件，不要在其他文档复制当前版本号。
 - **`Frame` 自 Windows 10 1803 起默认自带导航动画，不要误判为「切换没有动画」**：`Frame` 会自动用 `NavigationThemeTransition` 播放 Page Refresh，即**目标页面整体「从下往上滑入 + 淡入」**，无需手动设置 `ContentTransitions`。所以**任何 `Frame.Navigate` 都会让新页面整块滑入**，页面上覆盖的元素（开屏图、遮罩等）会跟着一起滑，看起来"像导航在动"。需要禁用某一次导航的动画时，传第三个参数 `new SuppressNavigationTransitionInfo()`。另注意 `MainPage` 内部的 `main_frame` 自带 `PopupThemeTransition`（内容从下方滑入），会透过半透明的覆盖层显形。排查"页面切换时的位移/滑动"类问题时，**先确认动画发生在哪一层**（Frame 层还是页面内部），再查对应机制。
