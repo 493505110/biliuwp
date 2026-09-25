@@ -97,6 +97,12 @@ namespace BiliBili.UWP.Pages
         private const double BasDanmakuLookbackSeconds = 45;
         private const double BasDanmakuLookaheadSeconds = 70;
         private const double BasDanmakuWindowRefreshThresholdSeconds = 25;
+        /// <summary>
+        /// 这一下点击是否落在了播放控制栏上（由 MTC_Tapped_1 登记）。
+        /// 控制栏的 Tapped 先于 playerSurface 触发，需要等 BAS 弹幕判定完是否命中互动元素，
+        /// 才能决定要不要切换控制栏显隐
+        /// </summary>
+        bool mtcTapPendingToggle;
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
@@ -4391,7 +4397,9 @@ namespace BiliBili.UWP.Pages
 
         private void MTC_Tapped_1(object sender, TappedRoutedEventArgs e)
         {
-            MTC.HideOrShowMTC();
+            //控制栏的 Tapped 冒泡到 playerSurface 之前会先到这里，此刻还不知道这一下
+            //有没有点在 BAS 弹幕的互动元素上，先登记，由 PlayerSurface_Tapped 统一决定
+            mtcTapPendingToggle = true;
         }
 
         private void MTC_FastForward(object sender, double e)
@@ -4760,27 +4768,49 @@ namespace BiliBili.UWP.Pages
 
         private async void PlayerSurface_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            if (!LoadDanmu
-                || basDanmakuControl == null
-                || IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject))
+            //无论走哪条分支都要消费掉，避免残留到下一次点击
+            var toggleBar = mtcTapPendingToggle;
+            mtcTapPendingToggle = false;
+
+            if (IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject))
             {
                 return;
+            }
+
+            //点在 BAS 弹幕的互动元素上时，这一下已经由弹幕自己处理（跳转/seek），
+            //不能再顺手收起控制栏，否则播放器的单击效果会叠加到弹幕交互上
+            var handledByBas = await TryHandleBasDanmakuTapAsync(e);
+            if (!handledByBas && toggleBar)
+            {
+                MTC.HideOrShowMTC();
+            }
+        }
+
+        /// <summary>
+        /// 把这一下点击交给 BAS 弹幕判定是否落在可交互元素上。
+        /// 返回 true 表示命中并已处理，调用方据此抑制播放器自身的单击行为
+        /// </summary>
+        private async Task<bool> TryHandleBasDanmakuTapAsync(TappedRoutedEventArgs e)
+        {
+            if (!LoadDanmu || basDanmakuControl == null)
+            {
+                return false;
             }
 
             var width = basDanmakuControl.ActualWidth;
             var height = basDanmakuControl.ActualHeight;
             if (width <= 0 || height <= 0)
             {
-                return;
+                return false;
             }
 
             var point = e.GetPosition(basDanmakuControl);
             if (point.X < 0 || point.X > width || point.Y < 0 || point.Y > height)
             {
-                return;
+                return false;
             }
 
-            await basDanmakuControl.TryHandleTapAsync(point.X / width, point.Y / height);
+            return await basDanmakuControl.TryHandleTapAsync(point.X / width, point.Y / height);
         }
 
         private bool IsTapFromPlayerOverlay(DependencyObject source)
