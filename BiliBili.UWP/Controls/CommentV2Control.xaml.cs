@@ -1457,7 +1457,7 @@ namespace BiliBili.UWP.Controls
                 }
                 else
                 {
-                    if (SettingHelper.Get_Theme() == "Dark")
+                    if (SettingHelper.Get_EffectiveTheme() == "Dark")
                     {
                         return new SolidColorBrush(Colors.White);
                     }

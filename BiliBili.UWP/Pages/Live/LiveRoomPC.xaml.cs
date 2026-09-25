@@ -694,7 +694,7 @@ namespace BiliBili.UWP.Pages.Live
                 return;
             }
 
-            var contentColor = SettingHelper.Get_Theme() == "Dark" ? Colors.White : Colors.Black;
+            var contentColor = SettingHelper.Get_EffectiveTheme() == "Dark" ? Colors.White : Colors.Black;
             foreach (var item in last.data)
             {
                 danmu_list.Add(new DanmuMsgModel
@@ -769,7 +769,7 @@ namespace BiliBili.UWP.Pages.Live
                             }
                             m.ul_color = GetChatColor(m.ulColor, Colors.Gray);
                             m.medal_color = GetChatColor(m.medalColor, Colors.Gray);
-                            m.content_color = (SettingHelper.Get_Theme() == "Dark") ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black);
+                            m.content_color = (SettingHelper.Get_EffectiveTheme() == "Dark") ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black);
                             danmu_list.Add(m);
 
                         });
@@ -824,7 +824,7 @@ namespace BiliBili.UWP.Pages.Live
                                 isBigVip = ((info.svip) ? Visibility.Visible : Visibility.Collapsed),
                                 hasUL = Visibility.Collapsed,
                                 username = info.uname,
-                                content_color = (SettingHelper.Get_Theme() == "Dark") ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black),
+                                content_color = (SettingHelper.Get_EffectiveTheme() == "Dark") ? new SolidColorBrush(Colors.White) : new SolidColorBrush(Colors.Black),
                                 uname_color = new SolidColorBrush(Colors.HotPink),
                                 text = " 进入直播间"
                             });

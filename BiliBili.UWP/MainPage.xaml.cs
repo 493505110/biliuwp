@@ -305,6 +305,7 @@ namespace BiliBili.UWP
             timer.Start();
             timer.Tick += Timer_Tick;
             MessageCenter.ChanageThemeEvent += MessageCenter_ChanageThemeEvent;
+            RegisterSystemThemeWatcher();
             MessageCenter.HasMessaged += MessageCenter_HasMessaged;
             MessageCenter.MianNavigateToEvent += MessageCenter_MianNavigateToEvent;
             MessageCenter.InfoNavigateToEvent += MessageCenter_InfoNavigateToEvent;
@@ -482,6 +483,7 @@ namespace BiliBili.UWP
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             MessageCenter.ChanageThemeEvent -= MessageCenter_ChanageThemeEvent;
+            UnregisterSystemThemeWatcher();
             MessageCenter.MianNavigateToEvent -= MessageCenter_MianNavigateToEvent;
             MessageCenter.InfoNavigateToEvent -= MessageCenter_InfoNavigateToEvent;
             MessageCenter.PlayNavigateToEvent -= MessageCenter_PlayNavigateToEvent;
@@ -680,7 +682,9 @@ namespace BiliBili.UWP
 
         private void MessageCenter_ChanageThemeEvent(object par, params object[] par1)
         {
-            ChangeTheme();
+            //只换肤，不重设右侧背景页。ChangeTheme() 里的 switch 读的是 Get_Rigth()，
+            //与主题无关，却会在 UI 线程同步重建页面，导致切换主题时卡顿。
+            ApplyTheme();
         }
 
         private void ChangeTheme()
@@ -708,7 +712,18 @@ namespace BiliBili.UWP
                     break;
             }
 
-            string ThemeName = SettingHelper.Get_Theme();
+            //tuic.To = this.ActualWidth;
+            //storyboardPopOut.Begin();
+            ApplyTheme();
+        }
+
+        /// <summary>
+        /// 只重新解析主题资源，不动右侧背景页。
+        /// 系统深色模式变化时走这里，避免跟随系统导致背景页被反复重载。
+        /// </summary>
+        private void ApplyTheme()
+        {
+            string ThemeName = SettingHelper.Get_EffectiveTheme();
             if (ThemeName== "Dark")
             {
                 RequestedTheme = ElementTheme.Dark;
@@ -721,9 +736,39 @@ namespace BiliBili.UWP
                 RequestedTheme = ElementTheme.Dark;
                 RequestedTheme = ElementTheme.Light;
             }
-            //tuic.To = this.ActualWidth;
-            //storyboardPopOut.Begin();
             ChangeTitbarColor();
+        }
+
+        private UISettings uiSettings;
+
+        private void RegisterSystemThemeWatcher()
+        {
+            if (uiSettings != null)
+            {
+                return;
+            }
+            uiSettings = new UISettings();
+            uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
+        }
+
+        private void UnregisterSystemThemeWatcher()
+        {
+            if (uiSettings == null)
+            {
+                return;
+            }
+            uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
+            uiSettings = null;
+        }
+
+        //ColorValuesChanged 在后台线程触发，必须切回 UI 线程才能改 RequestedTheme
+        private async void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        {
+            if (!SettingHelper.Get_FollowSystemTheme())
+            {
+                return;
+            }
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, ApplyTheme);
         }
         private void ChangeTitbarColor()
         {

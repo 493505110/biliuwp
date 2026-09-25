@@ -236,6 +236,8 @@ namespace BiliBili.UWP.Views
                 }
                 get_ing = false;
 
+                sw_FollowSystemTheme.IsOn = SettingHelper.Get_FollowSystemTheme();
+
                 cb_Rigth.SelectedIndex = SettingHelper.Get_Rigth();
 
 
@@ -319,6 +321,22 @@ namespace BiliBili.UWP.Views
             }
             //MessageCenter.SendChanageThemeEvent(null);
             //await CoreApplication.RequestRestartAsync(string.Empty);
+        }
+
+        private void sw_FollowSystemTheme_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            //系统处于浅色时开关此选项并不会改变有效主题，此时没必要触发一次换肤
+            string before = SettingHelper.Get_EffectiveTheme();
+            SettingHelper.Set_FollowSystemTheme(sw_FollowSystemTheme.IsOn);
+            if (before != SettingHelper.Get_EffectiveTheme())
+            {
+                MessageCenter.SendChanageThemeEvent(null);
+            }
         }
 
         private void btn_Back_Click(object sender, RoutedEventArgs e)

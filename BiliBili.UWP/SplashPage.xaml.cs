@@ -42,7 +42,7 @@ namespace BiliBili.UWP
         {
             this.InitializeComponent();
             //夜间黑主题下启动页要一起变深色，否则从启动到主界面之间会先闪一下浅色
-            bool isDark = string.Equals(SettingHelper.Get_Theme(), "Dark", StringComparison.Ordinal);
+            bool isDark = string.Equals(SettingHelper.Get_EffectiveTheme(), "Dark", StringComparison.Ordinal);
             //取值与 App.xaml 的 Dark 字典一致：Bili-Background #FF1F1F1F、Bili-ForeColor #FF323232
             var bg = isDark ? Color.FromArgb(255, 31, 31, 31) : new Color() { R = 233, G = 233, B = 233 };
             var fg = isDark ? Colors.White : Colors.Black;

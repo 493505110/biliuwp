@@ -7,6 +7,7 @@ using Windows.Storage;
 using Newtonsoft.Json;
 using Windows.ApplicationModel;
 using Microsoft.Toolkit.Uwp;
+using Windows.UI;
 using Windows.UI.StartScreen;
 using Windows.UI.ViewManagement;
 using Microsoft.Toolkit.Uwp.Helpers;
@@ -60,6 +61,56 @@ namespace BiliBili.UWP
         {
             container = ApplicationData.Current.LocalSettings;
             container.Values["Theme"] = value;
+        }
+
+        public static bool Get_FollowSystemTheme()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["FollowSystemTheme"] != null)
+            {
+                return (bool)container.Values["FollowSystemTheme"];
+            }
+            else
+            {
+                Set_FollowSystemTheme(false);
+                return false;
+            }
+        }
+
+        public static void Set_FollowSystemTheme(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["FollowSystemTheme"] = value;
+        }
+
+        static UISettings uiSettings;
+
+        /// <summary>
+        /// 当前系统是否为深色模式。
+        /// 不能用 Application.Current.RequestedTheme 判断，那取的是 App.xaml 里声明的清单主题而非系统主题。
+        /// </summary>
+        public static bool IsSystemDarkTheme()
+        {
+            if (uiSettings == null)
+            {
+                uiSettings = new UISettings();
+            }
+            //系统背景色偏暗即视为深色模式；不直接与 Colors.Black 比较，以兼容高对比度等自定义配色
+            Color background = uiSettings.GetColorValue(UIColorType.Background);
+            return background.R + background.G + background.B < 384;
+        }
+
+        /// <summary>
+        /// 实际生效的主题名：开启「跟随系统深色主题」且系统处于深色时用 Dark，否则用用户配置的主题颜色。
+        /// 判断当前主题一律用它；只有回显设置项时才用 Get_Theme() 取原始配置。
+        /// </summary>
+        public static string Get_EffectiveTheme()
+        {
+            if (Get_FollowSystemTheme() && IsSystemDarkTheme())
+            {
+                return "Dark";
+            }
+            return Get_Theme();
         }
 
         public static int Get_Rigth()
