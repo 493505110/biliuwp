@@ -41,20 +41,30 @@ namespace BiliBili.UWP
         public SplashPage()
         {
             this.InitializeComponent();
-            var bg = new Color() { R = 233, G = 233, B = 233 };
+            //夜间黑主题下启动页要一起变深色，否则从启动到主界面之间会先闪一下浅色
+            bool isDark = string.Equals(SettingHelper.Get_Theme(), "Dark", StringComparison.Ordinal);
+            //取值与 App.xaml 的 Dark 字典一致：Bili-Background #FF1F1F1F、Bili-ForeColor #FF323232
+            var bg = isDark ? Color.FromArgb(255, 31, 31, 31) : new Color() { R = 233, G = 233, B = 233 };
+            var fg = isDark ? Colors.White : Colors.Black;
+            if (isDark)
+            {
+                //本页背景用的是 ThemeResource Bili-Background，指定 Dark 后才会解析成深色
+                RequestedTheme = ElementTheme.Dark;
+            }
+
             if (Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar"))
             {
                 // StatusBar.GetForCurrentView().HideAsync();
                 StatusBar statusBar = StatusBar.GetForCurrentView();
-                statusBar.ForegroundColor = Colors.Black;
+                statusBar.ForegroundColor = fg;
                 statusBar.BackgroundColor = bg;
                 statusBar.BackgroundOpacity = 100;
             }
 
             var titleBar = Windows.UI.ViewManagement.ApplicationView.GetForCurrentView().TitleBar;
             titleBar.BackgroundColor = bg;
-            titleBar.ForegroundColor = Colors.Black;//Colors.White纯白用不了。。。
-            titleBar.ButtonHoverBackgroundColor = Colors.White;
+            titleBar.ForegroundColor = fg;//Colors.White纯白用不了。。。
+            titleBar.ButtonHoverBackgroundColor = isDark ? Color.FromArgb(255, 50, 50, 50) : Colors.White;
             titleBar.ButtonBackgroundColor = bg;
             titleBar.ButtonForegroundColor = Color.FromArgb(255, 254, 254, 254);
             titleBar.InactiveBackgroundColor = bg;
