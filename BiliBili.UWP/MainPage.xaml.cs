@@ -93,6 +93,10 @@ namespace BiliBili.UWP
         //点击跳过用：开屏图展示期间被点击则提前结束停留
         private TaskCompletionSource<bool> _splashSkip;
 
+        //开屏图播放过程（含滑出动画）。更新日志等首帧弹层要等它结束再弹，
+        //否则 ContentDialog 会盖在还没滑走的开屏图上，看起来像「动画没结束就弹出来了」
+        private Task _splashTask;
+
 
         public MainPage()
         {
@@ -422,6 +426,8 @@ namespace BiliBili.UWP
 
             if (SettingHelper.Get_First())
             {
+                //更新日志弹层要等开屏图滑走，否则会盖在开屏图上
+                await WaitSplashFinishedAsync();
                 await AppHelper.LoadChangelogAsync();
                 var ver = AppHelper.Changelog.FirstOrDefault();
                 if (ver != null)
@@ -578,7 +584,27 @@ namespace BiliBili.UWP
             PendingSplash = null;
             if (pending != null)
             {
-                _ = ShowSplashAsync(pending);
+                _splashTask = ShowSplashAsync(pending);
+            }
+        }
+
+        /// <summary>等开屏图完全滑走再放行首个弹层；本次没展示开屏图时立即返回。</summary>
+        private async Task WaitSplashFinishedAsync()
+        {
+            var task = _splashTask;
+            if (task == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await task;
+            }
+            catch (Exception ex)
+            {
+                //ShowSplashAsync 内部已兜底，这里只是防止异常冒到调用方
+                LogHelper.WriteLog("等待开屏图结束异常", LogType.ERROR, ex);
             }
         }
 
