@@ -56,7 +56,9 @@ namespace BiliBili.UWP.Helper
             {
                 throw new ArgumentException("DASH video URL must be an absolute HTTP(S) URL.", nameof(videoUrl));
             }
-            if (!IsHttpUrl(audioUrl))
+            //无音轨投稿不给音频地址，此时只建视频源
+            bool withAudio = !string.IsNullOrWhiteSpace(audioUrl);
+            if (withAudio && !IsHttpUrl(audioUrl))
             {
                 throw new ArgumentException("DASH audio URL must be an absolute HTTP(S) URL.", nameof(audioUrl));
             }
@@ -86,6 +88,10 @@ namespace BiliBili.UWP.Helper
                 if (createdVideoSource == null)
                 {
                     return null;
+                }
+                if (!withAudio)
+                {
+                    return new FFmpegDashSource(createdVideoSource, null);
                 }
                 createdAudioSource = await FFmpegMediaSource.CreateFromUriAsync(audioUrl, config);
                 if (createdAudioSource == null)

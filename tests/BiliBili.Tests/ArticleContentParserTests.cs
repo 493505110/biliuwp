@@ -234,6 +234,67 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void Parse_LegacyHtml_NormalizesImageUrlSchemes()
+        {
+            ArticleDataModel article = new ArticleDataModel
+            {
+                type = 0,
+                content =
+                    "<img src=\"//i0.hdslb.com/protocol-relative.jpg\">" +
+                    "<img src=\"http://i1.hdslb.com/plain-http.jpg\">" +
+                    "<img src=\"bfs/article/bare-path.jpg\">" +
+                    "<img src=\"https://i2.hdslb.com/already-absolute.jpg\">"
+            };
+
+            ArticleImageBlockModel[] images = new ArticleContentParser().Parse(article)
+                .OfType<ArticleImageBlockModel>()
+                .ToArray();
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "https://i0.hdslb.com/protocol-relative.jpg",
+                    "https://i1.hdslb.com/plain-http.jpg",
+                    "https://i0.hdslb.com/bfs/article/bare-path.jpg",
+                    "https://i2.hdslb.com/already-absolute.jpg"
+                },
+                images.Select(item => item.Url).ToArray());
+        }
+
+        [TestMethod]
+        public void Parse_DeltaJson_NormalizesEmbedCoverUrl()
+        {
+            ArticleDataModel article = new ArticleDataModel
+            {
+                type = 3,
+                content = "{\"ops\":[{\"insert\":{\"video-card\":" +
+                    "{\"id\":\"av1\",\"url\":\"//i2.hdslb.com/cover.jpg\",\"alt\":\"Video\"}}}]}"
+            };
+
+            ArticleEmbedBlockModel block = (ArticleEmbedBlockModel)new ArticleContentParser().Parse(article).Single();
+
+            Assert.AreEqual("https://i2.hdslb.com/cover.jpg", block.CoverUrl);
+        }
+
+        [TestMethod]
+        public void Parse_Type2Note_ParsesAsHtml()
+        {
+            ArticleDataModel article = new ArticleDataModel
+            {
+                type = 2,
+                content = "<p>笔记正文</p><img src=\"//i0.hdslb.com/note.jpg\">"
+            };
+
+            ArticleBlockModel[] blocks = new ArticleContentParser().Parse(article).ToArray();
+
+            CollectionAssert.AreEqual(
+                new[] { ArticleBlockType.Text, ArticleBlockType.Image },
+                blocks.Select(item => item.Type).ToArray());
+            Assert.AreEqual("笔记正文", JoinText((ArticleTextBlockModel)blocks[0]));
+            Assert.AreEqual("https://i0.hdslb.com/note.jpg", ((ArticleImageBlockModel)blocks[1]).Url);
+        }
+
+        [TestMethod]
         public void Parse_RejectsUnsupportedArticleType()
         {
             ArticleDataModel article = new ArticleDataModel { type = 9, content = "x" };

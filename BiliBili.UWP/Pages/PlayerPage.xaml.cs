@@ -2026,7 +2026,8 @@ namespace BiliBili.UWP.Pages
                 {
                     var videoPlaybackItem = result.ffmpegDashSource.CreateVideoPlaybackItem();
                     var audioPlaybackItem = result.ffmpegDashSource.CreateAudioPlaybackItem();
-                    if (videoPlaybackItem != null && audioPlaybackItem != null)
+                    //无音轨投稿只有视频项，audioPlaybackItem 为 null 是正常情况
+                    if (videoPlaybackItem != null)
                     {
                         source = videoPlaybackItem;
                         audioSource = audioPlaybackItem;
@@ -2059,11 +2060,15 @@ namespace BiliBili.UWP.Pages
                     ReleaseFFmpegDashSource();
                     ffmpegDashSource = result.ffmpegDashSource;
                     ffmpegOwnershipTransferred = true;
-                    mediaPlayer_audio = new MediaPlayer();
-                    mediaPlayer_audio.CommandManager.IsEnabled = false;
-                    mediaPlayer_audio.Volume = mediaPlayer.Volume;
-                    mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
-                    mediaPlayer_audio.Source = audioSource;
+                    //没有音轨就不建伴奏播放器，其余同步逻辑都按 mediaPlayer_audio 为 null 处理
+                    if (audioSource != null)
+                    {
+                        mediaPlayer_audio = new MediaPlayer();
+                        mediaPlayer_audio.CommandManager.IsEnabled = false;
+                        mediaPlayer_audio.Volume = mediaPlayer.Volume;
+                        mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
+                        mediaPlayer_audio.Source = audioSource;
+                    }
                 }
                 mediaPlayer.Source = source;
                 UpdateSoftwareDecodeInfo(result);

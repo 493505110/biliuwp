@@ -57,12 +57,25 @@ namespace BiliBili.UWP.Pages.Home
             }
         }
 
-        private void ls_Part_ItemClick(object sender, ItemClickEventArgs e)
+        private async void ls_Part_ItemClick(object sender, ItemClickEventArgs e)
         {
             var data = e.ClickedItem as HotTopItemModel;
             if (data.module_id == "rank")
             {
                 MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(RankPage));
+                return;
+            }
+            //每周必看与热门子频道（美食等）原本指向 App 专用 h5，桌面 WebView2 里是白屏，这里都走原生
+            if (data.module_id == "weekly-selected")
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WeeklyPage));
+                return;
+            }
+            if (data.module_id == "hot-channel" && data.entrance_id != 0)
+            {
+                var target = hotVM.EntranceId == data.entrance_id ? 0 : data.entrance_id;
+                await hotVM.SwitchChannel(target);
+                Utils.ShowMessageToast(target == 0 ? "已切回全部热门" : "已切换到" + data.title);
                 return;
             }
             if (data.uri.Contains("https://") || data.uri.Contains("http://"))

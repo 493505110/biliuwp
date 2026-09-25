@@ -1050,29 +1050,50 @@ namespace BiliBili.UWP.Helper
             {
                 var videoInfo = ToDashStreamInfo(video);
                 var audioInfo = ToDashStreamInfo(audio);
+                //audio 为 null 表示该投稿没有音轨，此时只拼视频轨
+                bool withAudio = audio != null;
                 if (!DashStreamSelector.IsPlayable(videoInfo)
-                    || !DashStreamSelector.IsPlayable(audioInfo))
+                    || (withAudio && !DashStreamSelector.IsPlayable(audioInfo)))
                 {
                     return null;
                 }
 
                 var videoSegmentBase = GetSegmentBase(video);
-                var audioSegmentBase = GetSegmentBase(audio);
                 var videoIndexRange = GetIndexRange(videoSegmentBase);
                 var videoInitialization = GetInitialization(videoSegmentBase);
-                var audioIndexRange = GetIndexRange(audioSegmentBase);
-                var audioInitialization = GetInitialization(audioSegmentBase);
                 if (string.IsNullOrWhiteSpace(videoIndexRange)
-                    || string.IsNullOrWhiteSpace(videoInitialization)
-                    || string.IsNullOrWhiteSpace(audioIndexRange)
-                    || string.IsNullOrWhiteSpace(audioInitialization))
+                    || string.IsNullOrWhiteSpace(videoInitialization))
                 {
                     return null;
+                }
+
+                string audioIndexRange = null;
+                string audioInitialization = null;
+                if (withAudio)
+                {
+                    var audioSegmentBase = GetSegmentBase(audio);
+                    audioIndexRange = GetIndexRange(audioSegmentBase);
+                    audioInitialization = GetInitialization(audioSegmentBase);
+                    if (string.IsNullOrWhiteSpace(audioIndexRange)
+                        || string.IsNullOrWhiteSpace(audioInitialization))
+                    {
+                        return null;
+                    }
                 }
 
                 HttpClient httpClient = new HttpClient();
                 httpClient.DefaultRequestHeaders.Referer = new Uri("https://www.bilibili.com");
                 httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36");
+                var audioAdaptationSet = withAudio ? $@"
+    <AdaptationSet>
+      <ContentComponent contentType=""audio"" id=""2"" />
+      <Representation bandwidth=""{audio.bandwidth}"" codecs=""{audio.codecs}"" id=""{audio.id}"" mimeType=""{audioInfo.MimeType}"" >
+        <BaseURL></BaseURL>
+        <SegmentBase indexRange=""{audioIndexRange}"">
+          <Initialization range=""{audioInitialization}"" />
+        </SegmentBase>
+      </Representation>
+    </AdaptationSet>" : string.Empty;
                 var mpdStr = $@"<MPD xmlns=""urn:mpeg:DASH:schema:MPD:2011""  profiles=""urn:mpeg:dash:profile:isoff-on-demand:2011"" type=""static"">
   <Period  start=""PT0S"">
     <AdaptationSet>
@@ -1083,16 +1104,7 @@ namespace BiliBili.UWP.Helper
           <Initialization range=""{videoInitialization}"" />
         </SegmentBase>
       </Representation>
-    </AdaptationSet>
-    <AdaptationSet>
-      <ContentComponent contentType=""audio"" id=""2"" />
-      <Representation bandwidth=""{audio.bandwidth}"" codecs=""{audio.codecs}"" id=""{audio.id}"" mimeType=""{audioInfo.MimeType}"" >
-        <BaseURL></BaseURL>
-        <SegmentBase indexRange=""{audioIndexRange}"">
-          <Initialization range=""{audioInitialization}"" />
-        </SegmentBase>
-      </Representation>
-    </AdaptationSet>
+    </AdaptationSet>{audioAdaptationSet}
   </Period>
 </MPD>
 ";
@@ -1104,13 +1116,16 @@ namespace BiliBili.UWP.Helper
                     httpClient.Dispose();
                     return null;
                 }
-                soure.MediaSource.DownloadRequested += (sender, args) =>
+                if (withAudio)
                 {
-                    if (args.ResourceContentType == audioInfo.MimeType)
+                    soure.MediaSource.DownloadRequested += (sender, args) =>
                     {
-                        args.Result.ResourceUri = new Uri(audioInfo.BaseUrl);
-                    }
-                };
+                        if (args.ResourceContentType == audioInfo.MimeType)
+                        {
+                            args.Result.ResourceUri = new Uri(audioInfo.BaseUrl);
+                        }
+                    };
+                }
                 return soure.MediaSource;
             }
             catch (Exception)
@@ -1127,8 +1142,12 @@ namespace BiliBili.UWP.Helper
             int preferredCodecId,
             bool forceCodec)
         {
-            var audio = SelectDashAudio(audios);
-            if (audio == null)
+            var audioList = audios == null ? null : audios.Where(x => x != null).ToList();
+            bool hasAudioTrack = audioList != null && audioList.Count > 0;
+            var audio = hasAudioTrack ? SelectDashAudio(audioList) : null;
+            //无音轨投稿（纯录屏等）B站直接返回空的 dash.audio，这类视频按纯视频播放；
+            //有音轨却挑不出可播放流才算失败
+            if (hasAudioTrack && audio == null)
             {
                 return forceCodec
                     ? new ReturnPlayModel { preventFallback = true }

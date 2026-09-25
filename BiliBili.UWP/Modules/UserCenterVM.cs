@@ -112,9 +112,13 @@ namespace BiliBili.UWP.Modules
                 if (result.status)
                 {
                     var data =await result.GetData<JObject>();
-                    if (data.success)
+                    if (data.success && data.data != null)
                     {
-                        top_image = data.data["top_photo"].ToString();
+                        var image = ResolveTopImage(data.data);
+                        if (!string.IsNullOrEmpty(image))
+                        {
+                            top_image = image;
+                        }
                     }
                 }
             }
@@ -122,6 +126,43 @@ namespace BiliBili.UWP.Modules
             {
                 HandleError(ex);
             }
+        }
+
+        /// <summary>
+        /// top_photo 现在只返回不带协议和域名的路径（bfs/space/xxx.png），直接拿去当图源是空的；
+        /// top_photo_v2.l_img 才是完整地址，优先取它，取不到再给 top_photo 补前缀。
+        /// </summary>
+        private static string ResolveTopImage(JObject data)
+        {
+            var large = data["top_photo_v2"]?["l_img"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(large))
+            {
+                return NormalizeImageUrl(large);
+            }
+            return NormalizeImageUrl(data["top_photo"]?.ToString());
+        }
+
+        private static string NormalizeImageUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return null;
+            }
+
+            var value = url.Trim();
+            if (value.StartsWith("//", StringComparison.Ordinal))
+            {
+                return "https:" + value;
+            }
+            if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://" + value.Substring("http://".Length);
+            }
+            if (value.IndexOf("://", StringComparison.Ordinal) < 0)
+            {
+                return "https://i0.hdslb.com/" + value.TrimStart('/');
+            }
+            return value;
         }
 
     }
