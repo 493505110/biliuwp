@@ -12,7 +12,14 @@
     <Grid Background="{ThemeResource Bili-Background}">
         <Grid>
             <StackPanel VerticalAlignment="Center">
-                <Image x:Name="load_img" Source="ms-appx:///Assets/Splash.png" MaxWidth="350" ></Image>
+                <Image x:Name="load_img" MaxWidth="350">
+                    <Image.Source>
+                        <!--原图 1080x1920 RGBA，全尺寸解码约 7.9MB、耗时偏长，会出现
+                            「加载中... 已显示、2233 立绘还没出来」。限制解码宽度即可显著加快
+                            （只显示到 350 DIP，700 已足够覆盖高 DPI）-->
+                        <BitmapImage UriSource="ms-appx:///Assets/Splash.png" DecodePixelWidth="700" />
+                    </Image.Source>
+                </Image>
                 <!--<Image Source="ms-appx:///HappyBirthDay.png"  Width="300"></Image>-->
             </StackPanel>
             <StackPanel VerticalAlignment="Bottom" Margin="0 30">

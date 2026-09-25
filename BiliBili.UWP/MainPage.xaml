@@ -1385,6 +1385,22 @@
         </Grid>
         
 
+
+        <!--启动开屏图：盖在主界面之上，向上滑走时露出的就是已经加载好的主界面。
+            名字刻意与自定义背景图用的 img_bg / GlassHost 区分开，避免冲突-->
+        <Grid x:Name="splash_layer" Grid.ColumnSpan="2" Visibility="Collapsed" Background="{ThemeResource Bili-Background}" Tapped="splash_layer_Tapped">
+            <Grid.RenderTransform>
+                <CompositeTransform />
+            </Grid.RenderTransform>
+            <!--内容单独一层做淡入。外层立即不透明，先把下面的主界面遮住；
+                否则淡入期间会透出主界面内容，看起来像「主界面被开屏图盖上来」，很生硬。
+                底色用与 SplashPage / MainPage 相同的 Bili-Background，硬切时看不出跳变。-->
+            <Grid x:Name="splash_content" Opacity="0">
+                <Image x:Name="splash_bg" Stretch="Fill" />
+                <Canvas x:Name="splash_glass" Grid.ColumnSpan="2" />
+                <Image x:Name="splash_img" Stretch="Uniform" />
+            </Grid>
+        </Grid>
     </Grid>
 
 

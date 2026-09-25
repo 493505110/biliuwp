@@ -279,7 +279,7 @@
 
                             </Grid>
                             <Grid Margin="0 10 0 0">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">加载启动首屏壁纸/广告</TextBlock>
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center" DoubleTapped="txt_LoadSe_DoubleTapped">加载启动首屏壁纸/广告</TextBlock>
                                 <ToggleSwitch x:Name="sw_LoadSe" Toggled="sw_LoadSe_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
 
                             </Grid>

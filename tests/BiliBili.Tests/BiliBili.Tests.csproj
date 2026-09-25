@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -31,6 +31,7 @@
              Link="Production\PlaylistPagination.cs" />
     <Compile Include="..\..\BiliBili.UWP\Helper\WbiEncodeHelper.cs" Link="Production\WbiEncodeHelper.cs" />
     <Compile Include="..\..\BiliBili.UWP\Helper\SignHelper.cs" Link="Production\SignHelper.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Helper\SplashImageSelector.cs" Link="Production\SplashImageSelector.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\HomeModels.cs" Link="Production\HomeModels.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\UserModels.cs" Link="Production\UserModels.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\MessageUnreadState.cs" Link="Production\MessageUnreadState.cs" />

@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Controls;
 using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.User;
+using BiliBili.UWP.Controls;
 using BiliBili.UWP.Helper;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
@@ -37,6 +38,7 @@ using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Hosting;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
 using Windows.UI.Text;
@@ -77,6 +79,21 @@ namespace BiliBili.UWP
     /// </summary>
     public sealed partial class MainPage : Page
     {
+        /// <summary>SplashPage 拉到的开屏图；本页在 OnNavigatedTo 里消费一次后立即清空，
+        /// 避免后续再导航到本页时重复播放。</summary>
+        public static SplashImageItem PendingSplash;
+
+        //开屏图展示时长的下限/上限（毫秒）：服务端 duration 常为 1000，直接照搬会一闪而过
+        private const int SplashMinShowMs = 2500;
+        private const int SplashMaxShowMs = 5000;
+        //淡入与上滑离场的时长（毫秒）
+        private const int SplashFadeInMs = 500;
+        private const int SplashSlideOutMs = 420;
+
+        //点击跳过用：开屏图展示期间被点击则提前结束停留
+        private TaskCompletionSource<bool> _splashSkip;
+
+
         public MainPage()
         {
             this.InitializeComponent();
@@ -290,6 +307,8 @@ namespace BiliBili.UWP
         DispatcherTimer timer;
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
+            //开屏图要尽早铺上：在首帧渲染前就显示，才不会先闪出主界面
+            ConsumePendingSplash();
 
             if (SettingHelper.IsPc())
             {
@@ -548,6 +567,107 @@ namespace BiliBili.UWP
                 img_bg.Source = null;
             }
         }
+
+
+        #region 开屏图
+
+        /// <summary>取走待显示的开屏图并开始播放。标志消费一次即清空。</summary>
+        private void ConsumePendingSplash()
+        {
+            var pending = PendingSplash;
+            PendingSplash = null;
+            if (pending != null)
+            {
+                _ = ShowSplashAsync(pending);
+            }
+        }
+
+        /// <summary>把开屏图铺在最上层，停留后向上滑走 —— 滑走过程露出的就是下面已经加载好的主界面。</summary>
+        private async Task ShowSplashAsync(SplashImageItem splash)
+        {
+            try
+            {
+                splash_bg.Source = splash.Image;
+                splash_img.Source = splash.Image;
+                splash_layer.Visibility = Visibility.Visible;
+
+                //淡入。此前几轮淡入「无效」的真正原因是：Frame 的导航动画（Page Refresh）正在对整个
+                //页面播「上滑 + 淡入」，会覆盖掉页面内部元素的透明度变化。现已在 SplashPage 侧用
+                //SuppressNavigationTransitionInfo 抑制了那次导航动画，这里的淡入才可能真正生效。
+                //注意淡入的是内层 content：外层已不透明，先遮住主界面，避免淡入时透出主界面内容。
+                splash_content.Opacity = 0;
+                var fadeIn = new DoubleAnimation
+                {
+                    From = 0,
+                    To = 1,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(SplashFadeInMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                    EnableDependentAnimation = true
+                };
+                Storyboard.SetTarget(fadeIn, splash_content);
+                Storyboard.SetTargetProperty(fadeIn, "(UIElement.Opacity)");
+                var fadeStoryboard = new Storyboard { FillBehavior = FillBehavior.HoldEnd };
+                fadeStoryboard.Children.Add(fadeIn);
+                fadeStoryboard.Begin();
+
+                try
+                {
+                    //模糊强度沿用自定义背景图的写法（d * 5）
+                    InitializedFrostedGlass(splash_glass, 2);
+                }
+                catch (Exception ex)
+                {
+                    //毛玻璃失败只影响背景观感，不应让整张开屏图显示失败
+                    LogHelper.WriteLog("开屏图毛玻璃初始化失败", LogType.ERROR, ex);
+                }
+
+                _splashSkip = new TaskCompletionSource<bool>();
+                try
+                {
+                    //时长夹取规则同样有单元测试覆盖
+                    var displayMs = SplashImageSelector.NormalizeDurationMs(splash.DurationMs, SplashMinShowMs, SplashMaxShowMs);
+                    //倒计时到点或用户点击跳过，先到者生效
+                    await Task.WhenAny(Task.Delay(displayMs), _splashSkip.Task);
+                }
+                finally
+                {
+                    _splashSkip = null;
+                }
+
+                //向上滑出，露出已在下方渲染好的主界面。
+                //AnimateDoublePropertyAsync 是 CarouselHelper 的扩展方法，类外必须用扩展调用语法
+                await splash_layer.GetCompositeTransform().AnimateDoublePropertyAsync(
+                    "TranslateY",
+                    0,
+                    -splash_layer.ActualHeight,
+                    SplashSlideOutMs,
+                    new CubicEase { EasingMode = EasingMode.EaseIn });
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("展示启动开屏图异常", LogType.ERROR, ex);
+            }
+            finally
+            {
+                //无论如何都要把覆盖层收掉，绝不能挡住主界面
+                splash_layer.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>点击开屏图立即跳过，不必等倒计时。</summary>
+        private void splash_layer_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            _splashSkip?.TrySetResult(true);
+        }
+
+        /// <summary>交给 MainPage 展示的开屏图。</summary>
+        public class SplashImageItem
+        {
+            public BitmapImage Image { get; set; }
+            public int DurationMs { get; set; }
+        }
+
+        #endregion
 
 
         private void InitializedFrostedGlass(UIElement glassHost, int d)

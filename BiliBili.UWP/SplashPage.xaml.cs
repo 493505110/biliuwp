@@ -72,6 +72,10 @@ namespace BiliBili.UWP
         }
         
         StartModel m;
+
+        //拉图宽限（毫秒）：1 秒等待结束后再给一点，避免「刚好晚到」的图被丢掉
+        private const int SplashFetchGraceMs = 1500;
+
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
@@ -95,11 +99,107 @@ namespace BiliBili.UWP
             #endregion
 
             m = e.Parameter as StartModel;
-            await Task.Delay(1000);
-            this.Frame.Navigate(typeof(MainPage), m);
+
+            //只有正常启动（没有指定跳转目标）才准备开屏图；
+            //从通知/协议/文件进入时 StartType 不是 None，一律不准备，避免打断跳转
+            var splashEnabled = SettingHelper.Get_LoadSplash();
+            if (splashEnabled && (m == null || m.StartType == StartTypes.None))
+            {
+                //拉图与下面那 1 秒等待并发；拿到后交给 MainPage 展示
+                var fetching = FetchSplashAsync();
+                await Task.Delay(1000);
+
+                //1 秒内没拿到就再给一小段宽限，之后放弃
+                var finished = await Task.WhenAny(fetching, Task.Delay(SplashFetchGraceMs));
+                MainPage.PendingSplash = finished == fetching ? await fetching : null;
+                if (MainPage.PendingSplash == null)
+                {
+                    LogHelper.WriteLog("启动开屏图：等待窗口内未取到图，跳过展示", LogType.INFO);
+                }
+            }
+            else
+            {
+                LogHelper.WriteLog($"启动开屏图：未准备（开关={splashEnabled}，StartType={(m == null ? "null" : m.StartType.ToString())}）", LogType.INFO);
+                await Task.Delay(1000);
+            }
+
+            //Frame 自 Windows 10 1803 起默认使用 NavigationThemeTransition 播放导航动画
+            //（Page Refresh = 新页上滑 + 淡入，见 MSDN「a Frame uses NavigationThemeTransition to
+            //animate navigation between Pages by default」）。MainPage 的首帧就包含开屏图，
+            //若不抑制，整块开屏图会跟着「从下往上滑入」——这正是「开屏图像导航一样移动」的来源。
+            this.Frame.Navigate(typeof(MainPage), m, new SuppressNavigationTransitionInfo());
            
 
         }
+
+        #region 开屏图拉取
+
+        /// <summary>请求开屏品牌图接口，取出本次要展示的图并解码。任何失败都返回 null。</summary>
+        private async Task<MainPage.SplashImageItem> FetchSplashAsync()
+        {
+            try
+            {
+                var url = ApiHelper.GetSignWithUrl(
+                    $"https://app.bilibili.com/x/v2/splash/brand/list?appkey={ApiHelper.AndroidKey.Appkey}&ts={ApiHelper.GetTimeSpan}",
+                    ApiHelper.AndroidKey);
+
+                var results = await WebClientClass.GetResultsUTF8Encode(new Uri(url));
+                var root = JObject.Parse(results);
+                if ((int?)root["code"] != 0)
+                {
+                    LogHelper.WriteLog($"请求启动开屏图失败：{root["message"]}", LogType.ERROR);
+                    return null;
+                }
+
+                var data = root["data"];
+                var show = data?["show"] as JArray;
+                if (show == null || show.Count == 0)
+                {
+                    //当前没有开屏图投放，属正常情况，直接跳过
+                    return null;
+                }
+
+                //选取规则抽在 SplashImageSelector 里（纯函数，有单元测试覆盖）
+                var id = SplashImageSelector.SelectShowId(show);
+                var thumb = SplashImageSelector.SelectThumb(show, data?["list"] as JArray);
+                if (string.IsNullOrEmpty(thumb))
+                {
+                    LogHelper.WriteLog($"启动开屏图：列表中找不到 id={id} 对应的图片", LogType.INFO);
+                    return null;
+                }
+
+                var image = await LoadSplashBitmapAsync(thumb);
+                if (image == null)
+                {
+                    return null;
+                }
+
+                var durationMs = SplashImageSelector.SelectDurationMs(show);
+                return new MainPage.SplashImageItem
+                {
+                    Image = image,
+                    DurationMs = durationMs
+                };
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("请求启动开屏图异常", LogType.ERROR, ex);
+                return null;
+            }
+        }
+
+        /// <summary>下载并解码开屏图。webp 交给 CDN 转 jpeg，UWP 对 webp 的解码支持不保证。</summary>
+        private static async Task<BitmapImage> LoadSplashBitmapAsync(string thumb)
+        {
+            //webp 交给 CDN 转 jpeg 的规则同样收在 SplashImageSelector 里
+            var buffer = await WebClientClass.GetBuffer(new Uri(SplashImageSelector.EnsureJpegUrl(thumb)));
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(buffer.AsStream().AsRandomAccessStream());
+            return bitmap;
+        }
+
+        #endregion
+
 
         #region 后台任务注册
 

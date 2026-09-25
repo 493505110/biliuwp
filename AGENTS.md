@@ -97,6 +97,7 @@
 - `ApiRequest` 的 HTTP 过滤器忽略 `IgnorableServerCertificateErrors.Expired`。修改网络安全策略时需要显式评估兼容性影响。
 - `CommentV2Control.LoadComment()` 的两个重载会重新获取外层 `ScrollViewer` 并滚动到顶部；`ClearComment()` 当前只重新获取 ScrollViewer，不会自行 `ChangeView()`。切换内容时不要假定 `ClearComment()` 已完成滚动复位。
 - 包标识、发布者和版本以 `BiliBili.UWP/Package.appxmanifest` 为唯一事实来源；发版时直接核对该文件，不要在其他文档复制当前版本号。
+- **`Frame` 自 Windows 10 1803 起默认自带导航动画，不要误判为「切换没有动画」**：`Frame` 会自动用 `NavigationThemeTransition` 播放 Page Refresh，即**目标页面整体「从下往上滑入 + 淡入」**，无需手动设置 `ContentTransitions`。所以**任何 `Frame.Navigate` 都会让新页面整块滑入**，页面上覆盖的元素（开屏图、遮罩等）会跟着一起滑，看起来"像导航在动"。需要禁用某一次导航的动画时，传第三个参数 `new SuppressNavigationTransitionInfo()`。另注意 `MainPage` 内部的 `main_frame` 自带 `PopupThemeTransition`（内容从下方滑入），会透过半透明的覆盖层显形。排查"页面切换时的位移/滑动"类问题时，**先确认动画发生在哪一层**（Frame 层还是页面内部），再查对应机制。
 
 ## Git 提交约定
 

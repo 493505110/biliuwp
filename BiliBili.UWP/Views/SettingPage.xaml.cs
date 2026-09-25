@@ -360,6 +360,23 @@ namespace BiliBili.UWP.Views
             SettingHelper.Set_LoadSplash(sw_LoadSe.IsOn);
         }
 
+        /// <summary>双击「加载启动首屏壁纸/广告」重新走一遍启动页，方便直接预览开屏图效果。</summary>
+        private void txt_LoadSe_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            //SplashPage 挂在顶层 Frame（Window.Current.Content）上，
+            //这里必须对它导航才能重放启动流程，而不是在设置页所在的 main_frame 里导航
+            Frame rootFrame = Window.Current.Content as Frame;
+            if (rootFrame == null)
+            {
+                return;
+            }
+
+            rootFrame.Navigate(typeof(SplashPage), null);
+            //清掉导航历史：否则返回键会退回来，反复双击还会让返回栈越堆越深
+            rootFrame.BackStack.Clear();
+        }
+
         private void sw_CloseAD_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_HideAD(sw_CloseAD.IsOn);
