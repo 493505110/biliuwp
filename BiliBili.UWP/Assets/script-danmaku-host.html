@@ -4835,6 +4835,103 @@
                 return data;
             }
 
+            // 只把元件落在 rect 里的那部分重画回主画布。
+            //
+            // 为什么需要它：擦除是按矩形做的无差别清除，被擦掉的像素属于哪些元件
+            // 是未知的。整元件重画（composeElement）虽然正确，但 Akari 的图层是
+            // 整视口 1280x720 的离屏 canvas——一个几十像素的擦除矩形碰到图层，
+            // 就得把整层重新 drawImage 一次，几十层叠加下每帧成本失控
+            // （实测直接把 headless 打到 tab crashed）。
+            // 按擦除矩形裁剪后重贴，代价只跟「被擦的那块面积」有关。
+            //
+            // rect 是设备像素（与 lastPaintedRect 同单位），而 blitElement 期望的
+            // 上下文已经带了 DPR 变换，所以裁剪前要把矩形换算回 CSS 像素。
+            function composeElementClipped(element, rect) {
+                if (isUsedAsMask(element) || !rect) {
+                    return;
+                }
+
+                var ratio = window.devicePixelRatio || 1;
+                var left = Math.max(0, rect.x / ratio);
+                var top = Math.max(0, rect.y / ratio);
+                var right = Math.min(canvas.width / ratio, (rect.x + rect.width) / ratio);
+                var bottom = Math.min(canvas.height / ratio, (rect.y + rect.height) / ratio);
+                if (!(right > left) || !(bottom > top)) {
+                    return;
+                }
+
+                context2d.save();
+                context2d.beginPath();
+                context2d.rect(left, top, right - left, bottom - top);
+                context2d.clip();
+                var masked = applyStageMask(context2d);
+                blitElement(context2d, element);
+                if (masked) {
+                    context2d.restore();
+                }
+
+                context2d.restore();
+                // 刻意不覆盖呈现记录：裁剪只补了一小块，若把整元件矩形记成「已画过」，
+                // 后续帧会认为它在画布上完好，遗漏处永远补不回来。
+                element.compositeDirty = true;
+            }
+
+            // 元件自身或任一祖先的不透明度是否已接近 0。淡出中的元件补画它是白画：
+            // 它下一帧就消失，补回来的像素又要再擦一次（实测尾部 135s 因此从基线的
+            // 0.005 抬到 0.058）。
+            function isFadingOut(element) {
+                var current = element;
+                while (current && current !== rootElement) {
+                    if (toFiniteNumber(current.props.alpha, 1) <= 0.05) {
+                        return true;
+                    }
+
+                    current = current.treeParent;
+                }
+
+                return false;
+            }
+
+            // 一组矩形的最小包围盒：把「多个擦除矩形命中同一元件」合并为一次重贴，
+            // 保证重贴次数与基线一致（逐块重贴会把调用次数放大到 hits.length 倍）。
+            function unionRects(rects) {
+                var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+                var found = false;
+                for (var i = 0; rects && i < rects.length; i++) {
+                    var r = rects[i];
+                    if (!r || !isFinite(r.x) || !isFinite(r.y) || !isFinite(r.width)
+                        || !isFinite(r.height) || r.width <= 0 || r.height <= 0) {
+                        continue;
+                    }
+
+                    found = true;
+                    if (r.x < left) left = r.x;
+                    if (r.y < top) top = r.y;
+                    if (r.x + r.width > right) right = r.x + r.width;
+                    if (r.y + r.height > bottom) bottom = r.y + r.height;
+                }
+
+                return found ? { x: left, y: top, width: right - left, height: bottom - top } : null;
+            }
+
+            function overlappingRects(rects, rect) {
+                var hits = [];
+                if (!rect || !isFinite(rect.x) || !isFinite(rect.width) || !rects) {
+                    return hits;
+                }
+
+                for (var i = 0; i < rects.length; i++) {
+                    var r = rects[i];
+                    if (r && isFinite(r.x) && isFinite(r.y) && isFinite(r.width)
+                        && isFinite(r.height) && r.width > 0 && r.height > 0
+                        && rectsOverlap(rect, r)) {
+                        hits.push(r);
+                    }
+                }
+
+                return hits;
+            }
+
             function composeElement(element) {
                 // 被当作遮罩的元件不参与合成——连「呈现记录」都不该留
                 // （否则它的 lastPaintedRect 会被后续的擦除/邻居补画逻辑当成真画过）。
@@ -4884,8 +4981,10 @@
                         continue;
                     }
 
-                    if (intersectsAny(erasedRects, neighbor.lastPaintedRect)) {
-                        composeElement(neighbor);
+                    var neighborHitBox = unionRects(
+                        overlappingRects(erasedRects, neighbor.lastPaintedRect));
+                    if (neighborHitBox) {
+                        composeElementClipped(neighbor, neighborHitBox);
                     }
                 }
 
@@ -4901,6 +5000,14 @@
                     // （本帧移动过的元素 lastPaintedRect 已被清空，一定会走到合成。）
                     if (!candidate.rebuiltThisFrame && candidate.lastPaintedRect
                         && rectsEqual(candidate.lastPaintedRect, computeElementCanvasRect(candidate))) {
+                        // 矩形没变不等于画布上还有它：本帧的擦除矩形可能正盖在它上面，
+                        // 那些像素已经被清掉。按命中矩形的并集裁剪重贴一次即可。
+                        var candidateHitBox = unionRects(
+                            overlappingRects(erasedRects, candidate.lastPaintedRect));
+                        if (candidateHitBox && !isFadingOut(candidate)) {
+                            composeElementClipped(candidate, candidateHitBox);
+                        }
+
                         continue;
                     }
 

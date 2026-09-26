@@ -1,11 +1,16 @@
 # 脚本弹幕宿主「擦除 / 重合成」返工任务书
 
-- 日期：2026-09-24
+- 日期：2026-09-24（**2026-09-26 补记第十节：本轮返工的结果与仍未收敛的部分**）
 - 分支：`feature/script-danmaku-platform`
 - 起点提交：`2ee4357`（远端 tip 与本地一致）
 - 工作面：`BiliBili.UWP/Assets/script-danmaku-host.html`（脚本弹幕宿主，保留模式渲染器）
 - 候选补丁：`docs/patches/`（两份，两条已否证的方向，见 4.3 与第九节）
 - 交付方式：改动留在工作区，**不 commit、不 push**；由署名方抽验后统一提交
+
+> **2026-09-26 结论摘要**：两条候选方向之外的**第三条路（按擦除矩形裁剪后重贴）已实测有效**，
+> 中段 119s 由 0.560 升到 0.662、121s 由 0.918 升到 0.936（均超过基线列）；
+> 但**尾部同时退化**（123~142s 由 0.056 升到 0.117，录屏为 0.009），
+> 因此按 §6.3 的「两头都要满足」口径**仍未收敛**。全过程与数据见第十节。
 
 ---
 
@@ -35,7 +40,16 @@
 - `lastPaintedRect` = 元件在主画布上的矩形（**设备像素**，含 `DIRTY_RECT_PADDING`）；
 - `pendingEraseRects` 由属性 setter 侧入队，**只能在帧首 flush**；
 - `paintDirtyElements` 在宿主里**有两个同名实现**，后一个才会被调用（契约测试为此加了 `PaintBody()`）——读代码别读错那个；
-- 合成顺序：先邻居、后脏元素，目的是不把层叠顺序反过来。
+- 合成顺序：先邻居、后脏元素，目的是不把层叠顺序反过来；
+- **`composeElement` 的 `recordElementRect(element);` 收尾行是 C# 契约测试的锚点**：
+  `ScriptDanmakuHostContractTests.PaintBody()` 靠
+  `"recordElementRect(element);
+            }
+
+            function paintDirtyElements() {"`
+  来区分两个同名 `paintDirtyElements`。**新增函数不要插在这个收尾行与
+  `paintDirtyElements` 之间**，否则 `dotnet test` 会以
+  「Unable to find method signature」失败（2026-09-26 踩到，见 10.5）。
 
 ### 2.2 四条擦除路径的现状
 
@@ -43,7 +57,7 @@
 | --- | --- | --- |
 | 摘除 | `removeChildFromParent` / `detachElement` | 摘链**前**处理旧像素（摘了就找不到祖先），已修 |
 | 隐藏 | `markElementHidden`（`visible=false`） | 已修，走「最近一个有主画布矩形的祖先」的整块矩形 |
-| 淡出 | `markElementHidden`（`alpha=0`） | 已修，同上（**粗粒度，是当前中段偏暗的嫌疑点**） |
+| 淡出 | `markElementHidden`（`alpha=0`） | 已修，同上（**粗粒度，曾是嫌疑点；2026-09-26 已实测排除，见 10.2**） |
 | 条目离场 | `hadActiveItem` + `clearSurface()` | 最后一个条目离开窗口的整幅清空，已修 |
 
 ### 2.3 作品侧的图层模型（Akari）
@@ -178,9 +192,113 @@ git apply docs/patches/2026-09-24-script-danmaku-erase-wip-repaint-gaps.patch   
 - 应用后按第六节的量法复现第 4.3 节的数据；`git checkout -- <path>` 即可回退。
 - 它们的存在价值是**反例**：说明「只擦得准」和「只补得全」各自都不够，正解要同时满足两边。
 
-- `/tmp/ref_1080p.mp4`：原录屏 1080p（21 MB，判据基准）。
-- `/tmp/m8v/v6/m8_render.mp4`、`/tmp/m8v/v7/m8_render.mp4`：上表两版的渲染（1280×720，≈55.3s）。
-- `/tmp/m8v/v8/m8_render.mp4`：4.3 第二版候选的渲染（如果还在）。
-- `/tmp/build_probe2.py`：探针页构建脚本；`/tmp/m8v/probe_longwin5.py`、`probe_mid.py`：逐秒取画布亮像素的探针。
-- `/tmp/hostprobe/probe2.html`：当前探针页。
-- 逐帧抓取/对照脚本族：`/tmp/m8v/scan.py`、`ncc*.py`、`phase.py`、`capture*.py`、`mkpair*.sh`。
+> **2026-09-26 更新**：上面原先列举的 `/tmp` 资产在本轮开工时**已全部被清理**
+> （`v6/v7/v8` 的 mp4、`probe_mid.py`、`scan.py`、`ncc*.py`、`phase.py`、`capture*.py`、
+> `mkpair*.sh`、`/tmp/hostprobe/`）。已按 §7 重建出等价的一套，清单如下。
+
+**可重建**（源仍在）：
+
+- `/tmp/ref_1080p.mp4` —— **判据基准**。用 `python -m yt_dlp -f 30080 BV1c7411H7jF`
+  重新下载（1080P 免登录，15.3 MB，1920×1080/30fps/143.04s）。下完务必按 §4.2 逐秒核亮像素：
+  数值与表中「原录屏」列一致才说明是同一份源（本轮核过，105/110/115/119/121/122 全对得上）。
+  仓库里没有这份录屏的归档。
+- `/tmp/build_probe2.py` —— 探针页构建脚本（宿主 + `tests/host/fixtures/real` 的 11 条夹具 + 驱动器）。
+- `/tmp/m8v/probe_longwin5.py` —— 逐秒亮像素探针（1× 连播）。
+- `/tmp/m8v/ncc.py`、`compare.py`、`snapshot.py`、`fps_probe.py`、`step_probe.py`、`mkver.py`。
+- `/tmp/edgedriver/msedgedriver.exe` —— **必须手动下载**：
+  `https://msedgedriver.microsoft.com/<Edge 版本>/edgedriver_win64.zip`。
+  Selenium Manager 在本机拿不到驱动，即使 `options.binary_location` 指向 `msedge.exe`
+  也报 `NoSuchDriverException`。Edge 版本用 `msedge.exe --version` 取。
+
+**只能重写**（方法学在 §7，照抄即可）：逐秒亮像素、NCC、并排拼图、帧成本四类脚本本轮全部重写过一次。
+
+**不可替代且无来源**：`v6` 那一版（无隐藏/淡出修复）的渲染 mp4 —— 表中「v6」列的数据
+只能引用本任务书的记录，无法复测。
+---
+
+## 十、2026-09-26 返工记录（补记）
+
+### 10.1 本轮做了什么
+
+按 §4.4 的方向（「擦完没把落在矩形内的元素补全重绘」）实现第三条路：**按擦除矩形裁剪后重贴**。
+
+新增三个函数 + 改两处调用点，都在 `BiliBili.UWP/Assets/script-danmaku-host.html`：
+
+| 新增/改动 | 因果 |
+| --- | --- |
+| `composeElementClipped(element, rect)` | 擦除是无差别矩形清除，被擦像素属于谁是未知的。整元件重画（`composeElement`）虽正确，但 Akari 图层是整视口 1280×720 的离屏 canvas，一个几十像素的擦除矩形碰到它就要整层重贴；几十层叠加下每帧成本失控（实测 headless 直接 `tab crashed`）。改为裁剪后重贴，代价只跟被擦面积有关 |
+| `unionRects` / `overlappingRects` | 把「多个擦除矩形命中同一元件」合并为**一次**重贴，重贴次数与基线一致；逐块重贴会把调用数放大到 `hits.length` 倍，同样崩页 |
+| `isFadingOut(element)` | 元件自身或祖先 `alpha <= 0.05` 时不补画：它下一帧就消失，补回来又要再擦（实测会把尾部 135s 从 0.005 抬到 0.058） |
+| `paintDirtyElements` 邻居分支 | `composeElement(neighbor)` → `composeElementClipped(neighbor, 并集)` |
+| `paintDirtyElements` 候选分支 | 「矩形没变就跳过」→「被擦到且未在淡出 → 按并集裁剪补画」 |
+| `composeElementClipped` **不**调 `recordElementRect` | 裁剪只补了一小块；若记成「整元件已画过」，后续帧会认为它完好，遗漏处永远补不回来（实测 119s 因此从 0.646 掉到 0.445） |
+
+### 10.2 实测（rate=1、各 3 次取中位、1280×720）
+
+| 内容秒 | 本轮修复 | 基线 `2ee4357` | 原录屏 | 判定 |
+| --- | --- | --- | --- | --- |
+| 105 | 0.206 | 0.206 | 0.189 | 持平 |
+| 110 | 0.647 | 0.648 | 1.000 | 持平 |
+| 115 | 0.731 | 0.729 | 0.804 | 持平 |
+| 119 | **0.662** | 0.560 | 1.000 | **改善 +0.10** |
+| 121 | **0.936** | 0.918 | 1.000 | **改善 +0.02** |
+| 122 | 0.431 | 0.482 | 0.850 | 略降 |
+| 123 | 0.117 | 0.056 | 0.009 | **尾部退化** |
+| 125 | 0.117 | 0.056 | 0.008 | **尾部退化** |
+| 130 | 0.114 | 0.054 | 0.020 | **尾部退化** |
+| 135 | 0.064 | 0.005 | 0.012 | **尾部退化** |
+| 140 | 0.030 | 0.013 | 0.013 | 略高 |
+| 142 | 0.030 | 0.014 | 0.008 | 略高 |
+
+**结论：中段达成本轮目标，尾部未达成——按 §6.3「两头都要满足」口径仍未收敛。**
+最好的组合就是上表这版；试过的四个压制尾部退化的变体反而更差：
+
+- 去掉 `recordElementRect` 覆盖、裁剪矩形夹到画布范围：无关（119s 恒 0.445，尾部不变）
+- 去掉候选段补画（只留邻居）：119s 0.661（同样改善），尾部不变
+- `clearSurface` 后置标志、跳过本帧擦除与补画：尾部反而升到 0.135（更差）
+- 宿主倍速 4× 快筛：中段与 1× 一致，但**尾部恒 0.43，判据完全失效**——尾部只认 1×
+
+### 10.3 两条候选方向之外的实测结论（订正 §4.4）
+
+1. **§4.4 的第一条怀疑（粗粒度擦除本身有错）被证伪**：把 `markElementHidden` 改成
+   「只擦「向上找最近有界祖先」的矩形」（即候选 A 指责的那一段），单独跑 240 帧，
+   **中段/尾部亮像素一字不差**，帧成本也与基线相同。擦除粒度不是病根。
+2. **§4.4 的第二条怀疑（擦完没补全）方向正确**，但「按擦除矩形裁剪重贴」这个实现
+   只解决中段、代价是尾部退化（见上表）。
+3. **122s 的差距（0.431 / 0.482 vs 录屏 0.850）未动**：与 §4.4 描述的换场景批次行为一致。
+
+### 10.4 反向验证
+
+新增 `tests/host/retained-mode.test.js` 的 **D29**（用例名：
+「补画被擦区域时不得整元件重贴（重贴范围必须限制在擦除矩形内）」）：
+
+- 基线 `2ee4357` 宿主：`28/29 通过`，D29 **FAIL**，
+  报「擦除矩形只有 400 像素，最大的那次落笔却是 41616 像素（上限 1600）」
+- 本轮修复后：`29/29 通过`
+
+其余门禁：`real-m8-scripts` 5/5、`dotnet test tests/BiliBili.Tests` 241/241、
+`git diff --check` 干净、宿主 `<script>` 过 `new Function` 语法校验。
+
+### 10.5 本轮新踩到的坑
+
+1. **`composeElement` 的 `recordElementRect(element);` 收尾行是 C# 契约测试的锚点**
+   （见 §2.1）。把新函数插在它与 `paintDirtyElements` 之间，`dotnet test` 会以
+   「Unable to find method signature: recordElementRect(element);」失败两条用例
+   （`Host_TickOnlyRepaintsWhenDirty`、`Host_ClearsMovedElementPixelsWithDirtyRects`）。
+   新函数应插在 `composeElement` **之前**。
+2. **headless 的 rAF 被 vsync 锁在 60fps**，这是采样慢的根因：1× 连播 142 秒内容
+   必须耗 142 秒墙钟。`--disable-frame-rate-limit` / `--disable-gpu-vsync` **无效**
+   （实测仍 17.5ms/帧）。可行的是把宿主倍速开到 4×（中段快筛，约 36 秒），但**尾部必须回 1×**。
+3. **探针页必须把夹具挂到 `window`**：`build_probe2.py` 原先只放在闭包里的 `FIXTURES`，
+   外部驱动器 `host.append(window.__fixtures)` 会是 `undefined`，宿主静默什么都不做、
+   计数器全 0 却不报错。已修（`window.__fixtures = FIXTURES;`）。
+4. **只靠 Python 侧 `sleep` 轮询会让 headless 把 rAF 节流到几乎不跑**（计数器恒 0）。
+   要拿逐帧成本必须**在页面内连续跑若干帧后回报**（见 `/tmp/m8v/step_probe.py` 的分块做法）。
+5. **`--window-size` 给的是含浏览器 chrome 的窗口尺寸**，headless 下视口只有约 1256×581
+   （宽高比 2.16），与录屏 16:9 对不上、会毁掉 NCC。探针页要注入
+   `#stage { width:1280px !important; height:720px !important; }`。
+6. **`tab crashed` 的两种诱因**：一是每帧重绘量失控（整元件重贴整视口图层），
+   二是 `clip()` 收到极大/非有限的矩形。前者是本轮修复要解决的核心，后者本轮通过
+   把裁剪矩形夹到画布范围规避。
+7. **Edge 崩溃残留会塞满磁盘**：多次 `tab crashed` 后在 `%TEMP%` 留下几十个
+   `scoped_dir*`（实测累计 2.3 GB，把盘写满导致后续写文件失败）。批量重试前先清理。

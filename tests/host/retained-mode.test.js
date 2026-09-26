@@ -1879,4 +1879,55 @@ test('D28 alpha 归零的嵌套元件必须擦掉它在主画布上的旧像素'
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
+test('D29 补画被擦区域时不得整元件重贴（重贴范围必须限制在擦除矩形内）', () => {
+    // 复现路径：元件的旧位置矩形入队擦除后会盖住别的（静止的）元件，
+    // 那些元素必须补画回来——但**不能整元件重贴**。Akari 的图层是整视口
+    // 1280x720 的离屏 canvas，一个几十像素的擦除矩形碰到它就让整层重新
+    // drawImage 一次；几十层叠加下每帧重贴几百万像素，实测把 headless
+    // 直接打到 tab crashed。正确做法是按擦除矩形裁剪后重贴。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d29', 0, 10,
+            'var bg = $.createShape({ x: 200, y: 200 });'
+            + 'bg.graphics.beginFill(0x0000FF, 1);'
+            + 'bg.graphics.drawRect(0, 0, 200, 200);'
+            + 'bg.graphics.endFill();'
+            + 'var dot = $.createShape({ x: 250, y: 250 });'
+            + 'dot.graphics.beginFill(0xFF0000, 1);'
+            + 'dot.graphics.drawRect(0, 0, 20, 20);'
+            + 'dot.graphics.endFill();'
+            + 'window.__dot = dot;')
+    ]);
+    host.runFrames(3);
+
+    const canvas = host.mainCanvas();
+    const bgRect = { x: 200, y: 200, width: 200, height: 200 };
+    assert.ok(canvas.__marks.some((mark) => rectsOverlap(mark, bgRect)),
+        '前置条件：背景应已画到主画布上；marks=' + JSON.stringify(canvas.__marks));
+
+    const before = canvas.__ops.length;
+    // 挪走红点：旧位置 (250,250)-(270,270) 入队擦除，那块压在背景上。
+    host.sandbox.__dot.x = 700;
+    host.runFrames(1);
+
+    const ops = canvas.__ops.slice(before);
+    const overlapRect = { x: 250, y: 250, width: 20, height: 20 };
+    const dump = JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect)));
+
+    const repaints = ops.filter((op) => op.type !== 'clearRect'
+        && rectsOverlap(op.rect, overlapRect));
+    assert.ok(repaints.length > 0,
+        '被擦区域里还压着静止的背景，必须补画回来，否则每移动一次就留一块空洞；ops=' + dump);
+
+    const limit = overlapRect.width * overlapRect.height * 4;
+    const widest = repaints.reduce(
+        (max, op) => Math.max(max, op.rect.width * op.rect.height), 0);
+    assert.ok(widest <= limit,
+        '补画必须按擦除矩形裁剪，不能整元件重贴：擦除矩形只有 '
+        + (overlapRect.width * overlapRect.height) + ' 像素，最大的那次落笔却是 '
+        + widest + ' 像素（上限 ' + limit + '）。整元件重贴会让碰到它的整视口图层'
+        + '全量重画，帧成本失控；ops=' + dump);
+});
+
 run();
