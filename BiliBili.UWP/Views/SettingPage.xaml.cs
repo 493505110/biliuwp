@@ -48,6 +48,9 @@ namespace BiliBili.UWP.Views
             {
                 GetSetting();
             }
+
+            // 本页被缓存，播放器面板里也能改弹幕位置类型，每次进入都刷新入口文案
+            UpdateDanmakuLocationTypeSummary();
         }
         bool get_ing = true;
         bool loadsetting = true;
@@ -119,6 +122,7 @@ namespace BiliBili.UWP.Views
                 sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
                 sw_StatusDanmu.IsOn = SettingHelper.Get_DMStatus();
                 UpdateInteractiveDanmakuTypeSummary();
+                UpdateDanmakuLocationTypeSummary();
                 sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
 
                 sw_DTCT.IsOn = SettingHelper.Get_DTCT();
@@ -867,6 +871,11 @@ namespace BiliBili.UWP.Views
             btn_InteractiveDanmakuTypes.Content = InteractiveDanmakuTypeDialog.GetSummary();
         }
 
+        private void UpdateDanmakuLocationTypeSummary()
+        {
+            btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetSummary();
+        }
+
         private async void InteractiveDanmakuTypes_Click(object sender, RoutedEventArgs e)
         {
             if (loadsetting)
@@ -877,6 +886,19 @@ namespace BiliBili.UWP.Views
             if (await InteractiveDanmakuTypeDialog.ShowAsync())
             {
                 UpdateInteractiveDanmakuTypeSummary();
+            }
+        }
+
+        private async void DanmakuLocationTypes_Click(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            if (await DanmakuLocationTypeDialog.ShowAsync())
+            {
+                UpdateDanmakuLocationTypeSummary();
             }
         }
 

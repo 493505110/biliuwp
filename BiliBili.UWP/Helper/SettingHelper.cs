@@ -1577,64 +1577,84 @@ namespace BiliBili.UWP
 
 
 
-        public static bool Get_DMVisTop()
+        // 旧版的三个「屏蔽…弹幕」开关，只用于把老用户的设置迁移成位置类型掩码，迁移后不再读写
+        private const string LegacyDanmakuTopVisibilityKey = "DMVisTop";
+        private const string LegacyDanmakuBottomVisibilityKey = "DMVisBottom";
+        private const string LegacyDanmakuRollVisibilityKey = "DMVisRoll";
+
+        /// <summary>读取旧版开关；键不存在时按「显示」处理，与旧实现的默认值一致。</summary>
+        private static bool IsLegacyDanmakuVisibilityEnabled(string key)
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DMVisTop"] != null)
-            {
-                return (bool)container.Values["DMVisTop"];
-            }
-            else
-            {
-                Set_DMVisTop(true);
-                return true;
-            }
+            var value = container.Values[key];
+            return value == null || Convert.ToBoolean(value);
         }
 
-        public static void Set_DMVisTop(bool value)
+        // 弹幕按位置类型过滤，用位掩码保存：第 n 位对应 NSDanmaku.Model.DanmakuLocation 的第 n 个值。
+        // 掩码覆盖枚举的全部 6 个值（含未使用的 Other），默认全显示。
+        private const int AllDanmakuLocationTypes = 0x3F;
+
+        private static int DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation location)
         {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values["DMVisTop"] = value;
+            return 1 << (int)location;
         }
 
-        public static bool Get_DMVisBottom()
+        public static int Get_DanmakuLocationTypes()
         {
             container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DMVisBottom"] != null)
+            if (container.Values["DanmakuLocationTypes"] != null)
             {
-                return (bool)container.Values["DMVisBottom"];
+                return Convert.ToInt32(container.Values["DanmakuLocationTypes"])
+                    & AllDanmakuLocationTypes;
             }
-            else
+
+            // 一次老用户迁移：按当时可见的位置生成掩码，之后只认掩码。
+            // 定位弹幕旧版没有开关，迁移时默认显示。
+            var mask = DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation.Position)
+                | DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation.Other);
+            if (IsLegacyDanmakuVisibilityEnabled(LegacyDanmakuRollVisibilityKey))
             {
-                Set_DMVisBottom(true);
-                return true;
+                mask |= DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation.Scroll)
+                    | DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation.ReverseScroll);
             }
+            if (IsLegacyDanmakuVisibilityEnabled(LegacyDanmakuTopVisibilityKey))
+            {
+                mask |= DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation.Top);
+            }
+            if (IsLegacyDanmakuVisibilityEnabled(LegacyDanmakuBottomVisibilityKey))
+            {
+                mask |= DanmakuLocationBit(NSDanmaku.Model.DanmakuLocation.Bottom);
+            }
+
+            Set_DanmakuLocationTypes(mask);
+            return mask;
         }
 
-        public static void Set_DMVisBottom(bool value)
+        public static void Set_DanmakuLocationTypes(int value)
         {
             container = ApplicationData.Current.LocalSettings;
-            container.Values["DMVisBottom"] = value;
+            container.Values["DanmakuLocationTypes"] = value & AllDanmakuLocationTypes;
         }
 
-        public static bool Get_DMVisRoll()
+        public static bool Is_DanmakuLocationTypeEnabled(NSDanmaku.Model.DanmakuLocation location)
         {
-            container = ApplicationData.Current.LocalSettings;
-            if (container.Values["DMVisRoll"] != null)
-            {
-                return (bool)container.Values["DMVisRoll"];
-            }
-            else
-            {
-                Set_DMVisRoll(true);
-                return true;
-            }
+            return Is_DanmakuLocationTypeEnabled(Get_DanmakuLocationTypes(), location);
         }
 
-        public static void Set_DMVisRoll(bool value)
+        public static bool Is_DanmakuLocationTypeEnabled(
+            int mask,
+            NSDanmaku.Model.DanmakuLocation location)
         {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values["DMVisRoll"] = value;
+            return (mask & DanmakuLocationBit(location)) != 0;
+        }
+
+        public static void Set_DanmakuLocationTypeEnabled(
+            NSDanmaku.Model.DanmakuLocation location,
+            bool value)
+        {
+            var mask = Get_DanmakuLocationTypes();
+            var bit = DanmakuLocationBit(location);
+            Set_DanmakuLocationTypes(value ? mask | bit : mask & ~bit);
         }
 
         public static string Get_DMZZ()

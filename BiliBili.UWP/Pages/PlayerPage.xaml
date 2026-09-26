@@ -138,6 +138,10 @@
                                     <HyperlinkButton x:Name="btn_InteractiveDanmakuTypes" Content="全部" Click="InteractiveDanmakuTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">按弹幕类型过滤</TextBlock>
+                                    <HyperlinkButton x:Name="btn_DanmakuLocationTypes" Content="全部" Click="DanmakuLocationTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
+                                </Grid>
+                                <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">使用新版弹幕接口</TextBlock>
                                     <ToggleSwitch x:Name="sw_UseNewDanmakuInterface" Foreground="White" Toggled="sw_UseNewDanmakuInterface_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
@@ -206,56 +210,6 @@
                                 </StackPanel>
                             </StackPanel>
                         </ScrollViewer>
-                        <Grid  x:Name="grid_PB" Visibility="Collapsed">
-                            <Grid.RowDefinitions>
-                                <RowDefinition/>
-                                <RowDefinition Height="auto"/>
-                            </Grid.RowDefinitions>
-                            <ScrollViewer ScrollViewer.VerticalScrollBarVisibility="Auto" >
-                                <StackPanel Margin="10 5">
-                                    <TextBlock FontSize="16" Margin="0 10 0 0" Foreground="White">弹幕设置</TextBlock>
-                                    <CheckBox x:Name="menu_setting_gd"  Content="屏蔽滚动弹幕"  Checked="menu_setting_gd_Checked" Unchecked="menu_setting_gd_Unchecked"/>
-                                    <CheckBox x:Name="menu_setting_top" Content="屏蔽顶部弹幕" Checked="menu_setting_top_Click" Unchecked="menu_setting_top_Unchecked"/>
-                                    <CheckBox x:Name="menu_setting_buttom"  Content="屏蔽底部弹幕"  Checked="menu_setting_buttom_Click" Unchecked="menu_setting_buttom_Unchecked"/>
-                                    <TextBlock FontSize="16" Margin="0 10 0 0" Foreground="White">关键字添加</TextBlock>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition/>
-                                            <ColumnDefinition Width="auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox x:Name="txt_Dis" BorderThickness="0"/>
-                                        <Button x:Name="btn_OK" Grid.Column="1" VerticalAlignment="Stretch" Click="btn_OK_Click" Content="确定" />
-                                    </Grid>
-                                    <TextBlock FontSize="16" Margin="0 10 0 0" Foreground="White">用户屏蔽</TextBlock>
-                                    <ListView x:Name="list_DisDanmu" SelectionMode="Multiple" ScrollViewer.VerticalScrollMode="Disabled">
-                                        <ListView.ItemTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal">
-                                                    <TextBlock>
-													<Run Text="["/>
-                                                    </TextBlock>
-                                                    <TextBlock >
-													<Run Text="{Binding time}"/>
-													<Run Text="{Binding location}"/>
-                                                    </TextBlock>
-                                                    <TextBlock>
-													<Run Text="]"/>
-                                                    </TextBlock>
-                                                    <TextBlock Foreground="{Binding colorBrush}" Text="{Binding text}"/>
-                                                </StackPanel>
-
-                                            </DataTemplate>
-                                        </ListView.ItemTemplate>
-                                    </ListView>
-                                </StackPanel>
-                            </ScrollViewer>
-                            <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="10"  HorizontalAlignment="Right">
-                                <Button x:Name="btn_Dis_Report" Margin="10 0" Click="btn_Dis_Report_Click" Content="举报选中" Foreground="White"/>
-                                <Button x:Name="btn_Dis_Remove"  Click="btn_Dis_Remove_Click" Content="确定" Foreground="White"/>
-
-                            </StackPanel>
-
-                        </Grid>
                         <ScrollViewer x:Name="grid_Info" Visibility="Collapsed" ScrollViewer.VerticalScrollBarVisibility="Auto" >
                             <StackPanel Margin="10 5">
                                 <TextBlock FontSize="18" Foreground="White" Margin="0 5">视频信息</TextBlock>
@@ -323,7 +277,6 @@
                                     <MenuFlyout>
                                         <MenuFlyoutItem  Click="btn_VideoInfo_Click">播放设置</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_DM" Visibility="Collapsed" Click="menuitem_DM_Click">弹幕设置</MenuFlyoutItem>
-                                        <MenuFlyoutItem x:Name="menuitem_PB" Click="menuitem_PB_Click">弹幕屏蔽</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_LocalDanmu" Click="menuitem_LocalDanmu_Click">加载本地弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_tantan" Click="menuitem_tantan_Click">加载弹弹Play弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_UpdateDanmu" Click="menuitem_UpdateDanmu_Click">更新弹幕</MenuFlyoutItem>

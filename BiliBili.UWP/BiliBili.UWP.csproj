@@ -399,6 +399,7 @@
     <Compile Include="Helper\MusicHelper.cs" />
     <Compile Include="Helper\InteractiveDanmakuService.cs" />
     <Compile Include="Helper\InteractiveDanmakuTypeDialog.cs" />
+    <Compile Include="Helper\DanmakuLocationTypeDialog.cs" />
     <Compile Include="Helper\PlayurlHelper.cs" />
     <Compile Include="Helper\SettingHelper.cs" />
     <Compile Include="Helper\SqlHelper.cs" />

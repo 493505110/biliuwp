@@ -1255,9 +1255,8 @@ namespace BiliBili.UWP.Pages
             btn_ViewPost.Visibility = Visibility.Collapsed;
 
             //danmu.borderStyle = (NSDanmaku.Model.DanmakuBorderStyle)SettingHelper.Get_DMStyle();
-            menu_setting_buttom.IsChecked = !SettingHelper.Get_DMVisBottom();
-            menu_setting_top.IsChecked = !SettingHelper.Get_DMVisTop();
-            menu_setting_gd.IsChecked = !SettingHelper.Get_DMVisRoll();
+            // 弹幕层可见性与入口摘要都由位置类型掩码推导
+            ApplyDanmakuLocationVisibility();
 
             var danmuStatus = SettingHelper.Get_DMStatus();
             if (danmuStatus)
@@ -1290,6 +1289,8 @@ namespace BiliBili.UWP.Pages
         bool hidePointerFlag = false;
         int DanmuNum = 0;
         bool mergeDanmu = false;
+        // 弹幕位置类型掩码的本地副本：ShowDanmaku 每条弹幕都要判定，避免高频读 LocalSettings
+        int danmakuLocationMask = -1;
         List<string> sended = new List<string>();
 
         private void SetBasDanmakuPool(IEnumerable<BasDanmakuModel> pool)
@@ -1518,6 +1519,11 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
+            if (!IsDanmakuLocationEnabled(item.location))
+            {
+                return;
+            }
+
             var itemSecond = item.time < 0 ? 0 : (int)Math.Floor(item.time);
             if (itemSecond != danmakuLimitSecond)
             {
@@ -1637,26 +1643,11 @@ namespace BiliBili.UWP.Pages
         //    });
         //}
 
-        #region 弹幕设置
-        /// <summary>
-        /// 弹幕屏蔽
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void btn_Dis_Remove_Click(object sender, RoutedEventArgs e)
-        {
-            foreach (NSDanmaku.Model.DanmakuModel item in list_DisDanmu.SelectedItems)
-            {
-                DanDis_Add(item.sendID, true);
-                danmu.Remove(item);
-                list_DisDanmu.Items.Remove(item);
-            }
-        }
+        #region 弹幕屏蔽
         List<string> Guanjianzi = new List<string>();
         List<string> Yonghu = new List<string>();
         private void DanDis_Get()
         {
-
 
             string a = SettingHelper.Get_Guanjianzi();
             string b = SettingHelper.Get_Yonghu();
@@ -1683,21 +1674,6 @@ namespace BiliBili.UWP.Pages
             {
                 return false;
             }
-        }
-        private void DanDis_Add(string text, bool IsYonghu)
-        {
-            if (IsYonghu)
-            {
-                SettingHelper.Set_Yonghu(SettingHelper.Get_Yonghu() + "|" + text);
-                Yonghu.Add(text);
-            }
-            else
-            {
-                SettingHelper.Set_Guanjianzi(SettingHelper.Get_Guanjianzi() + "|" + text);
-
-                Guanjianzi.Add(text);
-            }
-
         }
         #endregion
 
@@ -3135,7 +3111,6 @@ namespace BiliBili.UWP.Pages
             grid_Setting.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
             sp_View.IsPaneOpen = true;
         }
@@ -3188,7 +3163,6 @@ namespace BiliBili.UWP.Pages
             gv_story_list.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
             //string info = string.Format("视频高度：{0}\r\n视频宽度：{1}\r\n视频长度：{2}\r\n缓冲进度:{3}", mediaElement.NaturalVideoHeight, mediaElement.NaturalVideoWidth, mediaElement.MediaPlayer.PlaybackSession.NaturalDuration.TimeSpan.Hours.ToString("00") + ":" + mediaElement.MediaPlayer.PlaybackSession.NaturalDuration.TimeSpan.Minutes.ToString("00") + ":" + mediaElement.MediaPlayer.PlaybackSession.NaturalDuration.TimeSpan.Seconds.ToString("00"), mediaElement.DownloadProgress.ToString("P"));
             //await new MessageDialog(info, "视频信息").ShowAsync();
@@ -3302,27 +3276,7 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Visible;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
 
-        }
-
-        private void menuitem_PB_Click(object sender, RoutedEventArgs e)
-        {
-
-            mediaElement.MediaPlayer.Pause();
-            sp_View.IsPaneOpen = true;
-            grid_Setting.Visibility = Visibility.Collapsed;
-            gv_play.Visibility = Visibility.Collapsed;
-            grid_DM.Visibility = Visibility.Collapsed;
-            gv_story_list.Visibility = Visibility.Collapsed;
-            grid_Info.Visibility = Visibility.Collapsed;
-            grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Visible;
-            list_DisDanmu.Items.Clear();
-            foreach (var item in danmu.GetDanmakus())
-            {
-                list_DisDanmu.Items.Add(item);
-            }
         }
 
         private void menuitem_Info_Click(object sender, RoutedEventArgs e)
@@ -3340,7 +3294,6 @@ namespace BiliBili.UWP.Pages
             gv_story_list.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Visible;
-            grid_PB.Visibility = Visibility.Collapsed;
         }
 
         #region 设置
@@ -3434,65 +3387,78 @@ namespace BiliBili.UWP.Pages
 
 
 
-        private void menu_setting_top_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 按当前掩码同步弹幕层可见性与入口摘要。
+        /// 滚动与逆向滚动共用 grid_Scroll，按两者的并集决定这一层的显示。
+        /// </summary>
+        private void ApplyDanmakuLocationVisibility()
         {
-
-            danmu.HideDanmaku(NSDanmaku.Model.DanmakuLocation.Top);
-            SettingHelper.Set_DMVisTop(false);
-
-
-        }
-
-        private void menu_setting_buttom_Click(object sender, RoutedEventArgs e)
-        {
-            danmu.HideDanmaku(NSDanmaku.Model.DanmakuLocation.Bottom);
-            SettingHelper.Set_DMVisBottom(false);
-        }
-
-        private void menu_setting_gd_Checked(object sender, RoutedEventArgs e)
-        {
-            danmu.HideDanmaku(NSDanmaku.Model.DanmakuLocation.Scroll);
-            SettingHelper.Set_DMVisRoll(false);
-        }
-
-        private void menu_setting_gd_Unchecked(object sender, RoutedEventArgs e)
-        {
-            danmu.ShowDanmaku(NSDanmaku.Model.DanmakuLocation.Scroll);
-            SettingHelper.Set_DMVisRoll(true);
-        }
-
-        private void menu_setting_top_Unchecked(object sender, RoutedEventArgs e)
-        {
-            danmu.ShowDanmaku(NSDanmaku.Model.DanmakuLocation.Top);
-            SettingHelper.Set_DMVisTop(true);
-        }
-
-        private void menu_setting_buttom_Unchecked(object sender, RoutedEventArgs e)
-        {
-            // danmu.SetDanmuVisibility(true, MyDanmaku.DanmuMode.Buttom);
-            danmu.ShowDanmaku(NSDanmaku.Model.DanmakuLocation.Bottom);
-            SettingHelper.Set_DMVisBottom(true);
-        }
-
-
-        private void btn_OK_Click(object sender, RoutedEventArgs e)
-        {
-
-            DanDis_Add(txt_Dis.Text, false);
-            txt_Dis.Text = "";
-            var s = danmu.GetDanmakus();
-            foreach (var item in s)
+            var mask = SettingHelper.Get_DanmakuLocationTypes();
+            danmakuLocationMask = mask;
+            if (danmu != null)
             {
-                if (DanDis_Dis(item.text))
-                {
-                    danmu.Remove(item);
-                }
+                SetDanmakuGridVisibility(
+                    NSDanmaku.Model.DanmakuLocation.Scroll,
+                    SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.Scroll)
+                    || SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.ReverseScroll));
+                SetDanmakuGridVisibility(
+                    NSDanmaku.Model.DanmakuLocation.Top,
+                    SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.Top));
+                SetDanmakuGridVisibility(
+                    NSDanmaku.Model.DanmakuLocation.Bottom,
+                    SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.Bottom));
+            }
+
+            btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetSummary();
+        }
+
+        private bool IsDanmakuLocationEnabled(NSDanmaku.Model.DanmakuLocation location)
+        {
+            if (danmakuLocationMask < 0)
+            {
+                danmakuLocationMask = SettingHelper.Get_DanmakuLocationTypes();
+            }
+
+            return SettingHelper.Is_DanmakuLocationTypeEnabled(danmakuLocationMask, location);
+        }
+
+        private void SetDanmakuGridVisibility(
+            NSDanmaku.Model.DanmakuLocation location,
+            bool visible)
+        {
+            if (visible)
+            {
+                danmu.ShowDanmaku(location);
+            }
+            else
+            {
+                danmu.HideDanmaku(location);
             }
         }
 
+        private async void DanmakuLocationTypes_Click(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag)
+            {
+                return;
+            }
 
+            if (!await DanmakuLocationTypeDialog.ShowAsync())
+            {
+                return;
+            }
 
-
+            // 选择可能来自设置页的对话框，这里按最新掩码重新同步入口摘要
+            ApplyDanmakuLocationVisibility();
+        }
 
 
         #endregion
@@ -3510,38 +3476,6 @@ namespace BiliBili.UWP.Pages
 
 
 
-
-        private void btn_Dis_Report_Click(object sender, RoutedEventArgs e)
-        {
-            if (list_DisDanmu.SelectedItems.Count == 0)
-            {
-                return;
-            }
-            foreach (NSDanmaku.Model.DanmakuModel item in list_DisDanmu.SelectedItems)
-            {
-                ReportDM(item.rowID);
-            }
-        }
-
-        private async void ReportDM(string dmid)
-        {
-            try
-            {
-                string results = await WebClientClass.PostResults(new Uri("https://interface.bilibili.com/dmreport"), string.Format("reportToAdmin=0&reason=&dm_inid={0}&dmid={1}", playNow.Mid, dmid), "https://www.bilibili.com");
-                if (results == "0")
-                {
-                    Utils.ShowMessageToast("举报成功", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("举报失败", 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("举报错误", 3000);
-            }
-        }
 
         private async void menuitem_UpdateDanmu_Click(object sender, RoutedEventArgs e)
         {
@@ -4133,7 +4067,6 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Visible;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
         }
 
         private void MTC_SelectList(object sender, EventArgs e)
@@ -4154,7 +4087,6 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
 
             sp_View.IsPaneOpen = true;
         }
@@ -4626,7 +4558,6 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Visible;
-            grid_PB.Visibility = Visibility.Collapsed;
         }
 
         private void Slider_SubtitleTran_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
