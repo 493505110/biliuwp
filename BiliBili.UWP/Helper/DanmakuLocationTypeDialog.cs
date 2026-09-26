@@ -66,7 +66,7 @@ namespace BiliBili.UWP.Helper
 
             var dialog = new ContentDialog
             {
-                Title = "按弹幕类型过滤",
+                Title = "弹幕显示",
                 Content = panel,
                 PrimaryButtonText = "确定",
                 CloseButtonText = "取消",
@@ -108,9 +108,9 @@ namespace BiliBili.UWP.Helper
                 case DanmakuLocation.Bottom:
                     return "底部弹幕";
                 case DanmakuLocation.ReverseScroll:
-                    return "逆向滚动弹幕";
+                    return "逆向弹幕";
                 case DanmakuLocation.Position:
-                    return "定位弹幕";
+                    return "高级弹幕";
                 default:
                     return "滚动弹幕";
             }

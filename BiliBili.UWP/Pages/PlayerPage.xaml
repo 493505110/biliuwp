@@ -134,12 +134,12 @@
                                     <ToggleSwitch x:Name="sw_DanmuNotSubtitle" Foreground="White" Toggled="sw_DanmuNotSubtitle_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
-                                    <TextBlock Foreground="White" VerticalAlignment="Center">显示互动弹幕</TextBlock>
-                                    <HyperlinkButton x:Name="btn_InteractiveDanmakuTypes" Content="全部" Click="InteractiveDanmakuTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">弹幕显示</TextBlock>
+                                    <HyperlinkButton x:Name="btn_DanmakuLocationTypes" Content="全部" Click="DanmakuLocationTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
-                                    <TextBlock Foreground="White" VerticalAlignment="Center">按弹幕类型过滤</TextBlock>
-                                    <HyperlinkButton x:Name="btn_DanmakuLocationTypes" Content="全部" Click="DanmakuLocationTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
+                                    <TextBlock Foreground="White" VerticalAlignment="Center">互动弹幕显示</TextBlock>
+                                    <HyperlinkButton x:Name="btn_InteractiveDanmakuTypes" Content="全部" Click="InteractiveDanmakuTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
                                 </Grid>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">使用新版弹幕接口</TextBlock>

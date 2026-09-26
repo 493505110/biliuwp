@@ -85,7 +85,7 @@ namespace BiliBili.UWP.Helper
 
             var dialog = new ContentDialog
             {
-                Title = "显示互动弹幕",
+                Title = "互动弹幕显示",
                 Content = panel,
                 PrimaryButtonText = "确定",
                 CloseButtonText = "取消",
