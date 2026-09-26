@@ -1250,6 +1250,15 @@ namespace BiliBili.Tests
             var endBody = TestRepository.MethodBody(source, "endItem: function () {");
             StringAssert.Contains(endBody, "JSON.parse(json)");
             StringAssert.Contains(endBody, "reportCompileError(error, \"\");");
+
+            // 切块不得把 UTF-16 代理对切成两半：B 站下发的代码弹幕正文
+            // 可能有几十万字符（真实样本 354KB），必然走到分块路径，
+            // 从代理对中间切开会在 JS 侧拼出半个字符、脚本正文直接损坏。
+            var control = TestRepository.ReadFile(ControlPath);
+            StringAssert.Contains(control, "private static int SafeChunkLength(string value, int offset)");
+            StringAssert.Contains(control, "if (char.IsLowSurrogate(value[offset + count]))");
+            // 步长必须用实际取到的 count：跳过那个被让出的字符同样会切坏正文。
+            StringAssert.Contains(control, "offset += count;");
         }
 
         [TestMethod]
@@ -1262,6 +1271,28 @@ namespace BiliBili.Tests
                 "window.addEventListener(\"resize\", window.scriptDanmakuHost.resize);");
             StringAssert.Contains(source, "ensureCanvas();");
             StringAssert.Contains(source, "post(\"ready\");");
+        }
+
+        [TestMethod]
+        public void Control_ReportsGlobalFailureOnlyForCompositeErrors()
+        {
+            // compile / runtime 是**那条脚本**的问题：宿主只标它 failed，其余条目
+            // 照常推进。整个功能没坏，报「渲染失败」是误报——mode=8 下发模式实测
+            // 就会收到服务端截断的脚本副本（av2669196 的分段包里有主脚本的前 300
+            // 字符，必然编译失败），用户没做错任何事。
+            var source = TestRepository.ReadFile(ControlPath);
+            var handler = TestRepository.MethodBody(source, "private void HandleRendererError(JObject message)");
+
+            StringAssert.Contains(handler, "if (string.Equals(stage, \"composite\", StringComparison.OrdinalIgnoreCase))");
+            StringAssert.Contains(handler, "ShowRendererFailureOnce(\"脚本弹幕渲染失败\");");
+            // 日志仍然全量记录（含 stage 与脚本 id），只是不再弹全局提示。
+            StringAssert.Contains(handler, "LogHelper.WriteLog(logMessage, LogType.ERROR);");
+
+            // 初始化失败与命令通道异常属于宿主自身的问题，提示必须保留。
+            var initialize = TestRepository.MethodBody(source, "private async Task<bool> InitializeAsync()");
+            StringAssert.Contains(initialize, "ShowRendererFailureOnce(\"脚本弹幕渲染器加载失败\");");
+            var execute = TestRepository.MethodBody(source, "private async Task ExecuteCommandAsync(int version, Func<Task> command)");
+            StringAssert.Contains(execute, "ShowRendererFailureOnce(\"脚本弹幕渲染失败\");");
         }
 
         // ---- 桥协议：宿主 ↔ 控件的动作与数据链（本轮新增）----

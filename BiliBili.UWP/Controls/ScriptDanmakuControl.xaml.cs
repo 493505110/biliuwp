@@ -522,7 +522,17 @@ namespace BiliBili.UWP.Controls
                 + (string.IsNullOrWhiteSpace(itemId) ? string.Empty : "，脚本 " + itemId)
                 + (string.IsNullOrWhiteSpace(detail) ? string.Empty : "：" + Truncate(detail));
             LogHelper.WriteLog(logMessage, LogType.ERROR);
-            ShowRendererFailureOnce("脚本弹幕渲染失败");
+
+            // 只有合成期出错才是宿主自身的问题，才值得报「渲染失败」。
+            // compile / runtime 是**那条脚本**的问题：宿主只标它 failed、其余条目
+            // 照常推进（条目级失败隔离），整个功能是好的，报「渲染失败」会让用户
+            // 以为功能坏了。这不是假想 —— mode=8 下发模式实测会收到被服务端截断的
+            // 脚本副本（av2669196 的分段包里就有主脚本的前 300 字符，必然编译失败），
+            // 用户没有做错任何事，却会看到一条全局失败提示。
+            if (string.Equals(stage, "composite", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowRendererFailureOnce("脚本弹幕渲染失败");
+            }
         }
 
         private void HandleActionMessage(JObject message)
@@ -690,15 +700,23 @@ namespace BiliBili.UWP.Controls
             }
 
             await ExecuteScriptAsync("window.scriptDanmakuHost.beginItem();");
-            for (var offset = 0; offset < itemJson.Length; offset += MaxChunkPayloadLength)
+            // 步长用实际取到的 count 而不是常量上限：SafeChunkLength 可能因避开
+            // 代理对而少取一个字符，用常量步进会跳过那个字符、把正文切坏。
+            for (var offset = 0; offset < itemJson.Length; )
             {
                 if (version != Volatile.Read(ref contentVersion))
                 {
                     return;
                 }
 
-                var count = Math.Min(MaxChunkPayloadLength, itemJson.Length - offset);
+                var count = SafeChunkLength(itemJson, offset);
+                if (count <= 0)
+                {
+                    return;
+                }
+
                 var chunk = itemJson.Substring(offset, count);
+                offset += count;
                 await ExecuteScriptAsync(
                     "window.scriptDanmakuHost.appendItemChunk("
                     + JsonConvert.SerializeObject(chunk)
@@ -709,6 +727,28 @@ namespace BiliBili.UWP.Controls
             {
                 await ExecuteScriptAsync("window.scriptDanmakuHost.endItem();");
             }
+        }
+
+        /// <summary>
+        /// 按 <see cref="MaxChunkPayloadLength"/> 取一个不会把 UTF-16 代理对切开的长度。
+        /// B 站下发的代码弹幕正文可能有几十万字符（真实样本 354KB），必然走到这里；
+        /// 从代理对中间切开会让 JavaScript 侧拼出半个字符，脚本正文因此损坏。
+        /// </summary>
+        private static int SafeChunkLength(string value, int offset)
+        {
+            var count = Math.Min(MaxChunkPayloadLength, value.Length - offset);
+            if (count <= 0 || count >= value.Length - offset)
+            {
+                return count;
+            }
+
+            // 下一个字符是低位代理，说明切点落在代理对中间：少取一个字符。
+            if (char.IsLowSurrogate(value[offset + count]))
+            {
+                count--;
+            }
+
+            return count;
         }
 
         private async void ScriptDanmakuControl_SizeChanged(

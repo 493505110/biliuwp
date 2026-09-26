@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using BiliBili.UWP;
 using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules;
 using Windows.UI;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
@@ -159,6 +160,8 @@ namespace BiliBili.UWP.Helper
             var plan = initial.WebLoadPlan;
             var items = new List<DanmakuModel>(initial.Items ?? new List<DanmakuModel>());
             var basItems = new List<BasDanmakuModel>(initial.BasItems ?? new List<BasDanmakuModel>());
+            var scriptItems = new List<ScriptDanmakuModel>(
+                initial.ScriptItems ?? new List<ScriptDanmakuModel>());
             var failedRegularSegmentCount = 0;
             var failedSpecialPackageCount = 0;
             var unsupportedDanmakuCount = initial.UnsupportedDanmakuCount;
@@ -202,6 +205,10 @@ namespace BiliBili.UWP.Helper
                 {
                     basItems.AddRange(segmentResult.BasItems);
                 }
+                if (segmentResult.ScriptItems != null && segmentResult.ScriptItems.Count != 0)
+                {
+                    scriptItems.AddRange(segmentResult.ScriptItems);
+                }
             }
 
             if (failedRegularSegmentCount != 0)
@@ -226,6 +233,7 @@ namespace BiliBili.UWP.Helper
             return new BiliDanmakuLoadResult(
                 items,
                 MergeBasDanmaku(null, basItems),
+                MergeScriptDanmaku(null, scriptItems),
                 failedRegularSegmentCount != 0 || failedSpecialPackageCount != 0,
                 true,
                 false,
@@ -278,6 +286,54 @@ namespace BiliBili.UWP.Helper
             AddUniqueBasDanmaku(result, identities, initial);
             AddUniqueBasDanmaku(result, identities, supplement);
             return result;
+        }
+
+        /// <summary>
+        /// 合并 mode=8 代码弹幕。跨分段与「首段 + 补齐」两条路径都会走到，
+        /// 按 dmid 去重（同一脚本不应因分段重叠被执行两次）。
+        /// </summary>
+        public static List<ScriptDanmakuModel> MergeScriptDanmaku(
+            IEnumerable<ScriptDanmakuModel> initial,
+            IEnumerable<ScriptDanmakuModel> supplement)
+        {
+            var result = new List<ScriptDanmakuModel>();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+
+            AddUniqueScriptDanmaku(result, identities, initial);
+            AddUniqueScriptDanmaku(result, identities, supplement);
+            return result;
+        }
+
+        private static void AddUniqueScriptDanmaku(
+            List<ScriptDanmakuModel> result,
+            HashSet<string> identities,
+            IEnumerable<ScriptDanmakuModel> source)
+        {
+            if (source == null)
+            {
+                return;
+            }
+
+            foreach (var item in source)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.code))
+                {
+                    continue;
+                }
+
+                var identity = string.IsNullOrWhiteSpace(item.id)
+                    ? string.Join("|", new[]
+                    {
+                        "value",
+                        item.stime.ToString("R", CultureInfo.InvariantCulture),
+                        item.code
+                    })
+                    : "id|" + item.id;
+                if (identities.Add(identity))
+                {
+                    result.Add(item);
+                }
+            }
         }
 
         private static void AddUniqueBasDanmaku(
@@ -461,6 +517,7 @@ namespace BiliBili.UWP.Helper
             return new BiliDanmakuLoadResult(
                 firstSegment.Items,
                 firstSegment.BasItems,
+                firstSegment.ScriptItems,
                 plan.RetryFirstSegment,
                 true,
                 false,
@@ -551,6 +608,7 @@ namespace BiliBili.UWP.Helper
                         segmentIndex.ToString(CultureInfo.InvariantCulture),
                         new List<DanmakuModel>(),
                         new List<BasDanmakuModel>(),
+                        new List<ScriptDanmakuModel>(),
                         0,
                         null);
                 }
@@ -558,17 +616,20 @@ namespace BiliBili.UWP.Helper
                 var unsupportedDanmakuCount = 0;
                 var unsupportedDanmakuModes = new Dictionary<int, int>();
                 var basItems = new List<BasDanmakuModel>();
+                var scriptItems = new List<ScriptDanmakuModel>();
                 var items = ParseSegment(
                     segmentBytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    basItems);
+                    basItems,
+                    scriptItems);
                 return new SegmentLoadResult(
                     segmentIndex,
                     false,
                     segmentIndex.ToString(CultureInfo.InvariantCulture),
                     items,
                     basItems,
+                    scriptItems,
                     unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
                     null);
@@ -585,6 +646,7 @@ namespace BiliBili.UWP.Helper
                     segmentIndex.ToString(CultureInfo.InvariantCulture),
                     new List<DanmakuModel>(),
                     new List<BasDanmakuModel>(),
+                    new List<ScriptDanmakuModel>(),
                     0,
                     ex);
             }
@@ -628,6 +690,7 @@ namespace BiliBili.UWP.Helper
                         url,
                         new List<DanmakuModel>(),
                         new List<BasDanmakuModel>(),
+                        new List<ScriptDanmakuModel>(),
                         0,
                         null);
                 }
@@ -635,17 +698,20 @@ namespace BiliBili.UWP.Helper
                 var unsupportedDanmakuCount = 0;
                 var unsupportedDanmakuModes = new Dictionary<int, int>();
                 var basItems = new List<BasDanmakuModel>();
+                var scriptItems = new List<ScriptDanmakuModel>();
                 var items = ParseSegment(
                     response.Bytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    basItems);
+                    basItems,
+                    scriptItems);
                 return new SegmentLoadResult(
                     0,
                     true,
                     url,
                     items,
                     basItems,
+                    scriptItems,
                     unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
                     null);
@@ -662,6 +728,7 @@ namespace BiliBili.UWP.Helper
                     url,
                     new List<DanmakuModel>(),
                     new List<BasDanmakuModel>(),
+                    new List<ScriptDanmakuModel>(),
                     0,
                     ex);
             }
@@ -829,8 +896,12 @@ namespace BiliBili.UWP.Helper
             byte[] bytes,
             ref int unsupportedDanmakuCount,
             Dictionary<int, int> unsupportedDanmakuModes,
-            List<BasDanmakuModel> basItems)
+            List<BasDanmakuModel> basItems,
+            List<ScriptDanmakuModel> scriptItems)
         {
+            // 开关在段级读一次：mode=8 是脚本弹幕，只有用户显式打开才收，
+            // 否则维持原来的「计为不支持」行为（宿主无沙箱，不默认执行陌生脚本）。
+            var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();
             var result = new List<DanmakuModel>();
             foreach (var field in ReadFields(bytes))
             {
@@ -843,7 +914,9 @@ namespace BiliBili.UWP.Helper
                     field.Bytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
-                    basItems);
+                    basItems,
+                    scriptItems,
+                    scriptDanmakuEnabled);
                 if (item != null)
                 {
                     result.Add(item);
@@ -857,7 +930,9 @@ namespace BiliBili.UWP.Helper
             byte[] bytes,
             ref int unsupportedDanmakuCount,
             Dictionary<int, int> unsupportedDanmakuModes,
-            List<BasDanmakuModel> basItems)
+            List<BasDanmakuModel> basItems,
+            List<ScriptDanmakuModel> scriptItems,
+            bool scriptDanmakuEnabled)
         {
             long id = 0;
             long progress = 0;
@@ -929,6 +1004,30 @@ namespace BiliBili.UWP.Helper
                     });
                 }
 
+                return null;
+            }
+
+            if (modeValue == 8)
+            {
+                // 代码弹幕（M8 脚本）：正文就是脚本源码。只有开关打开才收，
+                // 否则按未支持计数（与 mode 7 里的非法定位弹幕同一口径）。
+                if (scriptDanmakuEnabled && scriptItems != null)
+                {
+                    scriptItems.Add(new ScriptDanmakuModel
+                    {
+                        id = rowId,
+                        stime = Math.Max(0, time),
+                        // M8 没有条目时间窗，元素寿命由脚本的 lifeTime 决定；
+                        // 这里保持 0（不设窗口），宿主按兜底上限处理。
+                        duration = 0,
+                        lang = ScriptDanmakuParser.LangJs,
+                        code = text
+                    });
+                    return null;
+                }
+
+                unsupportedDanmakuCount++;
+                AddUnsupportedDanmakuMode(unsupportedDanmakuModes, modeValue);
                 return null;
             }
 
@@ -1469,6 +1568,7 @@ namespace BiliBili.UWP.Helper
                 string source,
                 List<DanmakuModel> items,
                 List<BasDanmakuModel> basItems,
+                List<ScriptDanmakuModel> scriptItems,
                 int unsupportedDanmakuCount,
                 Exception error)
                 : this(
@@ -1477,6 +1577,7 @@ namespace BiliBili.UWP.Helper
                     source,
                     items,
                     basItems,
+                    scriptItems,
                     unsupportedDanmakuCount,
                     new Dictionary<int, int>(),
                     error)
@@ -1489,6 +1590,7 @@ namespace BiliBili.UWP.Helper
                 string source,
                 List<DanmakuModel> items,
                 List<BasDanmakuModel> basItems,
+                List<ScriptDanmakuModel> scriptItems,
                 int unsupportedDanmakuCount,
                 IDictionary<int, int> unsupportedDanmakuModes,
                 Exception error)
@@ -1498,6 +1600,7 @@ namespace BiliBili.UWP.Helper
                 Source = source;
                 Items = items ?? new List<DanmakuModel>();
                 BasItems = basItems ?? new List<BasDanmakuModel>();
+                ScriptItems = scriptItems ?? new List<ScriptDanmakuModel>();
                 UnsupportedDanmakuCount = unsupportedDanmakuCount;
                 UnsupportedDanmakuModes = unsupportedDanmakuModes == null
                     ? new Dictionary<int, int>()
@@ -1510,6 +1613,7 @@ namespace BiliBili.UWP.Helper
             public string Source { get; }
             public List<DanmakuModel> Items { get; }
             public List<BasDanmakuModel> BasItems { get; }
+            public List<ScriptDanmakuModel> ScriptItems { get; }
             public int UnsupportedDanmakuCount { get; }
             public Dictionary<int, int> UnsupportedDanmakuModes { get; }
             public Exception Error { get; }
@@ -1593,6 +1697,7 @@ namespace BiliBili.UWP.Helper
             : this(
                 items,
                 new List<BasDanmakuModel>(),
+                new List<ScriptDanmakuModel>(),
                 needsLegacySupplement,
                 usedNewInterface,
                 isDanmakuClosed,
@@ -1606,6 +1711,7 @@ namespace BiliBili.UWP.Helper
         internal BiliDanmakuLoadResult(
             List<DanmakuModel> items,
             List<BasDanmakuModel> basItems,
+            List<ScriptDanmakuModel> scriptItems,
             bool needsLegacySupplement,
             bool usedNewInterface,
             bool isDanmakuClosed,
@@ -1616,6 +1722,7 @@ namespace BiliBili.UWP.Helper
         {
             Items = items ?? new List<DanmakuModel>();
             BasItems = basItems ?? new List<BasDanmakuModel>();
+            ScriptItems = scriptItems ?? new List<ScriptDanmakuModel>();
             NeedsLegacySupplement = needsLegacySupplement;
             UsedNewInterface = usedNewInterface;
             IsDanmakuClosed = isDanmakuClosed;
@@ -1629,6 +1736,13 @@ namespace BiliBili.UWP.Helper
 
         public List<DanmakuModel> Items { get; }
         public List<BasDanmakuModel> BasItems { get; }
+
+        /// <summary>
+        /// mode=8 代码弹幕（M8 脚本）。仅在设置开关打开时才有内容；
+        /// 未打开时这些条目仍计入 <see cref="UnsupportedDanmakuCount"/>。
+        /// </summary>
+        public List<ScriptDanmakuModel> ScriptItems { get; }
+
         public bool NeedsLegacySupplement { get; }
         public bool UsedNewInterface { get; }
         public bool IsDanmakuClosed { get; }

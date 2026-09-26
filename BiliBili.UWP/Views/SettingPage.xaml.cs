@@ -120,6 +120,7 @@ namespace BiliBili.UWP.Views
                 sw_StatusDanmu.IsOn = SettingHelper.Get_DMStatus();
                 UpdateInteractiveDanmakuTypeSummary();
                 sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
+                sw_EnableScriptDanmaku.IsOn = SettingHelper.Get_EnableScriptDanmaku();
 
                 sw_DTCT.IsOn = SettingHelper.Get_DTCT();
                 sw_DT.IsOn = SettingHelper.Get_DT();
@@ -850,6 +851,16 @@ namespace BiliBili.UWP.Views
             }
 
             SettingHelper.Set_UseNewDanmakuInterface(sw_UseNewDanmakuInterface.IsOn);
+        }
+
+        private void sw_EnableScriptDanmaku_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            SettingHelper.Set_EnableScriptDanmaku(sw_EnableScriptDanmaku.IsOn);
         }
 
         private void sw_BoldDanmu_Toggled(object sender, RoutedEventArgs e)

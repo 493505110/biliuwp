@@ -21,8 +21,9 @@
 现状核查：
 
 - 项目已有 BAS 弹幕（B 站 mode9）链路：`Controls/BasDanmakuControl.xaml(.cs)` 用 WebView2 承载 `Assets/bas-host.html` + `bas.js`，在 `PlayerPage.xaml:347` 叠加。但它消费的是 B 站下发的 mode9 数据，**不是用户可编程的框架**。
-- mode==8 在 `BiliDanmakuService` 里被当「不支持」丢弃。精确路径：`ParseDanmaku`（`Helper/BiliDanmakuService.cs:856`）用 `TryToLocation(modeValue, out location)`（同文件 `:975` 起）判定位置，该 switch 只处理 1–5 与 9，mode 8 落 default → `unsupportedDanmakuCount++` 后 `return null`。
-  > 注意别找错地方：`ParseDanmaku` 自己的 switch 是 **protobuf 字段号**，其中确实有 `case 8:`（`:898`，含义是 `ctime`），与弹幕 mode 无关。
+- mode==8 原先在 `BiliDanmakuService` 里被当「不支持」丢弃：`ParseDanmaku` 用 `TryToLocation(modeValue, out location)` 判定位置，该 switch 只处理 1–7 与 9，mode 8 落 default → `unsupportedDanmakuCount++` 后 `return null`。**现已接入**（见 §阶段 1 实施记录 16）——开关打开时收进 `BiliDanmakuLoadResult.ScriptItems` 并并入脚本弹幕宿主；关闭时维持上面的丢弃行为。
+  > 注意别找错地方：`ParseDanmaku` 自己的 switch 是 **protobuf 字段号**，其中确实有 `case 8:`（含义是 `ctime`），与弹幕 mode 无关。
+  > 早先本节写「该 switch 只处理 1–5 与 9」，已过期：`case 6:`（逆向滚动）是后来补的，实际是 1–7 + 9。
 
 **历史背景（决定本计划定位）**：仓库存在分支 `feature/m8-script-engine`，其中已有一版完整实现——自研脚本解释器（`BiliBili.UWP/Scripting/`，18 个文件，Scanner/Parser/VM）+ M8 语义 API 层（`M8DisplayApi`/`M8Motion`/`M8Tween`/`M8PlayerApi`）+ XAML/Win2D 渲染宿主，相对 master 实测 `27 files changed, +10442/-17`。该分支最终以提交 `25151ba「放弃支持: 大部分mode8代码弹幕api返回不完整」` 收尾，**失败根因是消费 B 站下发的 mode8 数据不可靠**。
 
@@ -39,7 +40,7 @@
 | **拦截** | **用户输入事件、播放器操作、弹幕数据流、发送弹幕请求**（四类全要） |
 | 规模 | **大量（同屏几十条+）** |
 | 与 BAS 关系 | 并列独立宿主，现有 BAS 机制不改 |
-| 数据源 | 自建（本地脚本文件），不依赖 B 站 mode8 返回 |
+| 数据源 | 自建（本地脚本文件）为主；**视频自带的 mode=8 下发池作为第二个来源接入**（2026-09-27，设置开关默认关，见 §阶段 1 实施记录 16） |
 
 ## 选型结论：JS/TS + WebView2（Canvas/WebGL）
 
@@ -294,7 +295,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 | 阶段 | 内容 | 验收 | 状态 |
 |---|---|---|---|
 | **0. Spike** | 验证两件事：① 官方 `typescript.js` 的 `transpileModule` 在 WebView2 里跑通；② Canvas/WebGL 在同屏几十条粒子/3D 下的帧率 | 可行性结论 | **未做**（TS 暂缓，见下） |
-| **1. 核心渲染** | 模型 + 服务 + 宿主运行时 + 控件；加载本地 `.js` → 叠加显示、随播放同步 | 看到代码弹幕效果 | **代码完成（含 §3.1 保留模式改造），待页面级验证** |
+| **1. 核心渲染** | 模型 + 服务 + 宿主运行时 + 控件；加载本地 `.js` → 叠加显示、随播放同步 | 看到代码弹幕效果 | **代码完成（含 §3.1 保留模式改造），待页面级验证**；数据源已扩到视频自带的 mode=8（见 §阶段 1 实施记录 16） |
 | **2. 弹幕链路** | 读取弹幕数据 + 弹幕数据流拦截 | 脚本能读弹幕、能拦弹幕 | 未开始 |
 | **3. 输入与操作** | 用户输入拦截 + 播放器操作拦截 | 脚本能消费点击、能阻止播放操作 | 未开始 |
 | **4. 控制与发送** | 控制弹幕显示 + 发送弹幕 + 发送拦截 | 三项各验一次 | 未开始 |
@@ -373,8 +374,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
       - **`Event.ENTER_FRAME`**：`el.addEventListener("enterFrame", fn)` 每帧派发。Akari 的 `Composition.present()` 就是 `canvas.addEventListener("enterFrame", frameFn)`，整幅画面的每帧更新挂在这上面。监听表按条目存、随条目回收清掉，派发早于补间推进与脏元素重绘。
       - **AVM1 宽容语义**：读未声明变量得到 `undefined` 而不抛 `ReferenceError`。`entry_10` 的 `update:function(time){if(time < startTime)...}` 里 `startTime`/`duration` 是 AS→JS 翻译时丢掉的 `var`。实现：`runItemScriptWithAvm1Scope` 捕获 `ReferenceError` 认出名字 → **声明到脚本全局对象上**（值 `undefined`）→ 清理并重跑本条脚本。**为什么是全局对象而不是补脚本形参**：抛错的闭包可能不是本条脚本创建的——`entry_10` 抛错的那处 `update` 定义在 `entry_08` 的 Akari 库里，作用域链在 entry_08 执行时就定死了，补形参救不了；标识符解析对未绑定名是每次访问都回落全局对象查，只有补在全局对象上才能让**已建好的闭包**一并恢复。定时器 / 触发器 / enterFrame 回调里抛的同类错误同样处理（`startTime` 就是在 interval 回调里读的）。安全性：只声明「已被 `ReferenceError` 证明不存在」的名字，**绝不会遮蔽任何真实存在的名字**（脚本自己声明的、或像 `entry_10` 那样用 `Factory.extend(this, …)` 导出到全局对象上的，都照旧解析）；不做静态分析、不动作用域链（不用 `with`）。
     - **顺带补上的**：`drawPath`（真实脚本在用，此前是显式抛错——复用 `moveTo`/`lineTo`/`curveTo` 的路径模型，命令码 1/2/3/4/5 完整、6 取第一个控制点近似）、`beginGradientFill` / `lineGradientStyle`（按 `createGradientBox(w,h,rotation,tx,ty)` 的渐变框换算成 canvas 线性/径向渐变）、`DisplayObject.name`（`getChildByName` 要用）、`$.width`/`$.height`（`$` 作为 Display 命名空间的舞台尺寸，entry_08 用它算居中与缩放比）。`onclick` / `drawGraphicsData` 仍不支持。
-    - **三轮对照实测（每条结论都是跑出来的，不是推的）**：
-      | 加载 | 结果 |
+    - **三轮对照实测（每条结论都是跑出来的，不是推的）**：      | 加载 | 结果 |
       |---|---|
       | 全 11 条 | 0 报错；主画布 19→39→59→79 次 `drawImage`（t=90/110/130/150s） |
       | 去掉 `entry_10` | 落笔 **0**（`entry_10` 才是真正绘制的主作品） |
@@ -382,6 +382,19 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
       | 仓库夹具（`entry_08` + 一条字体脚本） | 0 报错、**0 落笔**（`entry_10` 的文字图层要从 `$G` 取 6 张字形表，少一条就报错） |
       > **对任务书里「entry_08 与 entry_10 必须出画面」的精确化**：实测 `entry_08` 是**库 + 骨架**，单独加载在任何时间点都不落笔；可见画面来自 `entry_10`（主作品）**渲染时用 entry_08 的 Akari 库**，且还需要 6 条字体脚本注册字形表。所以「出画面」的准确表述是「`entry_08` + `entry_10` + 字体脚本一起出画面」。
     - **测试**：新增 `tests/host/real-m8-scripts.test.js`（真实脚本集成测试，5 例：仓库夹具齐备 / 0 报错 / 字体脚本不出画面 / 字形表注册进 `$G` / 完整 11 条 0 报错且真落笔；外部夹具目录缺失时**跳过**而非失败）；`retained-mode.test.js` 新增 D18~D22（transform 与 Matrix3D、显示列表 + 不可枚举、blendMode 映射与未知值、元素级遮罩作用域、popEl + enterFrame）；契约测试新增 5 条。夹具取舍与体积见 `tests/host/fixtures/real/README.md`。
+
+16. **接入 B 站下发的 mode=8 代码弹幕（已落地，2026-09-27）**。此前脚本弹幕只吃本地 `.js` 文件，「视频自带代码弹幕」全程丢弃——页面上只留一行「跳过当前渲染器不支持的弹幕: N 条（mode=8: N）」。本轮把它接成第二个数据源。
+    - **开关默认关（`SettingHelper.Get_EnableScriptDanmaku`，默认 false）**。宿主脚本跑在**无沙箱**的 `new Function` 里（可碰 `window`/`document`/`fetch`），而来源是任意视频的弹幕池——这跟「用户自己手写脚本加载」是**不同的风险模型**，所以不做默认开启。设置页在「使用新版弹幕接口」下方加了「接收视频代码弹幕」开关。关闭时维持原有行为：仍计入 `UnsupportedDanmakuCount`、仍显示那行跳过提示。
+    - **数据链**：`ParseSegment` 在**段级读一次**开关并下传给 `ParseDanmaku`（不逐条读，避免每条弹幕都碰 `LocalSettings`）；`modeValue == 8` 且开关打开时收进 `ScriptDanmakuModel`（`id`=dmid、`stime`=progress/1000、`duration`=0 即不设时间窗、`code`=正文）并从常规池返回 null。`SegmentLoadResult` / `BiliDanmakuLoadResult` 各加 `ScriptItems`，`LoadSupplementAsync` 跨段合并、`MergeScriptDanmaku` 按 id 去重——同一条脚本被执行两次会画重（真实样本的 11 条就在分段包里）。
+    - **PlayerPage 两个来源分开记账**：`manualScriptDanmakuPool`（菜单加载）与 `scriptDanmakuPoolFromVideo`（视频下发）各自保存、合并后推宿主。分开的理由：分页加载会反复落定弹幕池，直接推空池会把用户手动加载的脚本冲掉；换集时要能只作废逐集的那一份。`SetVideoScriptDanmakuPool` 因此**空集不动**（大多数视频没有代码弹幕）。四个注入点：`ApplyInitialDanmaku`、后台补齐回调、`menuitem_UpdateDanmu_Click`、`ChangeNode`。
+      > 反过来，四个 `ClearScriptDanmaku()` 清理点（换集 / 释放 / 菜单清除 / 互动分支切换）**清全部**，含手动加载的那份：脚本是按某个视频的时间轴写的，跟着换集保留只会错位。菜单「加载代码弹幕」则只替换手动来源。
+    - **顺带加固了分块切分**：`ScriptDanmakuControl.AppendLargeItemAsync` 原先按 24KB 常量步长切分大脚本，切点可能落在 UTF-16 代理对中间。改为 `SafeChunkLength` 避开代理对，并用**实际取到的 `count`** 步进（继续用常量步进会跳过被让出的那个字符）。
+      > **实测更正**：我最初把下面那条「编译失败」推测成这个切分缺陷，**探针证明是错的**——把 11 条夹具按 C# 侧的 `SafeChunkLength` 逐块切开再拼回，正文与原文逐字节一致、全部能编译（修复前的常量步长切法也一致，样本里没有切点正好落在代理对中间的情况）。因此这处加固是**防御性**的，不是本次问题的成因。探针脚本跑完即弃，未入库。
+    - **真实故障的根因：服务端会给被截断的脚本副本**。真机（av2669196）报 `脚本弹幕渲染器错误（compile），脚本 1147131617：Unexpected token '}'`。追下去：`1147131617` **不在专包**（专包 11 条 id 是 1147131631~1147131639 / 1147140491 / 1147217315），而是**常规分段包**（`seg.so?segment_index=1`，共 43 条 elem）里的一条 mode=8，正文只有 **300 字符**、末尾停在 `Factory.`——正是专包主脚本 `1147217315`（350,613 字符）的**前 300 字符**。也就是说服务端在分段包里下发了主脚本的一个截断副本（疑似分段上传时 `segment_size` 与实际不符导致的切分残留）。宿主报错是对的（这段确实是语法不完整的 JS），错的是我们的提示方式（见上一条）。
+      > 顺带确认：`ParseDanmaku` 里那个 `case 8:` 是 **protobuf 字段号 8 = ctime**，与弹幕 mode 无关——排查时容易看错，这里再记一次。
+      > **未做**：没有在客户端加「截断副本检测」（例如与专包同 id 比长度、或按语法完整性预检后丢弃）。这类副本本来就该由服务端修正，且检测规则一旦写错会误杀**合法**的短脚本；当前行为是「报错、跳过这一条、其余照常」，代价可接受。若将来在更多视频上观察到同类噪声，再考虑按「同 id 取最长」合并。
+    - **已知限制（未修，写进文档而非假装没有）**：旧接口降级路径（`UseNewDanmakuInterface` 关闭，或新版分段失败回退 `LoadLegacyAsync`）下 mode=8 仍会被 NSDanmaku 的 `DanmakuParse` 归成 `Scroll`，当滚动弹幕把脚本正文渲染成乱码。要修得动子模块 `Libraries/NSDanmaku-Fork` 并推进子模块指针，另做决策。
+    - **测试**：`DanmakuProtocolContractTests` 新增两例（开关门禁与默认 false、`ScriptItems` 跨段透传与按 id 去重）；`ScriptDanmakuHostContractTests.Host_ReassemblesChunkedItemPayload` 补代理对切分断言。**页面级验证仍是必须的**：单测只能证明「挂钩在」，读到的条数与实际弹幕池一致、真实脚本跑起来出画面都要真机确认（见 §验证 3.7）。
 
 测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、**M8 注入名单与「不再注入 ctx」**、`Player` 的实时 getter 面、`$` 元件工厂与创建参数、**定时器登记在条目上**、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
 
@@ -550,6 +563,7 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
   3. **同屏几十条粒子/3D → 帧率可接受（性能验收点）**。
   3.5. **保留模式验收**：脚本每条只执行一次——用 `console.count`/埋点确认「同一条弹幕在播放 10 秒里只执行 1 次」；静态元素（只创建不动的）在首帧之后不再重绘（可用绘制计数或 DevTools 性能面板确认）；暂停时画面停在当前插值位置；seek 后按新位置重算插值而不是重跑脚本。
   3.6. **M8 API 面验收**：把一条**真实的旧 M8 脚本**（当年作品导出的 mode=8 文本）原样贴进 `.js` 加载，确认不抛错、能画出来；重点核 `Player.time` 在 `interval` 回调里是**实时值**（不是激活快照）、`$G` 跨条目共享、条目结束后 `interval` 不再触发（定时器随条目回收）。
+  3.6.1. **mode=8 下发池验收**（对应 §阶段 1 实施记录 16）：① 设置页打开「接收视频代码弹幕」，打开一个**确实带代码弹幕**的视频（av2669196 是已知样本），确认原来那行「跳过…（mode=8: N）」不再出现且画面真的出效果；② 关掉开关后确认恢复原行为（仍跳过、仍提示）；③ 在同一视频上先「加载示例代码弹幕」再等分页补齐落定，确认**手动加载的脚本没被冲掉**（两个来源合并而不是互相覆盖）；④ 换集确认下发池被清、不留上一集的画面；⑤ 大脚本（354KB 那条）确认分块传输没有把正文切坏——若切坏会在宿主日志里报编译错误而不是静默不出画面。
   3.7. **数据链与输入链验收**（必须真机，单测只能证明消息通了）：① 加载一条读 `Player.commentList` 的脚本（按 M8 官方示例数「是/否」），确认读到的条数与实际弹幕池一致；② 发一条弹幕后确认 `commentTrigger` 回调被触发且内容/颜色/时间正确；③ 按方向键确认 `keyTrigger` 收到键值，按住不放/松开能区分 `keyDown` 与 `keyUp`（`up=true`）；④ 条目窗口结束后再发弹幕/按键，确认不再触发；⑤ `Player.setMask` 用一个矩形遮罩确认弹幕只在遮罩内出现，`setMask(null)` 后恢复；⑥ `Player.play()/pause()/seek()/jump()` 各验一次（**这条要在 Windows 上跑**，本环境编不了 UWP）。
   3.8. **性能回归点**：未加载任何脚本时，播放 / 切集 / 输入路径不得因本轮新增的推入而出现可感知开销（控件应在懒初始化闸门上直接返回，且分页加载不重复推同一份池子）。
   3.9. **画布对齐验收**（对应 §阶段 1 画布对齐修正）：① 用一条能画出可辨识图案的脚本，在 **4:3 老视频**上确认作品内缩到视频画面区、四周黑边上没有作品内容（画面区边界可用探针脚本对齐原录屏第 115s 帧的做法复核）；② 全屏进出 / 窗口缩放 / 切集（自然尺寸变化）后画布跟随重算，不残留旧尺寸；③ 16:9 视频下画布应等于整个画面区——与改动前表现一致，作为无回归判据；④ 加载脚本时媒体尚未打开（自然尺寸为 0）不得把画布清成 0 尺寸。
@@ -568,7 +582,7 @@ SCRIPT_DANMAKU_HOST=/tmp/prefix-host.html node tests/host/retained-mode.test.js
 - **Tick 重入**：`Timer_Date_Tick` 改 async 后必须加重入保护，否则弹幕顺序错乱。
 - **拦截粒度局限**：`handledEventsToo:true` 无法完全阻断已注册处理器；MTC 播放/暂停按钮无事件（需改共享控件 `DanmakuMTC`）。二者都要在实施时按体验取舍。
 - **包体积**：内嵌 tsc 使包 +几 MB（换取应用内直接写 TS）。`Assets/typescript.js` **当前不存在，需实施时引入**；`Assets/` 下现有的是 BAS 资产（`bas-host.html`、`bas.js`、`bas-jquery-shim.js`），注册风格见 `BiliBili.UWP.csproj:110-113`。
-- **脚本安全**：本地文件 + 本地宿主 + 禁新窗口导航 + 白名单消息；**联网素材是明确需求**，需限定/记录资源请求域名。发送弹幕涉及登录态与风控，复用现有链路、不自行绕过。
+- **脚本安全**：本地文件 + 本地宿主 + 禁新窗口导航 + 白名单消息；**联网素材是明确需求**，需限定/记录资源请求域名。发送弹幕涉及登录态与风控，复用现有链路、不自行绕过。**mode=8 下发池把脚本来源从「用户自己写」扩到「任意视频的弹幕池」**，因此该来源默认关闭、需设置页显式打开（见 §阶段 1 实施记录 16）。
 - **.NET Native（Release AOT）**：新 C# 代码避免反射/`dynamic`，JSON 用显式模型反序列化。
 - **多 WebView2 实例内存**：控件懒初始化。（阶段 1 已落地闸门，见 §实施记录 5。）
 - **能力边界**：`danmu.Remove` 不支持 Position、需实例引用——交互 ② 按 `rowID` 查实例并接受该限制。

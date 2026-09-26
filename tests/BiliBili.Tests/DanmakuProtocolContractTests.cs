@@ -49,6 +49,60 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void CodeDanmakuIsCollectedOnlyBehindTheSettingGate()
+        {
+            // mode=8 是 B 站下发的代码弹幕（M8 脚本）。开关默认关闭：
+            // 脚本在无沙箱宿主里执行、来源是任意视频的弹幕池，不能默认跑。
+            var service = ReadFile("BiliBili.UWP/Helper/BiliDanmakuService.cs");
+            var segmentParser = MethodBody(service, "private static List<DanmakuModel> ParseSegment");
+            var danmakuParser = MethodBody(service, "private static DanmakuModel ParseDanmaku");
+            var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
+
+            // 开关在段级读一次并下传（不是逐条读，避免每条弹幕都碰 LocalSettings）。
+            StringAssert.Contains(segmentParser, "var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();");
+            // 参数名断言写在整份源码上：MethodBody 取的是函数体，不含签名。
+            StringAssert.Contains(service, "bool scriptDanmakuEnabled)");
+
+            // mode=8：开关打开才收进 scriptItems；关闭时维持「计为不支持」的原有行为。
+            StringAssert.Contains(danmakuParser, "if (modeValue == 8)");
+            StringAssert.Contains(danmakuParser, "if (scriptDanmakuEnabled && scriptItems != null)");
+            StringAssert.Contains(danmakuParser, "code = text");
+            StringAssert.Contains(danmakuParser, "AddUnsupportedDanmakuMode(unsupportedDanmakuModes, modeValue);");
+
+            // 收下的条目不带时间窗（M8 没有条目窗口，元素寿命由脚本 lifeTime 决定）。
+            StringAssert.Contains(danmakuParser, "duration = 0,");
+
+            // 默认值必须是 false。
+            var setter = MethodBody(settings, "public static void Set_EnableScriptDanmaku");
+            var getter = MethodBody(settings, "public static bool Get_EnableScriptDanmaku");
+            StringAssert.Contains(setter, "container.Values[\"EnableScriptDanmaku\"] = value;");
+            StringAssert.Contains(getter, "Set_EnableScriptDanmaku(false);");
+            StringAssert.Contains(getter, "return false;");
+        }
+
+        [TestMethod]
+        public void CodeDanmakuSurvivesTheSegmentAndSupplementMerge()
+        {
+            // 代码弹幕可能来自普通分段（真实样本就是分段包里的 elem），
+            // 也可能来自专包；两条路径都要透传到 BiliDanmakuLoadResult，
+            // 且跨段按 id 去重（同一条脚本不得被执行两次）。
+            var service = ReadFile("BiliBili.UWP/Helper/BiliDanmakuService.cs");
+            var supplement = MethodBody(service, "public static async Task<BiliDanmakuLoadResult> LoadSupplementAsync");
+            var merge = MethodBody(service, "public static List<ScriptDanmakuModel> MergeScriptDanmaku");
+            var addUnique = MethodBody(service, "private static void AddUniqueScriptDanmaku");
+
+            StringAssert.Contains(service, "public List<ScriptDanmakuModel> ScriptItems { get; }");
+            StringAssert.Contains(supplement, "scriptItems.AddRange(segmentResult.ScriptItems);");
+            StringAssert.Contains(supplement, "new List<ScriptDanmakuModel>(");
+            StringAssert.Contains(supplement, "MergeScriptDanmaku(null, scriptItems)");
+            StringAssert.Contains(service, "ScriptItems = scriptItems ?? new List<ScriptDanmakuModel>();");
+
+            StringAssert.Contains(merge, "AddUniqueScriptDanmaku(result, identities, initial);");
+            StringAssert.Contains(addUnique, "\"id|\" + item.id");
+            StringAssert.Contains(addUnique, "item.code");
+        }
+
+        [TestMethod]
         public void CommandDanmakuMapsDocumentedFieldsAndAttentionActions()
         {
             var service = ReadFile("BiliBili.UWP/Helper/InteractiveDanmakuService.cs");

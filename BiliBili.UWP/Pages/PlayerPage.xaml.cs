@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -92,6 +93,12 @@ namespace BiliBili.UWP.Pages
         List<ScriptDanmakuModel> scriptDanmuPool = new List<ScriptDanmakuModel>();
         double lastScriptDanmakuPosition = -1;
         DateTime lastScriptDanmakuPositionAt;
+        // 手动加载的脚本（菜单「加载代码弹幕」）与当前视频下发的 mode=8 代码弹幕
+        // 是两个独立来源，各自记账、合并成 scriptDanmuPool 后再推给宿主。
+        // 分开存的原因：① 视频下发的池会随分页加载反复落定，不能冲掉手动加载的脚本；
+        // ② 换集 / 清除时要能分辨清哪个来源。
+        List<ScriptDanmakuModel> manualScriptDanmakuPool = new List<ScriptDanmakuModel>();
+        List<ScriptDanmakuModel> scriptDanmakuPoolFromVideo = new List<ScriptDanmakuModel>();
         List<BiliJumpAdSegment> biliJumpAds = new List<BiliJumpAdSegment>();
         BiliJumpAdSegment biliJumpCurrentAd;
         string biliJumpLastNotifiedKey;
@@ -1499,19 +1506,62 @@ namespace BiliBili.UWP.Pages
 
         /// <summary>
         /// 注入脚本弹幕集合。脚本条数少，不做 BAS 那样的时间窗，全集交给宿主自调度。
+        /// 这是**手动加载**入口（菜单），会替换掉手动来源、保留视频下发的来源。
         /// </summary>
         private void SetScriptDanmakuPool(IEnumerable<ScriptDanmakuModel> pool)
         {
-            scriptDanmuPool = ScriptDanmakuService.Normalize(pool)
-                .OrderBy(item => item.stime)
-                .ToList();
+            manualScriptDanmakuPool = ScriptDanmakuService.Normalize(pool).ToList();
+            ApplyScriptDanmakuPool();
+        }
+
+        /// <summary>
+        /// 注入当前视频下发的 mode=8 代码弹幕。为空时**不动**已有池子——
+        /// 大部分视频没有代码弹幕，若照常推空池会把用户手动加载的脚本冲掉。
+        /// </summary>
+        private void SetVideoScriptDanmakuPool(IEnumerable<ScriptDanmakuModel> pool)
+        {
+            var items = ScriptDanmakuService.Normalize(pool).ToList();
+            if (items.Count == 0 && scriptDanmakuPoolFromVideo.Count == 0)
+            {
+                return;
+            }
+
+            scriptDanmakuPoolFromVideo = items;
+            ApplyScriptDanmakuPool();
+        }
+
+        /// <summary>
+        /// 两个来源（手动加载 / 视频下发）合并后推给宿主，按 id 去重。
+        /// </summary>
+        private void ApplyScriptDanmakuPool()
+        {
+            var merged = new List<ScriptDanmakuModel>();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in manualScriptDanmakuPool.Concat(scriptDanmakuPoolFromVideo))
+            {
+                var identity = string.IsNullOrWhiteSpace(item.id)
+                    ? "value|" + item.stime.ToString("R", CultureInfo.InvariantCulture) + "|" + item.code
+                    : "id|" + item.id;
+                if (identities.Add(identity))
+                {
+                    merged.Add(item);
+                }
+            }
+
+            scriptDanmuPool = merged.OrderBy(item => item.stime).ToList();
             lastScriptDanmakuPosition = -1;
             lastScriptDanmakuPositionAt = DateTime.UtcNow;
             ReplaceScriptDanmakuWindow();
         }
 
+        /// <summary>
+        /// 换集 / 换播放源时清空全部代码弹幕（含用户手动加载的那份）——
+        /// 脚本是按某个视频的时间轴写的，跟着换集保留只会错位。
+        /// </summary>
         private void ClearScriptDanmaku()
         {
+            manualScriptDanmakuPool = new List<ScriptDanmakuModel>();
+            scriptDanmakuPoolFromVideo = new List<ScriptDanmakuModel>();
             scriptDanmuPool = new List<ScriptDanmakuModel>();
             lastScriptDanmakuPosition = -1;
             lastScriptDanmakuPositionAt = DateTime.UtcNow;
@@ -2105,6 +2155,7 @@ namespace BiliBili.UWP.Pages
             var initial = load?.Items ?? new List<NSDanmaku.Model.DanmakuModel>();
             SetDanmakuPool(initial);
             SetBasDanmakuPool(load?.BasItems);
+            SetVideoScriptDanmakuPool(load?.ScriptItems);
             if (load?.IsDanmakuClosed == true)
             {
                 AddLog("当前视频已关闭弹幕");
@@ -2145,6 +2196,7 @@ namespace BiliBili.UWP.Pages
                 {
                     SetDanmakuPool(completed.Items, false);
                     SetBasDanmakuPool(completed.BasItems);
+                    SetVideoScriptDanmakuPool(completed.ScriptItems);
                     //AddLog("后台补齐弹幕完成，共 " + completed.Items.Count + " 条");
                     if (completed.UnsupportedDanmakuCount > 0)
                     {
@@ -3814,6 +3866,7 @@ namespace BiliBili.UWP.Pages
 
                 SetDanmakuPool(danmakuResult.Items);
                 SetBasDanmakuPool(danmakuResult.BasItems);
+                SetVideoScriptDanmakuPool(danmakuResult.ScriptItems);
                 await LoadInteractiveDanmakuAsync(item, requestId);
                 if (!cancellationToken.IsCancellationRequested
                     && IsPlaybackRequestCurrent(requestId, item))
@@ -4873,6 +4926,7 @@ namespace BiliBili.UWP.Pages
                 playNow.Duration);
             SetDanmakuPool(danmakuResult.Items);
             SetBasDanmakuPool(danmakuResult.BasItems);
+            SetVideoScriptDanmakuPool(danmakuResult.ScriptItems);
             danmu.ClearAll();
             var item = playNow;
             var quality = (cb_Quity.SelectedItem as QualityModel)?.qn ?? 64;

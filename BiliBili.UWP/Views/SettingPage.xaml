@@ -550,6 +550,11 @@
                                 <ToggleSwitch x:Name="sw_UseNewDanmakuInterface" Toggled="sw_UseNewDanmakuInterface_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
                             </Grid>
 
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">接收视频代码弹幕</TextBlock>
+                                <ToggleSwitch x:Name="sw_EnableScriptDanmaku" Toggled="sw_EnableScriptDanmaku_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
+                            </Grid>
+
                             <StackPanel Margin="0 10 0 0" >
                                 <Grid >
                                     <TextBlock Foreground="Gray" VerticalAlignment="Center">弹幕大小</TextBlock>

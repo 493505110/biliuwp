@@ -1200,6 +1200,29 @@ namespace BiliBili.UWP
             return true;
         }
 
+        /// <summary>
+        /// 是否接收 B 站下发的 mode=8 代码弹幕（M8 脚本）。
+        /// 默认关闭：脚本在无沙箱的 WebView2 宿主里执行，来源是任意视频的弹幕池，
+        /// 因此必须由用户显式打开（设置页开关）。
+        /// </summary>
+        public static void Set_EnableScriptDanmaku(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["EnableScriptDanmaku"] = value;
+        }
+
+        public static bool Get_EnableScriptDanmaku()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["EnableScriptDanmaku"] != null)
+            {
+                return Convert.ToBoolean(container.Values["EnableScriptDanmaku"]);
+            }
+
+            Set_EnableScriptDanmaku(false);
+            return false;
+        }
+
         public static void Set_NewDMTran(double value)
         {
             container = ApplicationData.Current.LocalSettings;
