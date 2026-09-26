@@ -194,23 +194,25 @@ git apply docs/patches/2026-09-24-script-danmaku-erase-wip-repaint-gaps.patch   
 
 > **2026-09-26 更新**：上面原先列举的 `/tmp` 资产在本轮开工时**已全部被清理**
 > （`v6/v7/v8` 的 mp4、`probe_mid.py`、`scan.py`、`ncc*.py`、`phase.py`、`capture*.py`、
-> `mkpair*.sh`、`/tmp/hostprobe/`）。已按 §7 重建出等价的一套，清单如下。
+> `mkpair*.sh`、`/tmp/hostprobe/`）。已按 §7 重建出等价的一套，并搬到
+> **`D:\worktool\m8-probe\`**（`%TEMP%` 会被系统清理，不要再放那里）。
 
-**可重建**（源仍在）：
+**现役探针套件（`D:\worktool\m8-probe\`，含 `README.md`）**：
 
-- `/tmp/ref_1080p.mp4` —— **判据基准**。用 `python -m yt_dlp -f 30080 BV1c7411H7jF`
-  重新下载（1080P 免登录，15.3 MB，1920×1080/30fps/143.04s）。下完务必按 §4.2 逐秒核亮像素：
-  数值与表中「原录屏」列一致才说明是同一份源（本轮核过，105/110/115/119/121/122 全对得上）。
-  仓库里没有这份录屏的归档。
-- `/tmp/build_probe2.py` —— 探针页构建脚本（宿主 + `tests/host/fixtures/real` 的 11 条夹具 + 驱动器）。
-- `/tmp/m8v/probe_longwin5.py` —— 逐秒亮像素探针（1× 连播）。
-- `/tmp/m8v/ncc.py`、`compare.py`、`snapshot.py`、`fps_probe.py`、`step_probe.py`、`mkver.py`。
-- `/tmp/edgedriver/msedgedriver.exe` —— **必须手动下载**：
-  `https://msedgedriver.microsoft.com/<Edge 版本>/edgedriver_win64.zip`。
-  Selenium Manager 在本机拿不到驱动，即使 `options.binary_location` 指向 `msedge.exe`
-  也报 `NoSuchDriverException`。Edge 版本用 `msedge.exe --version` 取。
-
-**只能重写**（方法学在 §7，照抄即可）：逐秒亮像素、NCC、并排拼图、帧成本四类脚本本轮全部重写过一次。
+| 文件 | 用途 |
+| --- | --- |
+| `ref_1080p.mp4` | **判据基准**：原录屏 1920×1080/30fps/143.04s。用 `python -m yt_dlp -f 30080 BV1c7411H7jF` 可重新下载（1080P 免登录）；下完务必按 §4.2 逐秒核亮像素，与表中「原录屏」列一致才说明是同一份源 |
+| `build_probe2.py` | 探针页构建脚本（宿主 + `tests/host/fixtures/real` 的 11 条夹具 + 驱动器） |
+| `hostprobe/probe2.html` | 已构建的探针页。**改宿主后必须重建**，否则是拿旧代码验证新修复 |
+| `msedgedriver.exe` | Edge 153.0.4234.48 的 WebDriver。**必须手动放**：`https://msedgedriver.microsoft.com/<Edge 版本>/edgedriver_win64.zip`；Selenium Manager 在本机拿不到驱动，即使 `options.binary_location` 指向 `msedge.exe` 也报 `NoSuchDriverException` |
+| `probe_longwin5.py` | 主量具：1× 连播逐秒亮像素占比，`PROBE_REPEATS` 取中位、`PROBE_RATE` 调倍速 |
+| `ncc.py` / `compare.py` | 亮度时间线 NCC / 与录屏并排的验收表 |
+| `snapshot.py` / `snap.py` | 导出画布 PNG（黑底合成）与录屏同秒帧，供并排看图 |
+| `fps_probe.py` / `step_probe.py` | 帧成本（后者分块，用于定位崩在第几块） |
+| `mkver.py` | 从基线宿主文本生成实验版本（`--neighbor` / `--candidate` / `--no-record` / `--clamped`） |
+| `host_v7.html` | 基线 `2ee4357` 的宿主快照（含 `elapsedSeconds`，供探针读时钟） |
+| `G/H/I/J/K/L.html` | 本轮试过的实验版本，`J` 是已提交进仓库的那一版 |
+| `baseline_v7_3x.json` / `final_3x.json` | 基线 3 次中位（验收对照列）/ 提交版 3 次中位 |
 
 **不可替代且无来源**：`v6` 那一版（无隐藏/淡出修复）的渲染 mp4 —— 表中「v6」列的数据
 只能引用本任务书的记录，无法复测。
