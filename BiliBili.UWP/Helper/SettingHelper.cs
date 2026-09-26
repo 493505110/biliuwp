@@ -1273,7 +1273,7 @@ namespace BiliBili.UWP
             }
             else
             {
-                return "Guanjianzi";
+                return string.Empty;
             }
         }
 
@@ -1330,7 +1330,7 @@ namespace BiliBili.UWP
             }
             else
             {
-                return "Yonghu";
+                return string.Empty;
             }
         }
 

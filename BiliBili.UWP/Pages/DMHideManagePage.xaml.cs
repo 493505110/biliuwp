@@ -129,122 +129,108 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
-            if (!ApiHelper.IsLogin())
-            {
-                Utils.ShowMessageToast("请先登录", 3000);
-                return;
-            }
-
-            var response = await playerAPI.GetDanmuFilterWords().Request();
-            if (!response.status)
-            {
-                Utils.ShowMessageToast("删除失败，" + response.message, 3000);
-                return;
-            }
-
-            var filter = JsonConvert.DeserializeObject<DMFilterModel>(response.results);
-            if (filter == null || filter.code != 0)
-            {
-                Utils.ShowMessageToast("删除失败，" + (filter?.message ?? "服务器返回数据格式错误"), 3000);
-                return;
-            }
-
-            var rules = filter?.data?.rule ?? new List<DMFilterModel>();
-            var csrf = Account.GetCookieValue("bili_jct");
-            if (string.IsNullOrEmpty(csrf))
-            {
-                Utils.ShowMessageToast("删除失败，登录 Cookie 缺少 bili_jct，请重新登录", 3000);
-                return;
-            }
-
-            var failures = new List<string>();
-            var pendingVerification = new List<Tuple<string, int>>();
-
+            // 本地列表无条件清理：云端可能没有同名规则（例如手动添加的词），
+            // 不能因为云端匹配不到就卡住本地删除。
+            var setting = list == list_Guanjianzi
+                ? SettingHelper.Get_Guanjianzi()
+                : SettingHelper.Get_Yonghu();
             foreach (var item in selectedItems)
             {
-                var rule = rules.FirstOrDefault(x => x.filter == item);
-                if (rule == null)
+                // 列表允许重复项，与设置里按分隔项整体移除的语义保持一致
+                for (var i = list.Items.Count - 1; i >= 0; i--)
                 {
-                    failures.Add(item + "：云端未找到对应规则");
-                    continue;
-                }
-
-                var deleteResponse = await playerAPI.DeleteDanmuFilterWord(rule.id, csrf).Request();
-                if (!deleteResponse.status)
-                {
-                    failures.Add(item + "：" + deleteResponse.message);
-                    continue;
-                }
-
-                var result = deleteResponse.GetJObject();
-                if (result?.Value<int?>("code") == 0)
-                {
-                    pendingVerification.Add(Tuple.Create(item, rule.type));
-                }
-                else
-                {
-                    failures.Add(item + "：" + (result?.Value<string>("message") ?? "接口返回错误"));
-                }
-            }
-
-            var deletedItems = new List<string>();
-            if (pendingVerification.Count > 0)
-            {
-                var verifyResponse = await playerAPI.GetDanmuFilterWords().Request();
-                var verifyFilter = verifyResponse.status
-                    ? JsonConvert.DeserializeObject<DMFilterModel>(verifyResponse.results)
-                    : null;
-                if (verifyFilter == null || verifyFilter.code != 0)
-                {
-                    var message = verifyFilter?.message ?? verifyResponse.message ?? "服务器返回数据格式错误";
-                    failures.Add("删除后验证失败：" + message);
-                }
-                else
-                {
-                    var remainingRules = verifyFilter.data?.rule ?? new List<DMFilterModel>();
-                    foreach (var pending in pendingVerification)
+                    if (string.Equals(list.Items[i] as string, item, StringComparison.Ordinal))
                     {
-                        if (remainingRules.Any(x => x.type == pending.Item2 && x.filter == pending.Item1))
-                        {
-                            failures.Add(pending.Item1 + "：云端删除后仍存在");
-                        }
-                        else
-                        {
-                            deletedItems.Add(pending.Item1);
-                        }
+                        list.Items.RemoveAt(i);
                     }
                 }
+                setting = RemoveSettingItem(setting, item);
             }
 
-            if (deletedItems.Count > 0)
+            if (list == list_Guanjianzi)
             {
-                var setting = list == list_Guanjianzi
-                    ? SettingHelper.Get_Guanjianzi()
-                    : SettingHelper.Get_Yonghu();
-                foreach (var item in deletedItems)
-                {
-                    list.Items.Remove(item);
-                    setting = RemoveSettingItem(setting, item);
-                }
-
-                if (list == list_Guanjianzi)
-                {
-                    SettingHelper.Set_Guanjianzi(setting);
-                }
-                else
-                {
-                    SettingHelper.Set_Yonghu(setting);
-                }
+                SettingHelper.Set_Guanjianzi(setting);
+            }
+            else
+            {
+                SettingHelper.Set_Yonghu(setting);
             }
 
+            var failures = await DeleteCloudRulesAsync(list, selectedItems);
             if (failures.Count > 0)
             {
-                Utils.ShowMessageToast("部分删除失败：" + failures[0], 5000);
+                Utils.ShowMessageToast($"已从本地删除，云端未同步：{failures[0]}", 5000);
             }
             else
             {
                 Utils.ShowMessageToast("删除成功", 3000);
             }
+        }
+
+        /// <summary>
+        /// 尽力删除云端同名屏蔽规则，返回失败原因；本地删除结果不受其影响。
+        /// </summary>
+        private async Task<List<string>> DeleteCloudRulesAsync(ListView list, List<string> items)
+        {
+            var failures = new List<string>();
+            if (!ApiHelper.IsLogin())
+            {
+                return failures;
+            }
+
+            var type = list == list_Guanjianzi ? 0 : 2;
+            var csrf = Account.GetCookieValue("bili_jct");
+            if (string.IsNullOrEmpty(csrf))
+            {
+                failures.Add("登录 Cookie 缺少 bili_jct，请重新登录");
+                return failures;
+            }
+
+            try
+            {
+                var response = await playerAPI.GetDanmuFilterWords().Request();
+                if (!response.status)
+                {
+                    failures.Add(response.message);
+                    return failures;
+                }
+
+                var filter = JsonConvert.DeserializeObject<DMFilterModel>(response.results);
+                if (filter == null || filter.code != 0)
+                {
+                    failures.Add(filter?.message ?? "服务器返回数据格式错误");
+                    return failures;
+                }
+
+                var rules = filter.data?.rule ?? new List<DMFilterModel>();
+                // 本地列表可能残留重复项，同一条云端规则只删一次
+                foreach (var item in items.Distinct())
+                {
+                    var matches = rules.Where(x => x.type == type && x.filter == item).ToList();
+                    if (matches.Count == 0)
+                    {
+                        failures.Add(item + "：云端未找到对应规则");
+                        continue;
+                    }
+
+                    foreach (var rule in matches)
+                    {
+                        var deleteResponse = await playerAPI.DeleteDanmuFilterWord(rule.id, csrf).Request();
+                        var result = deleteResponse.status ? deleteResponse.GetJObject() : null;
+                        if (!deleteResponse.status || result?.Value<int?>("code") != 0)
+                        {
+                            failures.Add(item + "：" + (result?.Value<string>("message") ?? deleteResponse.message));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("删除弹幕屏蔽规则失败", LogType.ERROR, ex);
+                failures.Add(ex.Message);
+            }
+
+            return failures;
         }
 
         private static string RemoveSettingItem(string setting, string item)
