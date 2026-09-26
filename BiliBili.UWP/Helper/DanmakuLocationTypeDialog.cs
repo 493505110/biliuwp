@@ -23,27 +23,56 @@ namespace BiliBili.UWP.Helper
             DanmakuLocation.Position
         };
 
-        /// <summary>当前选择的可读摘要，用于设置页与播放器面板的入口按钮文案。</summary>
+        /// <summary>BAS 弹幕名称：它不属 DanmakuLocation 枚举，由 WebView2 独立渲染，单列一项。</summary>
+        private const string BasTypeName = "BAS弹幕";
+
+        /// <summary>当前选择的可读摘要，用于设置页入口按钮文案。</summary>
         public static string GetSummary()
         {
-            var mask = SettingHelper.Get_DanmakuLocationTypes();
-            var count = 0;
-            foreach (var type in AllTypes)
-            {
-                if (SettingHelper.Is_DanmakuLocationTypeEnabled(mask, type))
-                {
-                    count++;
-                }
-            }
-
-            if (count == 0)
+            var names = GetEnabledTypeNames();
+            if (names.Count == 0)
             {
                 return "不显示";
             }
 
-            return count == AllTypes.Length
+            return names.Count == AllTypes.Length + 1
                 ? "全部"
-                : $"已选 {count} 项";
+                : string.Join("、", names);
+        }
+
+        /// <summary>播放器设置面板用的短摘要：面板宽度有限，完整名单会压住左侧标签，只显示已选数量。</summary>
+        public static string GetShortSummary()
+        {
+            var names = GetEnabledTypeNames();
+            if (names.Count == 0)
+            {
+                return "不显示";
+            }
+
+            return names.Count == AllTypes.Length + 1
+                ? "全部"
+                : $"已选 {names.Count} 项";
+        }
+
+        /// <summary>按固定顺序列出当前开启的类型；BAS 排在最后，与对话框里的勾选项顺序一致。</summary>
+        private static List<string> GetEnabledTypeNames()
+        {
+            var mask = SettingHelper.Get_DanmakuLocationTypes();
+            var names = new List<string>();
+            foreach (var type in AllTypes)
+            {
+                if (SettingHelper.Is_DanmakuLocationTypeEnabled(mask, type))
+                {
+                    names.Add(GetTypeName(type));
+                }
+            }
+
+            if (SettingHelper.Get_BasDanmakuEnabled())
+            {
+                names.Add(BasTypeName);
+            }
+
+            return names;
         }
 
         /// <summary>弹出类型选择对话框；点确定时保存选择并返回 true，取消返回 false。</summary>
@@ -63,6 +92,14 @@ namespace BiliBili.UWP.Helper
                 panel.Children.Add(box);
                 boxes.Add(new KeyValuePair<CheckBox, DanmakuLocation>(box, type));
             }
+
+            var basBox = new CheckBox
+            {
+                Content = BasTypeName,
+                IsChecked = SettingHelper.Get_BasDanmakuEnabled(),
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            panel.Children.Add(basBox);
 
             var dialog = new ContentDialog
             {
@@ -95,6 +132,8 @@ namespace BiliBili.UWP.Helper
                     pair.Value,
                     pair.Key.IsChecked == true);
             }
+
+            SettingHelper.Set_BasDanmakuEnabled(basBox.IsChecked == true);
 
             return true;
         }

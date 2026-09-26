@@ -112,7 +112,6 @@ namespace BiliBili.UWP.Pages
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
             MTC.DanmuLoaded += MTC_DanmuLoaded;
-            basDanmakuControl.ActionRequested += BasDanmakuControl_ActionRequested;
             playerSurface.AddHandler(
                 UIElement.TappedEvent,
                 new TappedEventHandler(PlayerSurface_Tapped),
@@ -913,6 +912,8 @@ namespace BiliBili.UWP.Pages
         List<PlayerModel> playList;
         List<NSDanmaku.Model.DanmakuModel> DanMuPool = null;
         List<BasDanmakuModel> BasDanmuPool = new List<BasDanmakuModel>();
+        /// <summary>BAS 弹幕控件。由 EnsureBasDanmakuControl 按需创建，开关关闭时整体释放</summary>
+        BasDanmakuControl basDanmakuControl;
         List<InteractiveDanmakuModel> interactiveDanmakuPool = new List<InteractiveDanmakuModel>();
         InteractiveDanmakuModel currentInteractiveDanmaku;
         PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel> danmakuTimeline;
@@ -1074,7 +1075,7 @@ namespace BiliBili.UWP.Pages
                     //退出视频时确定性地关掉 BAS 弹幕的 WebView2。
                     //控件自身的 Unloaded 也会兜底释放，但那条路径依赖页面被移出可视树，
                     //这里显式释放更直接，不会留下 Chromium 进程
-                    basDanmakuControl?.Release();
+                    ReleaseBasDanmakuControl();
                     ClearInteractiveDanmaku();
                     MTC.timer2.Stop();
                     MTC.DanmuLoaded -= MTC_DanmuLoaded;
@@ -1293,6 +1294,48 @@ namespace BiliBili.UWP.Pages
         int danmakuLocationMask = -1;
         List<string> sended = new List<string>();
 
+        /// <summary>
+        /// 创建 BAS 弹幕控件并挂进宿主容器。控件必须每次新建：Release() 里 Close() 后的
+        /// CoreWebView2 是终态，同一个实例无法再初始化。
+        /// </summary>
+        private bool EnsureBasDanmakuControl()
+        {
+            if (basDanmakuControl != null)
+            {
+                return true;
+            }
+
+            if (basDanmakuHost == null)
+            {
+                return false;
+            }
+
+            var control = new BasDanmakuControl();
+            control.ActionRequested += BasDanmakuControl_ActionRequested;
+            basDanmakuControl = control;
+            basDanmakuHost.Children.Add(control);
+            return true;
+        }
+
+        /// <summary>
+        /// 释放 BAS 弹幕控件并结束它的 WebView2。Release() 是终态，之后要显示只能重新创建。
+        /// BasDanmuPool 保留，重新打开时不必重新请求数据。
+        /// </summary>
+        private void ReleaseBasDanmakuControl()
+        {
+            var control = basDanmakuControl;
+            if (control == null)
+            {
+                return;
+            }
+
+            //先摘掉引用再释放：移除出可视树会触发 Unloaded，释放逻辑有回调进来
+            basDanmakuControl = null;
+            control.ActionRequested -= BasDanmakuControl_ActionRequested;
+            basDanmakuHost?.Children.Remove(control);
+            control.Release();
+        }
+
         private void SetBasDanmakuPool(IEnumerable<BasDanmakuModel> pool)
         {
             BasDanmuPool = (pool ?? Enumerable.Empty<BasDanmakuModel>())
@@ -1304,7 +1347,8 @@ namespace BiliBili.UWP.Pages
             ResetBasDanmakuPositionTracking();
             ResetBasDanmakuWindow();
 
-            if (basDanmakuControl == null)
+            if (!SettingHelper.Get_BasDanmakuEnabled()
+                || !EnsureBasDanmakuControl())
             {
                 return;
             }
@@ -1390,7 +1434,9 @@ namespace BiliBili.UWP.Pages
             bool shouldPlay,
             bool force)
         {
-            if (basDanmakuControl == null)
+            //开关关闭时不应该有控件；有残留说明状态没同步，直接放行会被重新拉起 WebView2
+            if (basDanmakuControl == null
+                || !SettingHelper.Get_BasDanmakuEnabled())
             {
                 return false;
             }
@@ -3417,7 +3463,42 @@ namespace BiliBili.UWP.Pages
                         NSDanmaku.Model.DanmakuLocation.Bottom));
             }
 
-            btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetSummary();
+            btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetShortSummary();
+            ApplyBasDanmakuVisibility();
+        }
+
+        /// <summary>
+        /// 按设置同步 BAS 弹幕。开关关闭时销毁控件并结束它的 WebView2——Close() 是终态，
+        /// 重新打开只能重建实例，所以这里不保留控件。BasDanmuPool 保留，重开不必重新请求数据。
+        /// </summary>
+        private void ApplyBasDanmakuVisibility()
+        {
+            if (!SettingHelper.Get_BasDanmakuEnabled())
+            {
+                ReleaseBasDanmakuControl();
+                ResetBasDanmakuWindow();
+                ResetBasDanmakuPositionTracking();
+                return;
+            }
+
+            if (!EnsureBasDanmakuControl())
+            {
+                return;
+            }
+
+            if (LoadDanmu)
+            {
+                _ = basDanmakuControl.SetVisibleAsync(true);
+            }
+
+            var session = mediaPlayer?.PlaybackSession;
+            if (session != null)
+            {
+                EnsureBasDanmakuWindow(
+                    Math.Max(0, session.Position.TotalSeconds),
+                    session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu,
+                    true);
+            }
         }
 
         private bool IsDanmakuLocationEnabled(NSDanmaku.Model.DanmakuLocation location)
@@ -3568,7 +3649,16 @@ namespace BiliBili.UWP.Pages
         private void MTC_OpenDanmaku(object sender, bool e)
         {
             LoadDanmu = e;
-            _ = basDanmakuControl?.SetVisibleAsync(e);
+            if (e)
+            {
+                //弹幕开关重新打开时 BAS 控件可能已被释放（开关关闭时销毁），这里按需重建
+                ApplyBasDanmakuVisibility();
+            }
+            else if (basDanmakuControl != null)
+            {
+                _ = basDanmakuControl.SetVisibleAsync(false);
+            }
+
             SyncBasDanmakuPlaybackState();
             if (!e)
             {
@@ -4723,6 +4813,7 @@ namespace BiliBili.UWP.Pages
         /// </summary>
         private async Task<bool> TryHandleBasDanmakuTapAsync(TappedRoutedEventArgs e)
         {
+            //控件只在开关打开时存在，关掉即销毁，因此这里只需判定控件即可
             if (!LoadDanmu || basDanmakuControl == null)
             {
                 return false;

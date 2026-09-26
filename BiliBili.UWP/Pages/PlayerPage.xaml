@@ -294,7 +294,8 @@
                             </c:DanmakuMTC>
                         </MediaPlayerElement.TransportControls>
                     </MediaPlayerElement>
-                    <c:BasDanmakuControl x:Name="basDanmakuControl" />
+                    <!--BAS 弹幕宿主容器：控件由代码按开关动态创建/释放，关掉开关时才能真正 Close 掉 WebView2-->
+                    <Grid x:Name="basDanmakuHost" />
                     <c:InteractiveDanmakuControl x:Name="interactiveDanmakuControl" ActionRequested="InteractiveDanmakuControl_ActionRequested" />
                     <GridView x:Name="gridview_node" SelectionMode="None" IsItemClickEnabled="True" Visibility="Collapsed" ItemClick="Gridview_node_ItemClick" SizeChanged="Gridview_node_SizeChanged" VerticalAlignment="Bottom"  Margin="0 0 0 100" >
                         <GridView.ItemTemplate>

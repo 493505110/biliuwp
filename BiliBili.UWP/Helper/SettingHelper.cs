@@ -1657,6 +1657,26 @@ namespace BiliBili.UWP
             Set_DanmakuLocationTypes(value ? mask | bit : mask & ~bit);
         }
 
+        // BAS 弹幕不在 NSDanmaku.Model.DanmakuLocation 枚举里（它由 WebView2 独立渲染），
+        // 用独立开关保存，默认显示。位置掩码的 0x3F 已占满枚举全部 6 位，不能再往里塞。
+        public static bool Get_BasDanmakuEnabled()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            if (container.Values["BasDanmakuEnabled"] != null)
+            {
+                return Convert.ToBoolean(container.Values["BasDanmakuEnabled"]);
+            }
+
+            Set_BasDanmakuEnabled(true);
+            return true;
+        }
+
+        public static void Set_BasDanmakuEnabled(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values["BasDanmakuEnabled"] = value;
+        }
+
         public static string Get_DMZZ()
         {
             container = ApplicationData.Current.LocalSettings;
