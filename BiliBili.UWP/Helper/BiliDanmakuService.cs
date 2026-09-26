@@ -28,6 +28,7 @@ namespace BiliBili.UWP.Helper
         private const int MaxUnknownDurationSegmentCount = 100;
         private const int MaxConcurrentSegmentRequests = 4;
         private const long DanmakuClosedState = 1;
+        private const int MaxUnsupportedDanmakuLogTextLength = 128;
 
         public static async Task<List<DanmakuModel>> LoadAsync(
             long aid,
@@ -938,6 +939,11 @@ namespace BiliBili.UWP.Helper
             {
                 unsupportedDanmakuCount++;
                 AddUnsupportedDanmakuMode(unsupportedDanmakuModes, modeValue);
+                LogHelper.WriteLog(
+                    "跳过不支持的弹幕，mode=" + modeValue.ToString(CultureInfo.InvariantCulture)
+                    + "，dmid=" + rowId
+                    + "，原文=" + TruncateDanmakuTextForLog(text),
+                    LogType.DEBUG);
                 return null;
             }
 
@@ -966,6 +972,18 @@ namespace BiliBili.UWP.Helper
                 fromSite = DanmakuSite.Bilibili,
                 source = BuildSource(progress, modeValue, sizeValue, colorValue, ctime, pool, midHash, rowId)
             };
+        }
+
+        // 不支持弹幕的原文可能很长（mode 7 的定位弹幕是整段 JSON），日志只保留头部。
+        private static string TruncateDanmakuTextForLog(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length <= MaxUnsupportedDanmakuLogTextLength)
+            {
+                return text;
+            }
+
+            return text.Substring(0, MaxUnsupportedDanmakuLogTextLength)
+                + "...(共 " + text.Length.ToString(CultureInfo.InvariantCulture) + " 字符)";
         }
 
         private static bool TryToLocation(int mode, out DanmakuLocation location)
