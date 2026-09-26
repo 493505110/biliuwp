@@ -16,6 +16,19 @@
 - 正式发版只构建 `Release|x86` 与 `Release|x64`，并附上 `biliuwp-signing.cer`；**不产出 ARM 包**（csproj 里的 ARM 配置只服务于本地调试）。
 - `release.yml` 发版时有两条硬约束：manifest 的 `Identity Version` 必须与 tag 一致；**Release 正文直接从 `CHANGELOG.md` 抽取 `## x.y.z` 段落**（跳过版本标题行），段落缺失或标题不匹配就会产出空正文。打 tag 前先补 CHANGELOG。
 - 不要使用 `dotnet build` 构建该旧式 UWP 工程。需要命令行自动化时只能使用 Visual Studio 自带的 MSBuild；最终验证仍以 Visual Studio 的生成、部署和运行结果为准。
+- 需要命令行快速验证编译时，用 VS 自带的 MSBuild 跑 `Debug|x64`（该配置显式关闭 .NET Native，且不占用 VS 调试用的 `x86` obj）：
+
+  ```bash
+  MSBuild.exe BiliBili.UWP/BiliBili.UWP.csproj \
+    -p:Configuration=Debug -p:Platform=x64 \
+    "-t:ResolveReferences;PrepareResources;Compile" \
+    -v:minimal -nologo -nodeReuse:false
+  ```
+
+  实测耗时：冷态首次约 29 秒，热态无改动约 6 秒，有 C# 或 XAML 改动约 10 秒；单次运行的大头是 `CompileXaml`。
+- 上面目标列表里的三个目标都不能省。**单独跑 `-t:Compile` 会报满屏假错误**：`Compile` 的 `CompileDependsOn` 不含 `PrepareResources`，`MarkupCompilePass1` 不执行，XAML 生成的 `.g.cs` 不会被注入 `@(Compile)`，页面 code-behind 的分部类缺一半，于是报 `CS0103`（找不到 `mediaElement`、`basDanmakuControl` 这类 XAML 生成字段）和 `CS1061`（`InitializeComponent` 未定义）——这些与代码是否正确无关，别据此下结论。`-t:` 是全局覆盖，`ProjectReference` 里的 `NSDanmaku` 同样受害（报 `CS0518 预定义类型 System.Object 未定义`）。漏掉 `ResolveReferences` 则 `@(ReferencePath)` 为空，XamlCompiler 报 `WMC1007: Cannot resolve 'Windows.metadata'`，显式传 `WindowsSdkDir` / `WindowsSDKVersion` 也无效。
+- 这条命令只回答「编译过不过」，不产出可部署包。`-t:Build` 会一路走到 AppX 打包并在 `MakeAppx 0x80070003`（`PackageLayout\entrypoint` 未就绪）失败，这是打包路径问题，与代码改动无关。页面级行为仍需在 Visual Studio 里 F5 验证。
+- 无 UWP 依赖的纯逻辑改动优先跑 `dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release`，构建加运行约十几秒（测试执行本身不到 1 秒），不必起 MSBuild 全套。
 
 ## 架构
 
