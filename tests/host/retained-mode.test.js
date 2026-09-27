@@ -325,6 +325,23 @@ function loadHost(hostPath) {
     sandbox.chrome = { webview: { postMessage: (text) => messages.push(JSON.parse(text)) } };
     sandbox.console = { log() { }, warn() { }, error() { }, count() { } };
     sandbox.Image = function ImageStub() { this.width = 0; this.height = 0; };
+    // Player.createSound 的载体（原版是从 i2.hdslb.com/soundlib/<name>.mp3 在线拉的音效）。
+    sandbox.__audioInstances = [];
+    sandbox.Audio = function AudioStub() {
+        this.src = '';
+        this.preload = '';
+        this.currentTime = 0;
+        this.loop = false;
+        this.duration = 10;
+        this.buffered = { length: 1, end: () => 5 };
+        this.__events = {};
+        this.play = () => { this.__played = true; return Promise.resolve(); };
+        this.pause = () => { this.__paused = true; };
+        this.load = () => { };
+        this.removeAttribute = (name) => { this.__removedAttribute = name; };
+        this.addEventListener = (name, fn) => { this.__events[name] = fn; };
+        sandbox.__audioInstances.push(this);
+    };
     sandbox.document = {
         getElementById: (id) => (id === 'stage' ? container : null),
         createElement: () => createCanvasStub()
@@ -335,6 +352,23 @@ function loadHost(hostPath) {
         return id;
     };
     sandbox.cancelAnimationFrame = function (id) { rafCallbacks.delete(id); };
+
+    // 「真实时间」入口：原版 timer() / Utils.delay 走 setTimeout，播放暂停也照走，
+    // 与帧驱动的 clock 不是一条线。桩里给一个独立的手动时钟，测试用
+    // host.advanceRealTime(ms) 显式推进——否则同步跑完的套件里它永远不到期，
+    // 「暂停期间定时器照样到期」这条也就没法确定性断言。
+    let realClock = 0;
+    let realTimerSeq = 0;
+    const realTimers = new Map();
+    sandbox.setTimeout = function (callback, delayMs) {
+        const id = ++realTimerSeq;
+        realTimers.set(id, {
+            callback: callback,
+            dueAt: realClock + Math.max(0, Number(delayMs) || 0)
+        });
+        return id;
+    };
+    sandbox.clearTimeout = function (id) { realTimers.delete(id); };
 
     vm.createContext(sandbox);
     vm.runInContext(match[1], sandbox, { filename: hostPath || HOST_PATH });
@@ -348,6 +382,23 @@ function loadHost(hostPath) {
         now: () => clock,
         advanceClock(ms) { clock += ms; },
         pendingFrames: () => rafCallbacks.size,
+        pendingRealTimers: () => realTimers.size,
+        // 推进「真实时间」并触发到期的 setTimeout（含回调里新排的定时器）。
+        advanceRealTime(ms) {
+            realClock += ms;
+            for (let guard = 0; guard < 100; guard++) {
+                const due = Array.from(realTimers.entries())
+                    .filter(([, timer]) => timer.dueAt <= realClock);
+                if (due.length === 0) {
+                    break;
+                }
+
+                for (const [id, timer] of due) {
+                    realTimers.delete(id);
+                    timer.callback();
+                }
+            }
+        },
         errors: (stage) => messages.filter(
             (message) => message.type === 'error' && (stage === undefined || message.stage === stage)),
         // 主画布 = 第一个被 appendChild 到 #stage 的 canvas。
@@ -1043,7 +1094,8 @@ test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数
     assert.deepEqual(
         asJson(host.sandbox.__utils).slice(0, 3), [0x0000FF, 0xFF0000, 0x00FF00],
         'Utils.hue 的映射必须与 M8 文档一致（0→蓝、120→红、240→绿）');
-    assert.equal(host.sandbox.__utils[3], '1:15', 'Utils.formatTimes(75) 应是 1:15');
+    // 原版 formatTimes 分钟不足两位也补零（ScriptUtils.as:57-66）：75 秒 = 01:15。
+    assert.equal(host.sandbox.__utils[3], '01:15', 'Utils.formatTimes(75) 应是 01:15');
     assert.equal(host.sandbox.__utils[4], 5, 'Utils.distance(0,0,3,4) 应是 5');
     assert.equal(host.sandbox.__utils[5], true, 'Utils.rand(min,max) 应落在 [min,max)');
     assert.deepEqual(
@@ -1052,6 +1104,8 @@ test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数
     assert.equal(host.sandbox.__clone, 2, 'clone 应是值拷贝（改源对象不影响副本）');
     assert.equal(host.sandbox.__timerType, 'function', 'timer 应在脚本作用域里可用');
     assert.equal(host.sandbox.__getTimerPositive, true, 'getTimer 应返回非负毫秒数');
+    // timer() 走真实时间的 setTimeout（原版 Utils.delay 的语义），不随帧推进触发。
+    host.advanceRealTime(60);
     assert.equal(host.sandbox.__timerFired, true, 'timer(fn, 50) 应在到点后触发一次');
     assert.equal(host.sandbox.__beforeStop, true, 'stopExecution 之前的语句应已执行');
     assert.equal(
@@ -1194,6 +1248,10 @@ test('D13 Tween.* 句柄与组合子：play/stop/stopOnComplete、delay/serial/r
     assert.ok(host.sandbox.__e.x < 100, 'stop 之前的推进量应有限：实际 ' + host.sandbox.__e.x);
     assert.ok(host.sandbox.__f.x > 30, 'parallel 的第一个补间应推进：实际 ' + host.sandbox.__f.x);
     assert.ok(host.sandbox.__f.alpha < 0.9, 'parallel 的第二个补间应推进：实际 ' + host.sandbox.__f.alpha);
+
+    // d13-stop 的 t.stop() 是 timer() 触发的，而 timer() 走真实时间的 setTimeout
+    // （原版 Utils.delay 语义），不随帧推进——显式把它推过 200ms 让 stop 生效。
+    host.advanceRealTime(200);
 
     // 1.0s（30 帧 × 16.667ms ≈ 0.5s 之后又 0.5s）：serial 应进入反向段，
     // delay 应开始移动，stop 的元素必须停在 200ms 处不动了。
@@ -1633,7 +1691,7 @@ test('D21 元素级 mask 只裁被遮罩元素，且遮罩元件自己不绘制'
     assert.ok(neighbor.length > 0, '未被遮罩的元素应正常绘制：' + JSON.stringify(marks));
 });
 
-test('D22 popEl 不摘离渲染树；Event.ENTER_FRAME 每帧派发', () => {
+test('D22 popEl 摘离渲染树（原版语义）；Event.ENTER_FRAME 每帧派发', () => {
     const host = loadHost();
     host.reset(0, true, 1, true);
     host.append([
@@ -1642,15 +1700,17 @@ test('D22 popEl 不摘离渲染树；Event.ENTER_FRAME 每帧派发', () => {
             + 'sprite.graphics.beginFill(0xFFFFFF, 1);'
             + 'sprite.graphics.drawRect(0, 0, 30, 30);'
             + 'sprite.graphics.endFill();'
-            // M8 的 popEl 语义：从「自动清理表」里弹出，**不是**从显示列表摘掉。
-            // Akari 把整幅作品挂在 popEl 过的常驻 root 下，摘掉就一个像素都没有。
-            + 'ScriptManager.popEl(sprite);'
+            // 原版 ScriptManager.popEl 的最后一步是 m.remove()（CommentCanvas.remove()
+            // 就是 parent.removeChild），所以元件会离开显示列表。帧监听另挂一个元件，
+            // 因为被摘离的元件不再参与逐帧派发。
             + 'window.__sprite = sprite;'
+            + 'var frameTarget = $.createShape({ x: 60, y: 10, lifeTime: 10 });'
             + 'window.__frames = 0;'
             + 'function onFrame(e) { window.__frames++; window.__lastType = e.type; }'
-            + 'sprite.addEventListener("enterFrame", onFrame);'
+            + 'frameTarget.addEventListener("enterFrame", onFrame);'
             + 'window.__eventNames = [typeof sprite.removeEventListener, typeof sprite.dispatchEvent,'
-            + ' sprite.hasEventListener("enterFrame")].join(",");')
+            + ' frameTarget.hasEventListener("enterFrame")].join(",");'
+            + 'ScriptManager.popEl(sprite);')
     ]);
     host.setState(0.1, true, 1);
     host.runFrames(10);
@@ -1659,11 +1719,9 @@ test('D22 popEl 不摘离渲染树；Event.ENTER_FRAME 每帧派发', () => {
     assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
 
     const sprite = host.sandbox.__sprite;
-    assert.equal(
-        sprite.treeParent, host.sandbox.__sprite.treeParent && sprite.treeParent,
-        'popEl 后元件仍应在渲染树里（treeParent 不为 null）');
-    assert.notEqual(sprite.treeParent, null, 'popEl 不得把元件摘离渲染树');
-    assert.equal(host.mainCanvas().__marks.length > 0, true, 'popEl 过的元件照旧要画出来');
+    // 原版语义：popEl 摘离（delete 管理表 + motionManager.stop + m.remove()）。
+    // 「不被 clearEl 清理」这一半同时保留（元素已不在管理表里，clearEl 不会再碰它）。
+    assert.equal(sprite.treeParent, null, 'popEl 应把元件摘离渲染树（原版 remove() 语义）');
 
     assert.equal(host.sandbox.__eventNames, 'function,function,true', 'EventDispatcher API 应齐备');
     assert.ok(host.sandbox.__frames > 0, 'enterFrame 监听应被逐帧派发');
@@ -1928,6 +1986,118 @@ test('D29 补画被擦区域时不得整元件重贴（重贴范围必须限制�
         + (overlapRect.width * overlapRect.height) + ' 像素，最大的那次落笔却是 '
         + widest + ' 像素（上限 ' + limit + '）。整元件重贴会让碰到它的整视口图层'
         + '全量重画，帧成本失控；ops=' + dump);
+});
+
+test('D30 时钟分源：timer()/Utils.delay 走真实时间，interval() 随播放暂停', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d30', 0, 10,
+            "window.__ticks = [];"
+            + "timer(function () { window.__ticks.push('delay'); }, 100);"
+            + "interval(function () { window.__ticks.push('interval'); }, 100, 2);")
+    ]);
+
+    // 沙箱里的数组是 vm realm 的 Array，deepEqual 会因原型不同而误判，统一 JSON 归一。
+    const ticks = () => JSON.stringify(host.sandbox.__ticks);
+
+    // 播放推进 0.2s：interval() 走 Timer（登记在条目上、随播放推进），应到点两次。
+    host.runFrames(12);
+    assert.equal(
+        ticks(), JSON.stringify(['interval', 'interval']),
+        'interval() 应随播放推进：' + ticks());
+
+    // 暂停：原版 ScriptManager 会把所有 Timer stop()，所以 interval 不再触发。
+    host.setState(0.2, false, 1);
+    host.runFrames(30);
+    assert.equal(
+        ticks(), JSON.stringify(['interval', 'interval']),
+        '暂停后 interval() 不应再触发：' + ticks());
+
+    // 但 timer() 是裸 setTimeout（原版 Utils.delay 的语义），暂停期间照样到点。
+    host.advanceRealTime(100);
+    assert.equal(
+        ticks(), JSON.stringify(['interval', 'interval', 'delay']),
+        '暂停期间 timer() 应照常到点：' + ticks());
+});
+
+test('D31 Player.createSound：按名字在线拉音效库、onLoad 即开始加载时回调、play/remove 走 audio', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d31', 0, 10,
+            "window.__soundLoaded = false;"
+            + "window.__sound = Player.createSound('click',"
+            + " function () { window.__soundLoaded = true; });")
+    ]);
+    host.runFrames(2);
+
+    const audio = host.sandbox.__audioInstances[0];
+    assert.ok(audio, 'createSound 应建出 <audio> 实例');
+    assert.equal(
+        audio.src, 'https://i2.hdslb.com/soundlib/click.mp3',
+        '音效地址应照原版模板拼：' + audio.src);
+
+    // 原版 onLoad 挂在 Event.OPEN（开始加载）上，不等加载完成。
+    audio.__events.loadstart();
+    assert.equal(host.sandbox.__soundLoaded, true, 'onLoad 应在开始加载时回调');
+
+    // loadPercent 对应 AS3 的 bytesLoaded / bytesTotal；桩里 buffered.end = 5、duration = 10。
+    assert.equal(host.sandbox.__sound.loadPercent(), 50, 'loadPercent 应是缓冲百分比');
+
+    host.sandbox.__sound.play(1, 0);
+    assert.equal(audio.__played, true, 'play() 应驱动 audio 播放');
+    assert.equal(audio.currentTime, 1, 'play(startTime) 的秒偏移应写进 currentTime');
+
+    host.sandbox.__sound.remove();
+    assert.equal(audio.__paused, true, 'remove() 对应 AS3 的 Sound.close()');
+});
+
+test('D32 Bitmap 工厂：createBitmapData / createRectangle / createBitmap 照原版签名', () => {
+    // 注意：createParticle 依赖 getImageData/putImageData，桩里没有像素 API，
+    // 那条路径只能靠真机（WebView2）验证，这里不覆盖。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d32', 0, 10,
+            "window.__hasBitmap = (typeof Bitmap !== 'undefined');"
+            + "window.__rect = Bitmap.createRectangle(1, 2, 3, 4);"
+            + "window.__data = Bitmap.createBitmapData(8, 6);"
+            + "window.__bitmapEl = Bitmap.createBitmap("
+            + "  { bitmapData: window.__data, x: 0, y: 0, lifeTime: 10 });")
+    ]);
+    host.runFrames(2);
+
+    assert.equal(
+        host.sandbox.__hasBitmap, true,
+        'Bitmap 应在脚本作用域里（原版是 globals.Bitmap = ScriptBitmap 实例）');
+    const rect = host.sandbox.__rect;
+    assert.ok(rect, 'Bitmap.createRectangle 应返回矩形');
+    assert.equal(
+        [rect.x, rect.y, rect.width, rect.height].join(','), '1,2,3,4',
+        'createRectangle 的四个分量：' + JSON.stringify(rect));
+    assert.equal(host.sandbox.__data.width, 8, 'createBitmapData 的宽度应照传参');
+    assert.equal(host.sandbox.__data.height, 6, 'createBitmapData 的高度应照传参');
+    assert.ok(host.sandbox.__bitmapEl, 'createBitmap 应建出元件（宿主用自绘层承载位图）');
+});
+
+test('D33 motion 相对坐标：x/y 落在 (0,1) 时按父容器宽度换算（原版 MotionManager 语义）', () => {
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d33', 0, 10,
+            "var box = $.createLayer(400, 300, { x: 0, y: 0, lifeTime: 10 });"
+            + "window.__box = box;"
+            + "window.__child = $.createShape({ x: 0, y: 0, lifeTime: 10, parent: box,"
+            + "  motion: { x: { fromValue: 0.5, toValue: 0.5, lifeTime: 1 } } });")
+    ]);
+    host.runFrames(30);
+
+    const child = host.sandbox.__child;
+    assert.ok(child, '子元件应建出来');
+    assert.ok(
+        Math.abs(child.props.x - 200) < 2,
+        'fromValue 0.5 应解释成父容器宽度的 50%（400 × 0.5 = 200）：实际 ' + child.props.x);
 });
 
 run();

@@ -34,17 +34,25 @@ namespace BiliBili.Tests
             "\"$G\"",
             "\"Global\"",
             "\"Tween\"",
+            "\"TweenEasing\"",
             "\"Utils\"",
             "\"ScriptManager\"",
             "\"timer\"",
             "\"interval\"",
             "\"clearTimer\"",
+            "\"clearTimeout\"",
+            "\"clear\"",
+            "\"load\"",
             "\"trace\"",
             "\"tracex\"",
             "\"stopExecution\"",
             "\"foreach\"",
             "\"clone\"",
-            "\"getTimer\""
+            "\"getTimer\"",
+            "\"parseInt\"",
+            "\"parseFloat\"",
+            "\"Math\"",
+            "\"String\""
         };
 
         /// <summary>取脚本作用域构造函数（createScriptArgs）的函数体。</summary>
@@ -316,12 +324,23 @@ namespace BiliBili.Tests
             StringAssert.Contains(scopeBody, "// 顺序必须与 compileItem 的形参逐字对应。");
 
             // 注入的是 M8 的全局名，不是自研的 ctx。
+            // 形参由 SCRIPT_GLOBAL_NAMES 展开生成（此前形参表与实参表各自硬编码，
+            // 只改一边就会整表错位），所以这里断言两件事：compileItem 用这张表展开，
+            // 且表里确实列着全部注入名。
             var compileBody = TestRepository.MethodBody(
                 source,
                 "function compileItem(model) {");
+            StringAssert.Contains(
+                compileBody,
+                "new Function(...SCRIPT_GLOBAL_NAMES, code)",
+                "compileItem 必须用 SCRIPT_GLOBAL_NAMES 展开生成形参");
+            var tableStart = source.IndexOf("var SCRIPT_GLOBAL_NAMES = [", System.StringComparison.Ordinal);
+            Assert.IsTrue(tableStart > 0, "找不到 SCRIPT_GLOBAL_NAMES 注入名表");
+            var tableEnd = source.IndexOf("];", tableStart, System.StringComparison.Ordinal);
+            var globalTable = source.Substring(tableStart, tableEnd - tableStart);
             foreach (var name in ScriptGlobalNames)
             {
-                StringAssert.Contains(compileBody, name, "compileItem 必须注入 M8 全局名 " + name);
+                StringAssert.Contains(globalTable, name, "SCRIPT_GLOBAL_NAMES 必须含 M8 全局名 " + name);
             }
         }
 
@@ -528,9 +547,11 @@ namespace BiliBili.Tests
         public void Host_DoesNotInjectCtxIntoScripts()
         {
             // 本版的决定：放弃自研的 ctx 脚本 API 面，脚本环境直接提供 M8 的
-            // 全局名（$ / Player / $G / Global / Tween / Utils / ScriptManager /
-            // timer / interval / clearTimer / trace / tracex / stopExecution /
-            // foreach / clone / getTimer）。脚本正文里的 ctx.xxx 不再有任何意义。
+            // 全局名（见宿主的 SCRIPT_GLOBAL_NAMES：$ / Player / $G / Global / Tween /
+            // TweenEasing / Utils / ScriptManager / timer / interval / clearTimer /
+            // clearTimeout / clear / load / trace / tracex / stopExecution / foreach /
+            // clone / getTimer / parseInt / parseFloat / Math / String）。
+            // 脚本正文里的 ctx.xxx 不再有任何意义。
             var source = HostSource();
             Assert.IsFalse(
                 source.Contains("\"ctx\""),
@@ -539,7 +560,9 @@ namespace BiliBili.Tests
                 source.Contains("ctx."),
                 "宿主源码与内置示例都不应再出现 ctx. 调用");
             StringAssert.Contains(source, "new Function(");
-            StringAssert.Contains(source, "\"$\", \"Player\", \"$G\", \"Global\", \"Tween\", \"Utils\", \"ScriptManager\",");
+            // 形参由 SCRIPT_GLOBAL_NAMES 展开生成，注入名单本身只此一处。
+            StringAssert.Contains(source, "new Function(...SCRIPT_GLOBAL_NAMES, code)");
+            StringAssert.Contains(source, "\"$\", \"Player\", \"$G\", \"Global\", \"Tween\", \"TweenEasing\", \"Utils\", \"ScriptManager\",");
         }
 
         [TestMethod]
