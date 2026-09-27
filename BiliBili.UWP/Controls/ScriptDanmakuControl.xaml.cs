@@ -161,6 +161,28 @@ namespace BiliBili.UWP.Controls
                 });
         }
 
+        /// <summary>
+        /// 通知宿主「播放已结束」，让脚本侧 <c>Player.state</c> 读到 <c>stop</c>
+        /// （对应原版 <c>ScriptPlayer.completeHandler</c>：收到 MEDIA_COMPLETE 时置 "stop"）。
+        /// 由 <c>PlayerPage.MediaPlayer_MediaEnded</c> 在「播完最后一集」分支调用；
+        /// 之后任意一次 <c>setState</c> / <c>seek</c> / <c>reset</c> 都会清掉这个态。
+        /// </summary>
+        public Task SetPlaybackStoppedAsync(double positionSeconds, double playbackRate)
+        {
+            var version = Volatile.Read(ref contentVersion);
+            return ExecuteCommandAsync(
+                version,
+                async () =>
+                {
+                    await ExecuteScriptAsync(
+                        "window.scriptDanmakuHost.setStopped("
+                        + JsonConvert.SerializeObject(Math.Max(0, positionSeconds))
+                        + ","
+                        + JsonConvert.SerializeObject(NormalizeRate(playbackRate))
+                        + ");");
+                });
+        }
+
         public Task SetVisibleAsync(bool visible)
         {
             var version = Volatile.Read(ref contentVersion);

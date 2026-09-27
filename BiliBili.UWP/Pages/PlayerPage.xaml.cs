@@ -608,6 +608,12 @@ namespace BiliBili.UWP.Pages
                     }
                     if (gv_play.SelectedIndex == gv_play.Items.Count - 1)
                     {
+                        // 播完最后一集：原版 M8 的 ScriptPlayer.completeHandler 会把
+                        // Player.state 置成 "stop"（ScriptPlayer.as:212-215），
+                        // 这里把停止态推给脚本，让依赖它的脚本能收尾。
+                        _ = scriptDanmakuControl?.SetPlaybackStoppedAsync(
+                            Math.Max(0, mediaPlayer?.PlaybackSession?.Position.TotalSeconds ?? 0),
+                            GetScriptDanmakuPlaybackRate());
                         if (playNow.isInteraction)
                         {
                             if (nodeInfo.edges != null)

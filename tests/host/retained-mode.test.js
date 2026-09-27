@@ -434,6 +434,9 @@ function loadHost(hostPath) {
         setState(positionSeconds, playing, rate) {
             host.api.setState(positionSeconds, playing, rate);
         },
+        setStopped(positionSeconds, rate) {
+            host.api.setStopped(positionSeconds, rate);
+        },
         seek(positionSeconds, playing, rate) {
             host.api.seek(positionSeconds, playing, rate);
         },
@@ -2098,6 +2101,307 @@ test('D33 motion 相对坐标：x/y 落在 (0,1) 时按父容器宽度换算（�
     assert.ok(
         Math.abs(child.props.x - 200) < 2,
         'fromValue 0.5 应解释成父容器宽度的 50%（400 × 0.5 = 200）：实际 ' + child.props.x);
+});
+
+test('D34 新增全局名可用：Display / int / uint / Number / Boolean / isNaN', () => {
+    // 原版的 globals 里 Display 与 $ 指向同一个 ScriptDisplay
+    // （CommentScriptFactory.as:112-113）；int/uint 是 AVM1 的 32 位截断转换。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d34', 0, 10,
+            'window.__probe = {'
+            + ' displayType: typeof Display,'
+            + ' displayIsDollar: Display === $,'
+            + ' displayWidth: Display.width,'
+            + ' intNegative: int(-1.5),'
+            + ' intNaN: int("abc"),'
+            + ' uintNegative: uint(-1),'
+            + ' numberType: typeof Number,'
+            + ' booleanType: typeof Boolean,'
+            + ' isNaNResult: isNaN("x"),'
+            + ' booleanResult: Boolean(0) };')
+    ]);
+    host.runFrames(2);
+
+    assert.equal(host.errors().length, 0, '新注入名不应报错：' + JSON.stringify(host.errors()));
+    const probe = host.sandbox.__probe;
+    assert.ok(probe, '脚本应写入探针');
+    assert.equal(probe.displayType, 'object', 'Display 应是一个对象');
+    assert.equal(probe.displayIsDollar, true, 'Display 与 $ 必须是同一个 ScriptDisplay');
+    assert.equal(probe.displayWidth, 800, 'Display.width 应给出舞台宽度');
+    assert.equal(probe.intNegative, -1, 'int() 朝零截断（AVM1）');
+    assert.equal(probe.intNaN, 0, 'int("abc") 按 AS3 的 Number.int 给 0');
+    assert.equal(probe.uintNegative, 4294967295, 'uint(-1) 是 32 位无符号取值');
+    assert.equal(probe.numberType, 'function');
+    assert.equal(probe.booleanType, 'function');
+    assert.equal(probe.isNaNResult, true);
+    assert.equal(probe.booleanResult, false);
+});
+
+test('D35 $.createColorTransform 返回真对象（entry_08 的 Akari 色调映射在用）', () => {
+    // 原版 ScriptDisplay.as:284-287 直接 new ColorTransform(...)；此前宿主返回 null，
+    // Akari.Utilities.Color.rgbToTransformTint/Add 会把 null 写进 transform.colorTransform。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d35', 0, 10,
+            'var tint = $.createColorTransform(0.5, 0.25, 1, 0.75);'
+            + 'var add = $.createColorTransform(1, 1, 1, 1, 255, 128, 0, 64);'
+            + 'window.__probe = { tint: tint, add: add, readBack: tint.redMultiplier };'
+            + 'var el = $.createShape({ x: 0, y: 0, lifeTime: 10 });'
+            + 'el.transform.colorTransform = tint;'
+            + 'window.__probe.stored = el.transform.colorTransform === tint;')
+    ]);
+    host.runFrames(2);
+
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+    const probe = host.sandbox.__probe;
+    assert.ok(probe && probe.tint, 'createColorTransform 不能再返回 null');
+    assert.equal(probe.tint.redMultiplier, 0.5, '第 1 参是 redMultiplier');
+    assert.equal(probe.tint.greenMultiplier, 0.25);
+    assert.equal(probe.tint.blueMultiplier, 1);
+    assert.equal(probe.tint.alphaMultiplier, 0.75);
+    // 只给 4 个参数时偏移量应补 0，而不是 undefined（脚本会把它当数值参与运算）。
+    assert.equal(probe.tint.redOffset, 0, '偏移缺省应是 0');
+    assert.equal(probe.add.redOffset, 255, '第 5 参是 redOffset');
+    assert.equal(probe.add.alphaOffset, 64);
+    assert.equal(probe.add.redMultiplier, 1, '只给偏移时乘数缺省是 1');
+    assert.equal(probe.stored, true, '元素 transform.colorTransform 应原样存住同一份对象');
+});
+
+test('D36 Player.state 的 stop 态：仅由 setStopped 置位，且会被后续状态更新清掉', () => {
+    // 原版 ScriptPlayer 的 completeHandler 收到 MEDIA_COMPLETE 时把 _state 置 "stop"
+    // （ScriptPlayer.as:212-215），之后任何一次播放器状态事件都会把它改回 playing/pause。
+    //
+    // 观测方式用 keyTrigger 而不是 interval：暂停 / 停止后帧循环自停，
+    // 定时器不会推进（这与原版 Timer 在暂停时被 stop 一致），而消息驱动的
+    // 触发器不受帧循环影响。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d36', 0, 10,
+            'window.__states = [];'
+            + 'Player.keyTrigger(function () { window.__states.push(Player.state); }, 60000);')
+    ]);
+    host.runFrames(4);
+
+    const readState = () => {
+        const before = host.sandbox.__states.length;
+        host.api.pushKey(65, false);
+        assert.equal(
+            host.sandbox.__states.length, before + 1,
+            'keyTrigger 回调应被投递（条目在窗口内）');
+        return host.sandbox.__states[host.sandbox.__states.length - 1];
+    };
+
+    assert.equal(readState(), 'playing', '播放中应是 playing');
+
+    host.setStopped(3, 1);
+    assert.equal(readState(), 'stop', 'setStopped 之后 Player.state 应是 stop');
+
+    host.setState(3, true, 1);
+    assert.equal(readState(), 'playing', 'setState 之后应离开 stop 态');
+
+    host.setStopped(3, 1);
+    host.seek(3, true, 1);
+    assert.equal(readState(), 'playing', 'seek 之后应离开 stop 态');
+
+    host.setStopped(3, 1);
+    host.reset(3, true, 1, true);
+    host.append([
+        scriptItem('d36b', 3, 10,
+            'Player.keyTrigger(function () { window.__stateAfterReset = Player.state; }, 60000);')
+    ]);
+    // reset 之后要用新条目的回调观测：先跑一帧让它在 3s 处激活并登记触发器，
+    // 再推一次键盘事件（旧条目的回调数组已随 reset 作废）。
+    host.runFrames(2);
+    assert.equal(host.sandbox.__stateAfterReset, undefined, 'reset 后新条目尚未收到事件');
+    host.api.pushKey(65, false);
+    assert.equal(host.sandbox.__stateAfterReset, 'playing', 'reset 之后应离开 stop 态');
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+});
+
+test('D37 lifeTime: 0 是常驻、负数是立刻到期（原版把负数夹成 0.001 秒）', () => {
+    // 原版 ScriptDisplay.as:238-240：if(motionConfig.lifeTime < 0) lifeTime = 0.001。
+    // 早先宿主把 <= 0 一起并进「常驻」，负数的语义正好反了。
+    // duration 取 0（无界窗口）才能看出「常驻 = 吃满兜底上限」。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d37', 0, 0,
+            "var persist = $.createShape({ x: 0, y: 0, lifeTime: 0,"
+            + " motion: { x: { fromValue: 0, toValue: 100, lifeTime: 0 } } });"
+            + "var doomed = $.createShape({ x: 200, y: 0, lifeTime: -1,"
+            + " motion: { x: { fromValue: 200, toValue: 300, lifeTime: -1 } } });"
+            + 'window.__persist = persist;'
+            + 'window.__doomed = doomed;')
+    ]);
+    host.runFrames(10);
+
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+    const persist = host.sandbox.__persist;
+    const doomed = host.sandbox.__doomed;
+    assert.equal(persist.lifeTimeMs, 600000, 'lifeTime: 0 应是常驻（受窗口兜底上限约束）');
+    assert.equal(persist.expired, false, '常驻元素不该被摘除');
+    assert.equal(doomed.expired, true, '负数 lifeTime 应立刻到期（原版夹成 0.001 秒）');
+});
+
+test('D38 Tween.from / Tween.apply：反向补间与立即套用', () => {
+    // 原版 BetweenAS3 有静态 from / apply（BetweenAS3.as:156、:174）。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d38', 0, 10,
+            'var el = $.createShape({ x: 200, y: 0, lifeTime: 10 });'
+            + 'window.__el = el;'
+            + 'var t = Tween.from(el, { x: 0, y: 100 }, 1, TweenEasing.LinearEaseInOut);'
+            + 't.play();'
+            + 'var target = $.createShape({ x: 0, y: 200, lifeTime: 10 });'
+            + 'Tween.apply(target, { x: 400, alpha: 0.25 });'
+            + 'window.__target = target;')
+    ]);
+    host.runFrames(2);
+
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+    const target = host.sandbox.__target;
+    assert.equal(target.props.x, 400, 'Tween.apply 应立即把 dest 落到对象上');
+    assert.equal(target.props.alpha, 0.25);
+
+    // from 的起点是 src（x: 0），终点是元素**创建时**的当前值（x: 200）。
+    // 起点断言放宽：runFrames(2) 已经推进约 33ms（占 1 秒补间的 3%）。
+    const el = host.sandbox.__el;
+    assert.ok(
+        el.props.x < 30,
+        'from() 播放起点应接近 src 指定的 0：' + el.props.x);
+    host.runFrames(60);   // 跑完 1 秒
+    assert.ok(
+        Math.abs(el.props.x - 200) < 6,
+        'from() 终点应是元素的当前值 200：' + el.props.x);
+});
+
+test('D39 easing 传类名（"Sine" / "Cubic"）按原版的 easeInOut 解析', () => {
+    // 原版 MotionManager 的 switch 认的是**缓动类名**（MotionManager.as:205-239），
+    // 命中后取该类的 easeInOut。此前宿主只认 "SineEaseInOut" 这类全名，
+    // 写 "Sine" 会静默退化成线性。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d39', 0, 10,
+            "var eased = $.createShape({ x: 0, y: 0, lifeTime: 10,"
+            + " motion: { x: { fromValue: 0, toValue: 100, lifeTime: 1, easing: 'Sine' } } });"
+            + "var other = $.createShape({ x: 0, y: 100, lifeTime: 10,"
+            + " motion: { x: { fromValue: 0, toValue: 100, lifeTime: 1, easing: 'Cubic' } } });"
+            + 'window.__eased = eased;'
+            + 'window.__other = other;')
+    ]);
+    // 推进到补间的 1/4 处（0.25s）：取舍缓动的值应明显小于线性的 25。
+    host.runFrames(15);   // 15 × (1/60) = 0.25s
+
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+    const eased = host.sandbox.__eased.props.x;
+    const other = host.sandbox.__other.props.x;
+    assert.ok(
+        eased > 3 && eased < 20,
+        'easing: "Sine" 应走 Sine.easeInOut（0.25s 时约 14.6），实际 ' + eased);
+    assert.ok(
+        other > 0 && other < 8,
+        'easing: "Cubic" 应走 Cubic.easeInOut（0.25s 时约 1.6），实际 ' + other);
+});
+
+test('D40 interval 句柄的 start / reset：stop 之后能重新挂回并再次触发', () => {
+    // 原版 Utils.interval 返回 flash.utils.Timer，脚本会直接调它的 start / reset。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d40', 0, 10,
+            'window.__ticks = 0;'
+            + 'var handle = interval(function () { window.__ticks++; }, 100, 0);'
+            + 'window.__handle = handle;')
+    ]);
+    host.runFrames(6);    // 0.1s → 触发一次
+    assert.equal(host.sandbox.__ticks, 1, '首次应触发一次：' + host.sandbox.__ticks);
+
+    host.sandbox.__handle.stop();
+    host.runFrames(30);   // 0.5s：停掉之后不该再涨
+    assert.equal(host.sandbox.__ticks, 1, 'stop() 之后不应再触发：' + host.sandbox.__ticks);
+
+    host.sandbox.__handle.start();
+    host.runFrames(6);
+    assert.equal(
+        host.sandbox.__ticks, 2,
+        'start() 应把定时器重新挂回条目登记表并再次触发：' + host.sandbox.__ticks);
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+});
+
+test('D41 Utils.clone / Utils.foreach 与文本的 align / htmlText', () => {
+    // 原版 ScriptUtils 里 clone / foreach 是实例方法（ScriptUtils.as:121-139），
+    // 注入的 Utils 就是这个类的实例；align / htmlText 在 CommentField 上
+    // （CommentField.as:62-71、:117-125，htmlText 双向直通 text）。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d41', 0, 10,
+            'var src = { a: 1, nested: { b: 2 }, f: function () { return 1; } };'
+            + 'var copy = Utils.clone(src);'
+            + 'copy.nested.b = 99;'
+            + 'var seen = [];'
+            + 'Utils.foreach({ p: 1, q: 2 }, function (key, value) { seen.push(key + "=" + value); });'
+            + 'seen.sort();'
+            + "var label = $.createComment('abc', { lifeTime: 10 });"
+            + "label.align = 'center';"
+            + 'var before = { align: label.align, html: label.htmlText, length: label.length };'
+            + "label.htmlText = 'wxyz';"
+            + 'window.__probe = {'
+            + ' copyNested: copy.nested.b,'
+            + ' sourceNested: src.nested.b,'
+            + ' copyHasFunction: typeof copy.f,'
+            + ' seen: seen,'
+            + ' before: before,'
+            + ' textAfterHtml: label.text,'
+            + ' lengthAfter: label.length };'
+            + "label.align = 'bogus';"
+            + 'window.__probe.alignBogus = label.align;')
+    ]);
+    host.runFrames(2);
+
+    assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
+    const probe = host.sandbox.__probe;
+    assert.equal(probe.copyNested, 99, 'clone 应是深拷贝（改副本不影响源）');
+    assert.equal(probe.sourceNested, 2, '源对象应保持不变');
+    assert.equal(probe.copyHasFunction, 'undefined', 'clone 不复制函数（原版 ByteArray 深拷贝语义）');
+    assert.equal(JSON.stringify(probe.seen), JSON.stringify(['p=1', 'q=2']), 'Utils.foreach 回调签名是 (key, value)');
+    assert.equal(probe.before.align, 'center', 'el.align 应可回读');
+    assert.equal(probe.before.html, 'abc', 'htmlText 读到的就是 text');
+    assert.equal(probe.before.length, 3, 'length 是字符数');
+    assert.equal(probe.textAfterHtml, 'wxyz', '写 htmlText 等价于写 text');
+    assert.equal(probe.lengthAfter, 4, 'length 应跟着内容变');
+    assert.equal(probe.alignBogus, 'left', '非法 align 退回左对齐');
+});
+
+test('D42 keyTrigger 的键值集合按原版 ScriptEventManager：收 27、不收 33', () => {
+    // 原版判定：code == 27 || code >= 96 && code <= 105 || code >= 34 && code <= 40
+    //           || W || S || A || D（ScriptEventManager.as:33、:57）。
+    // 33（PageUp）**不在**范围里——此前宿主误收。
+    const host = loadHost();
+    host.reset(0, true, 1, true);
+    host.append([
+        scriptItem('d42', 0, 10,
+            'window.__keys = [];'
+            + 'Player.keyTrigger(function (code) { window.__keys.push(code); }, 5000);')
+    ]);
+    host.runFrames(2);
+
+    host.api.pushKey(27, false);   // Escape
+    host.api.pushKey(33, false);   // PageUp：原版不收
+    host.api.pushKey(96, false);   // 小键盘 0
+    host.api.pushKey(13, false);   // Enter：原版不收
+    host.api.pushKey(65, false);   // A
+    host.runFrames(2);
+
+    assert.equal(
+        JSON.stringify(host.sandbox.__keys), JSON.stringify([27, 96, 65]),
+        '只投递原版允许的那组键：' + JSON.stringify(host.sandbox.__keys));
 });
 
 run();

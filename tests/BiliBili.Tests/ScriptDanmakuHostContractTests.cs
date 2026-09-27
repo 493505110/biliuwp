@@ -30,6 +30,7 @@ namespace BiliBili.Tests
         private static readonly string[] ScriptGlobalNames =
         {
             "\"$\"",
+            "\"Display\"",
             "\"Player\"",
             "\"$G\"",
             "\"Global\"",
@@ -52,7 +53,13 @@ namespace BiliBili.Tests
             "\"parseInt\"",
             "\"parseFloat\"",
             "\"Math\"",
-            "\"String\""
+            "\"String\"",
+            // AS2/AS3 的全局转换函数（AVM1 里 int()/uint() 是 32 位截断）。
+            "\"int\"",
+            "\"uint\"",
+            "\"Number\"",
+            "\"Boolean\"",
+            "\"isNaN\""
         };
 
         /// <summary>取脚本作用域构造函数（createScriptArgs）的函数体。</summary>
@@ -244,12 +251,23 @@ namespace BiliBili.Tests
             StringAssert.Contains(body, "if (!M8_TRIGGER_KEY_CODES[keyCode]) {");
             StringAssert.Contains(body, "return;");
 
-            // 键值必须覆盖 M8 文档列出的那组（左/上/右/下、Home、End、PgUp、PgDn、W、A、S、D）。
+            // 键值必须覆盖原版 ScriptEventManager 判定里列出的那组
+            // （ScriptEventManager.as:33、:57）：Escape(27)、Home/方向键/End/PgDn(34-40)、
+            // 小键盘 0-9(96-105)、W/S/A/D(87/83/65/68)。
+            // 注意 33（PageUp）**不在**原版范围里——此前宿主与这条断言都把 33 当成了成员。
             var keyBody = TestRepository.MethodBody(source, "var M8_TRIGGER_KEY_CODES = {");
-            foreach (var code in new[] { "33", "34", "35", "36", "37", "38", "39", "40", "65", "68", "83", "87" })
+            foreach (var code in new[]
             {
-                StringAssert.Contains(keyBody, code + ": true", "缺少 M8 允许监听的键 " + code);
+                "27", "34", "35", "36", "37", "38", "39", "40", "65", "68", "83", "87",
+                "96", "97", "98", "99", "100", "101", "102", "103", "104", "105"
+            })
+            {
+                StringAssert.Contains(keyBody, code + ": true", "缺少原版允许监听的键 " + code);
             }
+
+            Assert.IsFalse(
+                keyBody.Contains("33: true"),
+                "33（PageUp）不在原版 ScriptEventManager 的允许键里");
         }
 
         [TestMethod]
@@ -547,10 +565,11 @@ namespace BiliBili.Tests
         public void Host_DoesNotInjectCtxIntoScripts()
         {
             // 本版的决定：放弃自研的 ctx 脚本 API 面，脚本环境直接提供 M8 的
-            // 全局名（见宿主的 SCRIPT_GLOBAL_NAMES：$ / Player / $G / Global / Tween /
-            // TweenEasing / Utils / ScriptManager / timer / interval / clearTimer /
-            // clearTimeout / clear / load / trace / tracex / stopExecution / foreach /
-            // clone / getTimer / parseInt / parseFloat / Math / String）。
+            // 全局名（见宿主的 SCRIPT_GLOBAL_NAMES：$ / Display / Player / $G / Global /
+            // Tween / TweenEasing / Utils / ScriptManager / timer / interval /
+            // clearTimer / clearTimeout / clear / load / trace / tracex / stopExecution /
+            // foreach / clone / getTimer / parseInt / parseFloat / Math / String /
+            // int / uint / Number / Boolean / isNaN）。
             // 脚本正文里的 ctx.xxx 不再有任何意义。
             var source = HostSource();
             Assert.IsFalse(
@@ -562,7 +581,8 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "new Function(");
             // 形参由 SCRIPT_GLOBAL_NAMES 展开生成，注入名单本身只此一处。
             StringAssert.Contains(source, "new Function(...SCRIPT_GLOBAL_NAMES, code)");
-            StringAssert.Contains(source, "\"$\", \"Player\", \"$G\", \"Global\", \"Tween\", \"TweenEasing\", \"Utils\", \"ScriptManager\",");
+            StringAssert.Contains(source, "\"$\", \"Display\", \"Player\", \"$G\", \"Global\", \"Tween\", \"TweenEasing\", \"Utils\",");
+            StringAssert.Contains(source, "\"ScriptManager\",");
         }
 
         [TestMethod]
@@ -665,10 +685,14 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "return currentPositionMs();");
             StringAssert.Contains(source, "return currentPlayerState();");
 
-            // refreshRate 的取值区间（M8 文档：10-500，默认 170）。
-            StringAssert.Contains(source, "var DEFAULT_REFRESH_RATE = 170;");
-            StringAssert.Contains(source, "var MIN_REFRESH_RATE = 10;");
-            StringAssert.Contains(source, "var MAX_REFRESH_RATE = 500;");
+            // refreshRate 按**反编译实现**而不是 M8 文档：原版是空实现
+            // （ScriptPlayer.as:166-173，get 恒返回 0、set 是空体），
+            // 文档里的「10-500、默认 170」在原版代码里根本不存在。
+            var refreshRateBody = TestRepository.MethodBody(
+                source,
+                "Object.defineProperty(Player, \"refreshRate\", {");
+            StringAssert.Contains(refreshRateBody, "return 0;");
+            StringAssert.Contains(refreshRateBody, "set: function (value) {");
 
             // Player.seek 的入参是毫秒（M8 文档），转发给宿主动作通道时换成秒。
             StringAssert.Contains(body, "return requestSeek(Math.max(0, offsetMs) / 1000);");
@@ -1430,17 +1454,23 @@ namespace BiliBili.Tests
         public void Host_TreatsZeroLifeTimeAsUnbounded()
         {
             // lifeTime 未声明 = 不动元素寿命（活到条目窗口兜底上限）；
-            // 声明 0 / 负数 = 常驻（对齐 M8 的 lifeTime: 0）。
+            // 声明 0 = 常驻；**负数 = 立刻到期**（原版 ScriptDisplay.as:238-240
+            // 把 < 0 夹成 0.001 秒——早先把负数一起并进常驻，语义正好反了）。
             var source = HostSource();
             StringAssert.Contains(source, "function readDeclaredSeconds(config, name) {");
+            StringAssert.Contains(
+                source,
+                "function resolveDeclaredLifeTimeMs(declaredSeconds) {");
+            StringAssert.Contains(source, "return LIFE_TIME_UNBOUNDED;");
+            StringAssert.Contains(source, "if (declaredSeconds < 0) {");
 
             var tweenBody = TestRepository.MethodBody(
                 source,
                 "function createTween(element, config, options) {");
-            StringAssert.Contains(tweenBody, "var unboundedLifeTime = declaredSeconds !== null && declaredSeconds <= 0;");
             StringAssert.Contains(
                 tweenBody,
-                "lifeTimeMs: unboundedLifeTime\n                        ? LIFE_TIME_UNBOUNDED");
+                "var lifeTimeMs = resolveDeclaredLifeTimeMs(declaredSeconds);");
+            StringAssert.Contains(tweenBody, "lifeTimeMs: lifeTimeMs,");
 
             // 「没有声明」时绝不能把补间时长的缺省 3 秒当成寿命声明写进去：
             // applyElementLifeTime 取声明最大值，会把脚本真正声明的 lifeTime: 2
@@ -1449,6 +1479,121 @@ namespace BiliBili.Tests
                 tweenBody,
                 "if (motion.lifeTimeMs !== null) {",
                 "未声明寿命时不得调用 applyElementLifeTime");
+        }
+
+        [TestMethod]
+        public void Host_Rounds_OutTheM8SurfaceAgainstDecompiledPlayer()
+        {
+            // 对照 play_20181010.swf 的反编译（tv/bilibili/script/*）补齐的那批
+            // 名字与语义。每一条都对应一个「脚本会撞上、宿主此前会静默走偏」的点。
+            var source = HostSource();
+
+            // ① Display 与 $ 是同一个 ScriptDisplay（CommentScriptFactory.as:112-113）。
+            StringAssert.Contains(source, "\"$\", \"Display\", \"Player\",");
+            var scopeBody = ScriptScopeBody();
+            StringAssert.Contains(scopeBody, "M8Display,\n                    M8Display,");
+
+            // ② AS2/AS3 的全局转换函数；int/uint 是 AVM1 的 32 位截断（不是 Math.trunc 直通）。
+            StringAssert.Contains(source, "\"int\", \"uint\", \"Number\", \"Boolean\", \"isNaN\"];");
+            StringAssert.Contains(source, "function asInt(value) {");
+            StringAssert.Contains(source, "function asUint(value) {");
+            StringAssert.Contains(source, "return Math.trunc(number) | 0;");
+            StringAssert.Contains(source, "return asInt(value) >>> 0;");
+
+            // ③ ColorTransform 必须是真对象：entry_08 的 Akari.Utilities.Color
+            //    把它的字段读回去（ScriptDisplay.as:284-287）。
+            var displayBody = DisplayFactoryBody();
+            StringAssert.Contains(displayBody, "createColorTransform: function (redMultiplier, greenMultiplier, blueMultiplier,");
+            StringAssert.Contains(source, "function createColorTransform(redMultiplier, greenMultiplier, blueMultiplier,");
+
+            // ④ Utils 是原版 ScriptUtils 的实例，clone / foreach 是它的实例方法
+            //    （ScriptUtils.as:121-139），脚本写 Utils.clone(o) 与裸 clone(o) 都成立。
+            var utilsBody = TestRepository.MethodBody(source, "var Utils = {");
+            StringAssert.Contains(utilsBody, "clone: function (object) {");
+            StringAssert.Contains(utilsBody, "foreach: function (loop, callback) {");
+
+            // ⑤ 文本的 align / htmlText（CommentField.as:62-71、:117-125，
+            //    htmlText 两个方向都直通 text）。
+            StringAssert.Contains(source, "Object.defineProperty(element, \"align\", {");
+            StringAssert.Contains(source, "Object.defineProperty(element, \"htmlText\", {");
+            StringAssert.Contains(source, "element.text = value;");
+
+            // ⑥ easing 传类名（"Sine" / "Cubic"）按原版的 easeInOut 解析
+            //    （MotionManager.as:205-239 的 switch 认的是类名）。
+            StringAssert.Contains(source, "var M8_EASING_CLASS_NAMES = {");
+            StringAssert.Contains(source, "return easingTable[name] || M8_EASING_CLASS_NAMES[name] || linearEase;");
+
+            // ⑦ BetweenAS3 的静态工厂补齐：from / apply / serialTweens / parallelTweens
+            //    （BetweenAS3.as:156、:174、:78、:222）。
+            var tweenBody = TestRepository.MethodBody(source, "var Tween = {");
+            StringAssert.Contains(tweenBody, "from: function (object, src, duration, easing) {");
+            StringAssert.Contains(tweenBody, "apply: function (object, dest) {");
+            StringAssert.Contains(tweenBody, "serialTweens: function (list) {");
+            StringAssert.Contains(tweenBody, "parallelTweens: function (list) {");
+
+            // ⑧ Flash Timer 的 reset / start：stop() 之后定时器会被 runItemTimers
+            //    摘出登记表，重启必须重新挂回去。
+            StringAssert.Contains(source, "function restartItemTimer(timer, oneShot, times) {");
+            StringAssert.Contains(source, "timer.reset = function () {");
+            StringAssert.Contains(source, "timer.start = function () {");
+            StringAssert.Contains(source, "item.scheduledTimers.indexOf(timer) < 0");
+
+            // ⑨ 播放结束的 stop 态：ScriptPlayer.completeHandler 把 _state 置 "stop"
+            //    （ScriptPlayer.as:212-215）；reset / setState / seek 都要清掉它。
+            StringAssert.Contains(source, "stopped: false,");
+            StringAssert.Contains(source, "if (state.stopped) {");
+            StringAssert.Contains(source, "setStopped: function (positionSeconds, rate) {");
+            var setStateBody = TestRepository.MethodBody(source, "function setState(positionSeconds, playing, rate) {");
+            StringAssert.Contains(setStateBody, "state.stopped = false;");
+            var seekBody = TestRepository.MethodBody(source, "function seekTo(positionSeconds, playing, rate) {");
+            StringAssert.Contains(seekBody, "state.stopped = false;");
+
+            // ⑩ 控件通道：PlayerPage 播完最后一集时通知宿主。
+            var control = TestRepository.ReadFile(ControlPath);
+            StringAssert.Contains(control, "public Task SetPlaybackStoppedAsync(double positionSeconds, double playbackRate)");
+            StringAssert.Contains(control, "window.scriptDanmakuHost.setStopped(");
+            var playerPage = TestRepository.ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+            StringAssert.Contains(
+                playerPage,
+                "SetPlaybackStoppedAsync(",
+                "PlayerPage 必须把播放结束推给脚本弹幕宿主");
+
+            // ⑪ ScriptDisplay 的其余舞台量：screen* / stage* 四个尺寸 getter
+            //    （ScriptDisplay.as:79-107）与 frameRate 的读写（:339-350）。
+            foreach (var member in new[]
+            {
+                "Object.defineProperty(M8Display, \"screenWidth\", {",
+                "Object.defineProperty(M8Display, \"screenHeight\", {",
+                "Object.defineProperty(M8Display, \"stageWidth\", {",
+                "Object.defineProperty(M8Display, \"stageHeight\", {",
+                "Object.defineProperty(M8Display, \"frameRate\", {"
+            })
+            {
+                StringAssert.Contains(source, member, member);
+            }
+
+            // createGradientBox 转发到矩阵的实例方法（原版 ScriptDisplay.as:129-134
+            // 返回一个已 createGradientBox 过的 Matrix，不是 null）。
+            StringAssert.Contains(
+                displayBody,
+                "createGradientBox: function (width, height, rotation, tx, ty) {");
+            StringAssert.Contains(
+                displayBody,
+                "return matrix.createGradientBox(width, height, rotation, tx, ty);");
+
+            // Matrix3D 的 prependScale（appendScale 早有，prepend 侧缺）。
+            StringAssert.Contains(source, "matrix.prependScale = function (x, y, z) {");
+        }
+
+        [TestMethod]
+        public void Host_FilterSamplesTheGlowRadiusFromTheFilter()
+        {
+            // glow 的模糊半径按滤镜自己的 blurX 取（原版文本两档是 4 / 3），
+            // 不再是写死的 4px。颜色仍是刻意的近似（见宿主内的说明）。
+            var source = HostSource();
+            StringAssert.Contains(source, "function glowFilterRadius(element) {");
+            StringAssert.Contains(source, "\"blur(\" + glowFilterRadius(element) + \"px)\"");
+            StringAssert.Contains(source, "return Math.max(1, toFiniteNumber(filters[index].blurX, 4));");
         }
     }
 }

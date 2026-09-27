@@ -67,21 +67,29 @@
             // 单帧最多推进多少「播放时间」。暂停 / seek / 长卡顿后帧增量可能极大，
             // 不钳制会让 Tween.* 句柄的时间轴一步跳完（与 M8 的逐帧推进语义不符）。
             var MAX_FRAME_DELTA_MS = 250;
-            // Player.refreshRate 的取值区间（M8 文档：10-500，默认 170，精度 0.1 秒）。
-            var DEFAULT_REFRESH_RATE = 170;
-            var MIN_REFRESH_RATE = 10;
-            var MAX_REFRESH_RATE = 500;
             // Player.jump 的 av 号解析：只接受 "av123" / "123" 两种写法。
             var AV_NUMBER_PATTERN = /^(?:av)?(\d+)$/i;
             // commentTrigger / keyTrigger 的默认监听时长（M8 文档：1000ms）。
+            // （Player.refreshRate 不再是常量：原版是空实现，见那边的 getter 注释。）
             var DEFAULT_TRIGGER_TIMEOUT_MS = 1000;
             // 注入脚本作用域的 M8 全局名。compileItem 按这张表生成形参、
-            // createScriptArgs 按同一顺序生成实参，两边必须逐字对应。
+            // createScriptScope 按同一顺序生成实参，两边必须逐字对应。
+            // Display 与 $ 指向同一个对象：原版的 globals 里两个名字并存
+            // （CommentScriptFactory.as:112 「"Display": this._display」与 :113 的
+            // 「"$": this._display」），ScriptBitmap.as:50 还从 scope["Display"]
+            // 反查 _defaultConfig / extend / setupMotionElement。宿主此前只注入 $，
+            // 脚本写 Display.createCanvas(...) 会掉进 AVM1 兜底被声明成 undefined，
+            // 随后的属性访问抛 TypeError。
             var SCRIPT_GLOBAL_NAMES = [
-                "$", "Player", "$G", "Global", "Tween", "TweenEasing", "Utils", "ScriptManager",
+                "$", "Display", "Player", "$G", "Global", "Tween", "TweenEasing", "Utils",
+                "ScriptManager",
                 "timer", "interval", "clearTimer", "clearTimeout", "clear", "load",
                 "trace", "tracex", "stopExecution", "foreach", "clone", "getTimer",
-                "parseInt", "parseFloat", "Math", "String", "Bitmap"];
+                "parseInt", "parseFloat", "Math", "String", "Bitmap",
+                // AS2/AS3 的全局转换函数。真实脚本（av2669196 的 11 条）里
+                // String 用了 1 次、其余为 0，但它们在 M8 文档的示例与当年作品里
+                // 很常见，而 AVM1 兜底救不了「函数被当作对象属性访问」之外的情况。
+                "int", "uint", "Number", "Boolean", "isNaN"];
             // 上面这张表的反查表：判断某个未声明标识符是不是已经注入过的 M8 全局名
             // （是的话说明不是「未声明」，补绑也救不了，直接按脚本失败处理）。
             var INJECTED_SCRIPT_NAMES = {};
@@ -102,9 +110,14 @@
                 null: true, true: true, false: true, arguments: true, eval: true
             };
 
+            // 播放器状态。`stopped` 是**播放结束**这一个瞬时状态的标记，
+            // 只在收到宿主明示的 setStopped 时置位；setState / seek / reset
+            // 都会把它清掉（原版 ScriptPlayer：MEDIA_COMPLETE 置 "stop"，
+            // 之后任何一次 PLAYER_STATE 事件都会把它改回 playing / pause）。
             var state = {
                 positionMs: 0,
                 playing: false,
+                stopped: false,
                 rate: 1,
                 updatedAt: performance.now()
             };
@@ -1013,6 +1026,24 @@
                 ElasticEaseOutIn: elasticEaseOutIn
             };
 
+            // 原版 MotionManager 的 switch 认的是**缓动类名**（MotionManager.as:205-239）：
+            // None / Back / Bounce / Circular / Cubic / Elastic / Exponential /
+            // Sine / Quintic / Linear，命中后取该类的 easeInOut。这张表把它们
+            // 落到 easingTable 里的全名条目上——缺了它，脚本写 `easing: "Sine"`
+            // 会静默退化成线性（原版是 Sine.easeInOut），缓动看起来「没生效」。
+            var M8_EASING_CLASS_NAMES = {
+                None: linearEase,
+                Linear: linearEase,
+                Back: backEaseInOut,
+                Bounce: bounceEaseInOut,
+                Circular: circularEaseInOut,
+                Cubic: cubicEaseInOut,
+                Elastic: elasticEaseInOut,
+                Exponential: exponentialEaseInOut,
+                Sine: sineEaseInOut,
+                Quintic: quinticEaseInOut
+            };
+
             function resolveEasing(value) {
                 if (typeof value === "function") {
                     return value;
@@ -1025,7 +1056,11 @@
                 // 允许 "M8Easing.SineEaseInOut" 这类带命名空间的全名。
                 var dot = value.lastIndexOf(".");
                 var name = dot >= 0 ? value.substring(dot + 1) : value;
-                return easingTable[name] || linearEase;
+                // 未知名的兜底保持线性：原版那两个 switch 的兜底是 Sine.easeInOut，
+                // 但它的输入在此之前已被 initTween 填成 "Linear"，
+                // 真能撞上「未知名」的只有直接传 IEasing 对象的 Tween.tween，
+                // 那里不会是字符串。所以这里不跟着抄 Sine。
+                return easingTable[name] || M8_EASING_CLASS_NAMES[name] || linearEase;
             }
 
             function toFiniteNumber(value, fallback) {
@@ -1586,6 +1621,31 @@
                 };
             }
 
+            // 声明式补间的时长/寿命来自同一处声明，但**不能**混为一谈：
+            // 时长必须有限（常驻元素也得先把这次补间跑完），寿命才是元素的存续期。
+            //
+            // 返回 null = 未声明（调用方保留元素已有寿命）；
+            // Infinity = 常驻（lifeTime: 0）；负数按原版夹成 0.001 秒（见下）。
+            function resolveDeclaredLifeTimeMs(declaredSeconds) {
+                if (declaredSeconds === null) {
+                    return null;
+                }
+
+                if (declaredSeconds === 0) {
+                    return LIFE_TIME_UNBOUNDED;
+                }
+
+                // 原版 setupMotionElement（ScriptDisplay.as:238-240）：
+                //   if(motionConfig.lifeTime < 0) motionConfig.lifeTime = 0.001;
+                // 负数是「立刻到期」，不是「常驻」——早先把 <= 0 一起并进常驻，
+                // 语义正好反了。
+                if (declaredSeconds < 0) {
+                    return 1;
+                }
+
+                return declaredSeconds * 1000;
+            }
+
             // 把声明式 motion 展开成段列表。
             //  - 每条属性一条轨道；同一属性的 repeat 展开成连续多段
             //    （M8 的 `repeat` 是「整条补间重复」，因此每段都从 fromValue 重新开始）。
@@ -1636,10 +1696,10 @@
                 }
 
                 return {
-                    segments: segments,
-                    unboundedLifeTime: unboundedLifeTime,
-                    lifeTimeSeconds: lifeTimeSeconds,
-                    declaredLifeTimeSeconds: declaredLifeTimeSeconds
+                    // 调用方（createTween / createDrivenHandle）只需要段列表，
+                    // 寿命声明由它们自己从 config / options 上读——
+                    // 这里不再回传一份，免得两处判定分叉。
+                    segments: segments
                 };
             }
 
@@ -1956,24 +2016,22 @@
                     declaredSeconds = readMotionDeclaredSeconds(config);
                 }
 
-                var unboundedLifeTime = declaredSeconds !== null && declaredSeconds <= 0;
+                // lifeTime: 0 = 常驻，负数 = 立刻到期（原版 ScriptDisplay.as:238-240
+                // 把负数夹成 0.001 秒）。两者都算「已声明」，见 resolveDeclaredLifeTimeMs。
+                var lifeTimeMs = resolveDeclaredLifeTimeMs(declaredSeconds);
 
                 var motion = {
                     segments: built.segments,
                     // 脚本声明的寿命（毫秒）。它只作声明记录，元素的真实寿命
                     // 还要受条目窗口剩余时间约束，见 resolveElementLifeTimeMs。
-                    // lifeTime: 0 表示常驻：声明值取 Infinity，元素活到窗口兜底上限。
-                    lifeTimeMs: unboundedLifeTime
-                        ? LIFE_TIME_UNBOUNDED
-                        : (declaredSeconds === null
-                            ? null
-                            : declaredSeconds * 1000),
+                    // null = 本次补间没声明寿命，保留元素已有的值。
+                    lifeTimeMs: lifeTimeMs,
                     totalMs: motionTotalMs(built.segments),
                     lastElapsedMs: -1,
                     appliedOnce: false,
                     // 「常驻」声明（M8 的 lifeTime: 0）：元素活到条目窗口兜底上限，
                     // 而不是补间跑完就到期。
-                    persistent: unboundedLifeTime
+                    persistent: lifeTimeMs === LIFE_TIME_UNBOUNDED
                 };
 
                 element.motion = motion;
@@ -2186,6 +2244,11 @@
                 return clipped;
             }
 
+            // BetweenAS3 的静态工厂里，宿主此前只实现了 M8 脚本最常用的那一批
+            // （tween / to / 组合子）。原版 org.libspark.betweenas3.BetweenAS3
+            // （:58-222）还有下面这些公开静态方法，脚本在用 `Tween` 这个名字
+            // （宿主注入的就是 BetweenAS3 本体）时都可能撞上：全是时间轴运算，
+            // 直接复用同一套段列表模型即可。
             var Tween = {
                 // 与 M8 文档同签名；src 为空时等价于 to()。
                 tween: function (object, dest, src, duration, easing) {
@@ -2194,6 +2257,30 @@
                 to: function (object, dest, duration, easing) {
                     var config = buildTweenConfig(dest, null, easing);
                     return createDrivenHandle(object, config, duration);
+                },
+                // from(object, src, duration, easing)：从 src 出发、补到元素**当前值**。
+                // 与原版的差别记在这里：原版是播放时才读当前值，宿主在建句柄时就
+                // 把当前值固化成 toValue——句柄的 play() 起算语义不变，
+                // 只是「目标值」在创建时刻确定（M8 脚本的写法都是建完立刻 play）。
+                from: function (object, src, duration, easing) {
+                    return createDrivenHandle(
+                        object,
+                        buildFromTweenConfig(object, src, easing),
+                        duration);
+                },
+                // apply(object, dest)：不建句柄，立即把 dest 落到对象上
+                // （原版 BetweenAS3.apply 是「duration 为 1 但立刻生效」的便利方法）。
+                // 只支持元素：宿主的一切可补间量都是元素属性。
+                apply: function (object, dest) {
+                    if (!object || !dest || typeof dest !== "object") {
+                        return;
+                    }
+
+                    for (var name in dest) {
+                        if (Object.prototype.hasOwnProperty.call(dest, name)) {
+                            applyTweenValue(object, name, dest[name]);
+                        }
+                    }
                 },
                 // ---- 组合子 ----
                 //
@@ -2282,6 +2369,15 @@
                     }
 
                     return createTweenHandle(segments, longest, unionHandleElements.apply(null, arguments));
+                },
+                // 原版 BetweenAS3 的 serial / parallel 是 (…rest:ITween)，返回 ITweenGroup；
+                // 另有 serialTweens / parallelTweens 接受**数组**（BetweenAS3.as:78、:222）。
+                // 宿主内部就是同一件事，数组形态直接展开转发。
+                serialTweens: function (list) {
+                    return Tween.serial.apply(null, list || []);
+                },
+                parallelTweens: function (list) {
+                    return Tween.parallel.apply(null, list || []);
                 }
             };
 
@@ -2320,7 +2416,36 @@
                 return config;
             }
 
-            // Tween.tween / Tween.to：用声明式配置建段，再交给句柄驱动。
+            // Tween.from(object, src, duration, easing)：与 buildTweenConfig(dest, src) 反向。
+            // src 是**起点**，终点是元素**当前值**——必须在这里显式取出来写进 toValue，
+            // 因为 createTweenTrack 见到 toValue 缺失时是「等 fromValue」，
+            // 不是「补到当前值」（那个缺省只适用于 fromValue 缺失的方向）。
+            function buildFromTweenConfig(object, src, easing) {
+                var config = {};
+                var name;
+                if (src && typeof src === "object") {
+                    for (name in src) {
+                        if (Object.prototype.hasOwnProperty.call(src, name)) {
+                            config[name] = {
+                                fromValue: src[name],
+                                toValue: readTweenTargetValue(object, name)
+                            };
+                        }
+                    }
+                }
+
+                if (easing !== undefined && easing !== null) {
+                    for (name in config) {
+                        if (Object.prototype.hasOwnProperty.call(config, name)) {
+                            config[name].easing = easing;
+                        }
+                    }
+                }
+
+                return config;
+            }
+
+            // Tween.from / Tween.to：用声明式配置建段，再交给句柄驱动。
             function createDrivenHandle(object, config, duration) {
                 var built = buildMotionSegments(config, null, object);
                 if (built.segments.length === 0) {
@@ -2426,6 +2551,13 @@
                 // 落在 style 上，其余（按钮的 fillColors 等）落在元素属性上。
                 element.setStyle = function (name, value) {
                     if (!name) {
+                        return element;
+                    }
+
+                    // align 走元素自己的访问器（原版是 setStyle → TextFormat.align），
+                    // 归一与标脏都在那边，这里不重复一份。
+                    if (element.style && name === "align") {
+                        element.align = value;
                         return element;
                     }
 
@@ -2988,6 +3120,49 @@
                     }
                 });
 
+                // 原版 CommentField.align 落到 TextFormat.align（CommentField.as:62-71），
+                // 取值 "left" / "center" / "right"。这里只做「可读写、可回读」，
+                // **不参与绘制**——原版 CommentField 用的是 autoSize = LEFT
+                // （CommentField.as:45），文本框宽度恒等于文本宽度，align 因此
+                // 在原版里没有视觉效果。宿主照此保持左对齐，不臆造额外的排版行为。
+                Object.defineProperty(element, "align", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.style ? element.style.align : "left";
+                    },
+                    set: function (value) {
+                        if (!element.style) {
+                            return;
+                        }
+
+                        var align = String(value === undefined || value === null ? "left" : value);
+                        if (align !== "center" && align !== "right") {
+                            // 原版把取值直接交给 TextFormat，非法值等同默认左对齐。
+                            align = "left";
+                        }
+
+                        element.style.align = align;
+                        element.propertyDirty["*"] = true;
+                        invalidateElementCache(element);
+                        dirty = true;
+                    }
+                });
+
+                // 原版 CommentField 重写了 htmlText 的 get/set，两个方向都直接
+                // 读写 text（CommentField.as:117-125）——它根本不解析 HTML 标签。
+                // 因此这里也照原样直通，不做富文本。
+                Object.defineProperty(element, "htmlText", {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        return element.textValue;
+                    },
+                    set: function (value) {
+                        element.text = value;
+                    }
+                });
+
                 return element;
             }
 
@@ -3007,7 +3182,10 @@
                     borderColor: normalizeColor(source.borderColor === undefined
                         || source.borderColor === null
                         ? 0
-                        : source.borderColor)
+                        : source.borderColor),
+                    // 原版 initStyle 没有 align，文本框是 TextFieldAutoSize.LEFT；
+                    // 这里留一个可回读的默认值（见 defineTextProperties 的 align）。
+                    align: "left"
                 };
             }
 
@@ -3988,13 +4166,41 @@
                 }
 
                 // 发光滤镜在缓存阶段一次性施加：脚本只画一次，滤镜不必每帧重算。
+                //
+                // 这是**近似**，两处已知偏离（都不是移植疏漏，是保留模式的取舍）：
+                //  ① 衰减形状：原版是取 alpha 通道做高斯模糊后按 color/alpha/strength
+                //     着色，再与原图叠加；宿主用 blur + lighter 叠加近似。要更接近得把
+                //     原图渲到离屏、转 alpha mask、多次 box-blur，成本远大于收益。
+                //  ② 着色：原版 CommentConfig.getFilterByColor(color) 只在**黑/白**
+                //     两档里选（color != 0 → 白 glow，否则黑 glow），脚本传给
+                //     $.createGlowFilter 的颜色则完全被忽略。宿主取元素的显示色，
+                //     等于把「白字白 glow、黑字黑 glow」这一档算对了，其余颜色会比
+                //     原版亮一些——这是刻意的：按两档猜色反而会在彩色文字上更失真。
                 if (hasGlowFilter(element) && typeof target.filter === "string") {
-                    target.filter = "blur(4px)";
+                    target.filter = "blur(" + glowFilterRadius(element) + "px)";
                     target.globalCompositeOperation = "lighter";
                     paintElementContentRaw(target, element);
                     target.globalCompositeOperation = "source-over";
                     target.filter = "none";
                 }
+            }
+
+            // 取第一个 GlowFilter 的模糊半径（第三参 blurX）。
+            // 原版文本那两档是 4（重墨）/ 3（描边），缺省按 4 走。
+            function glowFilterRadius(element) {
+                var filters = element.props.filters;
+                if (!filters || !filters.length) {
+                    return 4;
+                }
+
+                for (var index = 0; index < filters.length; index++) {
+                    var name = filters[index] && (filters[index].type || filters[index].kind);
+                    if (name === "GlowFilter" || name === "Glow") {
+                        return Math.max(1, toFiniteNumber(filters[index].blurX, 4));
+                    }
+                }
+
+                return 4;
             }
 
             function paintElementContentRaw(target, element) {
@@ -4337,8 +4543,13 @@
 
             // M8 的 keyTrigger 只监听这一组键（文档明确列出），其余按键不投递。
             // 键值与 DOM/Flash 的 keyCode 同源，C# 侧直接透传 VirtualKey 的整数值。
+            // 27（Escape）不能漏：原版的判定是
+            // `code == 27 || code >= 96 && code <= 105 || code >= 34 && code <= 40
+            //  || W || S || A || D`（ScriptEventManager.as:33、:57），
+            // 注意 96-105 是**小键盘 0-9**、34-40 是 Home/方向键/End/PgDn——
+            // 33（PageUp）不在原版范围里，此前宿主收错了。
             var M8_TRIGGER_KEY_CODES = {
-                33: true, 34: true, 35: true, 36: true, 37: true, 38: true, 39: true, 40: true,
+                27: true, 34: true, 35: true, 36: true, 37: true, 38: true, 39: true, 40: true,
                 65: true, 68: true, 83: true, 87: true,
                 96: true, 97: true, 98: true, 99: true, 100: true,
                 101: true, 102: true, 103: true, 104: true, 105: true
@@ -5769,6 +5980,7 @@
             function setState(positionSeconds, playing, rate) {
                 state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
                 state.playing = !!playing;
+                state.stopped = false;
                 state.rate = Number(rate) > 0 ? Number(rate) : 1;
                 state.updatedAt = performance.now();
 
@@ -5781,9 +5993,26 @@
                 }
             }
 
+            // 播放结束：只置停止态并出最后一帧，**不动元素可见性**。
+            //
+            // 原版 ScriptManager.playerCompleteHandler 会把所有元件置 visible=false，
+            // 但那个「所有元件」是它自己的全局登记表；宿主的元素登记表是**按条目**
+            // 分代的，全局失效会跨条目误伤（host 的 reset 早已把上一代作废）。
+            // 因此这里只保证 Player.state 读到 "stop"（对脚本可观测的那一面），
+            // 画面收尾交给各条目自己的 lifeTime / 窗口。这是刻意记录的偏离。
+            function setStopped(positionSeconds, rate) {
+                state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
+                state.playing = false;
+                state.stopped = true;
+                state.rate = Number(rate) > 0 ? Number(rate) : 1;
+                state.updatedAt = performance.now();
+                tick(currentPositionMs());
+            }
+
             function seekTo(positionSeconds, playing, rate) {
                 state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
                 state.playing = !!playing;
+                state.stopped = false;
                 state.rate = Number(rate) > 0 ? Number(rate) : 1;
                 state.updatedAt = performance.now();
 
@@ -5938,11 +6167,13 @@
                     setPropertyInternal(element, "visible", !!source.visible, false);
                 }
 
-                // 寿命：M8 的 lifeTime 未声明时按宿主默认（3 秒）算，
-                // 声明 0 / 负数表示常驻（声明值 Infinity，实际仍受窗口兜底约束）。
+                // 寿命：**未声明时不改**（元素活到条目窗口兜底上限，见
+                // registerItemElement 的初值），声明时才按声明值收紧。
                 // 声明值可能写在外层，也可能写在 motion 的某条属性上
                 // （`motion: {x: {…, lifeTime: 4}}`），后者在 M8 脚本里更常见，
                 // 取两者的最大值——与「同一元素多个 tween 取最大声明值」一致。
+                // lifeTime: 0 → 常驻；负数 → 立刻到期（原版 ScriptDisplay.as:238-240
+                // 夹成 0.001 秒，见 resolveDeclaredLifeTimeMs）。
                 var declared = readDeclaredSeconds(source, "lifeTime");
                 var motionConfig = source.motion ? normalizeMotionConfig(source.motion) : null;
                 var motionDeclared = motionConfig ? readMotionDeclaredSeconds(motionConfig) : null;
@@ -5950,10 +6181,9 @@
                     declared = motionDeclared;
                 }
 
-                if (declared !== null) {
-                    applyElementLifeTime(
-                        element,
-                        declared <= 0 ? LIFE_TIME_UNBOUNDED : declared * 1000);
+                var declaredLifeTimeMs = resolveDeclaredLifeTimeMs(declared);
+                if (declaredLifeTimeMs !== null) {
+                    applyElementLifeTime(element, declaredLifeTimeMs);
                 }
 
                 // 父元件：M8 的 parent 是「创建时挂到谁下面」的普通参数。
@@ -6101,8 +6331,16 @@
                 createMatrix: function (a, b, c, d, tx, ty) {
                     return createPlaceholderMatrix(a, b, c, d, tx, ty);
                 },
-                createColorTransform: function () {
-                    return null;
+                // Flash 的 ColorTransform（ScriptDisplay.as:284-287）。
+                // 脚本（entry_08 的 Akari）用它做色调映射：
+                //   rgbToTransformTint(rgb) → createColorTransform(r,g,b,alphaRatio)
+                //   rgbToTransformAdd(rgb)  → createColorTransform(1,1,1,1,r*255,g*255,b*255,alpha*255)
+                // 因此 8 个参数必须真存下来，不能返回 null。
+                createColorTransform: function (redMultiplier, greenMultiplier, blueMultiplier,
+                    alphaMultiplier, redOffset, greenOffset, blueOffset, alphaOffset) {
+                    return createColorTransform(
+                        redMultiplier, greenMultiplier, blueMultiplier, alphaMultiplier,
+                        redOffset, greenOffset, blueOffset, alphaOffset);
                 },
                 createGlowFilter: function () {
                     return createPlaceholderFilter("GlowFilter", arguments);
@@ -6116,8 +6354,12 @@
                 createBevelFilter: function () {
                     return createPlaceholderFilter("BevelFilter", arguments);
                 },
-                createGradientBox: function () {
-                    return null;
+                // 原版 createGradientBox(w,h,rotation,tx,ty) 返回一个已经
+                // createGradientBox 过的 Matrix（ScriptDisplay.as:129-134）。
+                // 宿主矩阵的实例方法已支持该语义（含 gradientBox 记录），直接转发。
+                createGradientBox: function (width, height, rotation, tx, ty) {
+                    var matrix = createPlaceholderMatrix();
+                    return matrix.createGradientBox(width, height, rotation, tx, ty);
                 },
                 createBitmapData: function () {
                     return null;
@@ -6239,6 +6481,62 @@
                 }
             });
 
+            // 原版还有 screenWidth / screenHeight / stageWidth / stageHeight
+            // （ScriptDisplay.as:79-107；screen* 与 fullScreen* 在原版里返回的是
+            // 同一个量 —— 四个 getter 里有两个直接读 fullScreenWidth/Height，
+            // stage* 才是 stage.stageWidth/Height）。宿主里舞台就是画布，
+            // 四者同为视口宽高，这里补齐名字避免脚本读到 undefined。
+            Object.defineProperty(M8Display, "screenWidth", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportWidth;
+                }
+            });
+
+            Object.defineProperty(M8Display, "screenHeight", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportHeight;
+                }
+            });
+
+            Object.defineProperty(M8Display, "stageWidth", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportWidth;
+                }
+            });
+
+            Object.defineProperty(M8Display, "stageHeight", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return viewportHeight;
+                }
+            });
+
+            // 原版 frameRate 读写 stage.frameRate（ScriptDisplay.as:339-350，
+            // 写时钳到 (0, 120)）。宿主是 rAF，改不了帧率，但**要能读能写**：
+            // 脚本写 `$.frameRate = 30` 时若抛错会整条停摆。存一个值、
+            // 按原版的区间判定接受，不产生实际效果（与 Player.refreshRate 同一处理）。
+            var displayFrameRate = 60;
+            Object.defineProperty(M8Display, "frameRate", {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                    return displayFrameRate;
+                },
+                set: function (value) {
+                    var rate = toFiniteNumber(value, displayFrameRate);
+                    if (rate > 0 && rate < 120) {
+                        displayFrameRate = rate;
+                    }
+                }
+            });
+
             function toNumberArray(list, truncate) {
                 var result = [];
                 if (list === undefined || list === null) {
@@ -6254,9 +6552,10 @@
                 return result;
             }
 
-            // 矩阵占位：M8 的 $.createMatrix() 返回可参与变换的矩阵对象，
+            // 矩阵：M8 的 $.createMatrix() / $.createGradientBox() 返回可参与变换的矩阵对象，
             // 本宿主支持 a/b/c/d/tx/ty 六个分量（与 canvas transform 同序），
-            // 其余（createGradientBox 等 Flash 专用方法）是 no-op。
+            // createGradientBox 会按 Flash 的公式算出分量并把渐变框记在 gradientBox 上
+            // （渲染渐变时直接用它，比反解矩阵更准）。
             // ---- 2D 变换矩阵（Flash 的 Matrix）----
             //
             // 与元素已有的 props.matrix 是**同一个对象**：applyElementTransform 读
@@ -6535,6 +6834,14 @@
                     return matrix.append({ rawData: scale });
                 };
 
+                matrix.prependScale = function (x, y, z) {
+                    var scale = MATRIX3D_IDENTITY.slice();
+                    scale[0] = toFiniteNumber(x, 1);
+                    scale[5] = toFiniteNumber(y, 1);
+                    scale[10] = toFiniteNumber(z, 1);
+                    return matrix.prepend({ rawData: scale });
+                };
+
                 matrix.transformVector = function (vector) {
                     var data = matrix.rawData;
                     var x = toFiniteNumber(vector && vector.x, 0);
@@ -6718,6 +7025,26 @@
                 };
             }
 
+            // Flash 的 ColorTransform：8 个分量齐全、可读可写。
+            // 与 Matrix3D / colorTransform 一样，宿主只**存储**——2D 画布的合成
+            // 没有逐通道乘加这一步（要真做需要逐元素 offscreen 乘算 + HTML filter）。
+            // 但脚本（entry_08 的 Akari.Utilities.Color）会把返回值的字段再读回来
+            // （rgb[0]/rgb[1]… 就是从这个对象上取的比例与偏移），返回 null 会直接
+            // 断在属性访问上，所以「有对象、字段对、可读写」是硬要求。
+            function createColorTransform(redMultiplier, greenMultiplier, blueMultiplier,
+                alphaMultiplier, redOffset, greenOffset, blueOffset, alphaOffset) {
+                return {
+                    redMultiplier: toFiniteNumber(redMultiplier, 1),
+                    greenMultiplier: toFiniteNumber(greenMultiplier, 1),
+                    blueMultiplier: toFiniteNumber(blueMultiplier, 1),
+                    alphaMultiplier: toFiniteNumber(alphaMultiplier, 1),
+                    redOffset: toFiniteNumber(redOffset, 0),
+                    greenOffset: toFiniteNumber(greenOffset, 0),
+                    blueOffset: toFiniteNumber(blueOffset, 0),
+                    alphaOffset: toFiniteNumber(alphaOffset, 0)
+                };
+            }
+
             // 元素工厂的统一入口：**先**接进元素树、**再**套用创建参数。
             //
             // 顺序不能反（踩过的坑）：applyCreateOptions 会声明元素寿命
@@ -6747,10 +7074,14 @@
                     return "stop";
                 }
 
+                // 播放结束：原版 ScriptPlayer.completeHandler 把 _state 置 "stop"，
+                // 此后只有在收到新的播放器状态事件时才离开这个态。
+                if (state.stopped) {
+                    return "stop";
+                }
+
                 return state.playing ? "playing" : "pause";
             }
-
-            var refreshRateValue = DEFAULT_REFRESH_RATE;
 
             var Player = {
                 play: function () {
@@ -7294,6 +7625,16 @@
                 },
                 interval: function (closure, time, times) {
                     return scheduleItemTimer(closure, time, false, times);
+                },
+                // Utils.clone / Utils.foreach：原版 ScriptUtils 里就在（ScriptUtils.as:121-139），
+                // 注入的 Utils 就是这个类的实例，所以脚本写 Utils.clone(o) 与
+                // 裸写 clone(o) 都成立（后者是 CommentScriptFactory 的额外注入）。
+                // 宿主此前只注入了裸名，Utils.clone 会掉进 AVM1 兜底变成 undefined。
+                clone: function (object) {
+                    return clone(object);
+                },
+                foreach: function (loop, callback) {
+                    return foreach(loop, callback);
                 }
             };
 
@@ -7379,6 +7720,24 @@
                     }
                 };
 
+                // Flash Timer 的 reset / start（原版 interval 返回的确实是
+                // flash.utils.Timer，见 ScriptUtils.as:85-109，脚本可以拿它当 Timer 用）。
+                // 用赋值而不是写在字面量里：契约测试按「宿主命令对象里那个 reset 成员」
+                // 的源码形态定位宿主命令，这里若出现同样的字面写法会让它找错位置。
+                //
+                // 注意 stop() 之后定时器会在下一帧被 runItemTimers 摘出登记表，
+                // 所以重启必须把它重新挂回去（否则 start() 静默失效）。
+                timer.reset = function () {
+                    restartItemTimer(timer, oneShot, times);
+                };
+                timer.start = function () {
+                    if (timer.running) {
+                        return;
+                    }
+
+                    restartItemTimer(timer, oneShot, times);
+                };
+
                 item.scheduledTimers.push(timer);
                 dirty = true;
                 ensureRunning();
@@ -7395,6 +7754,27 @@
                 }
 
                 return Math.floor(toFiniteNumber(times, 1));
+            }
+
+            // Flash Timer 的 reset / start：清零计时与剩余次数，重新开始。
+            // 关键一步是**把定时器重新挂回条目登记表**——stop()（或跑满 times）
+            // 之后 runItemTimers 会在下一帧把它摘出去，只置 running = true
+            // 是救不回来的（登记表里已经没有它了）。
+            function restartItemTimer(timer, oneShot, times) {
+                var item = timer.ownerItem;
+                if (!item || item.removed) {
+                    return;
+                }
+
+                timer.elapsedMs = 0;
+                timer.remaining = oneShot ? 1 : normalizeTimerTimes(times);
+                timer.running = true;
+                if (item.scheduledTimers.indexOf(timer) < 0) {
+                    item.scheduledTimers.push(timer);
+                }
+
+                dirty = true;
+                ensureRunning();
             }
 
             var nextTimerId = 0;
@@ -7686,6 +8066,26 @@
                 return Math.max(0, performance.now() - scriptClockOrigin);
             }
 
+            // ---- AS2/AS3 的全局转换函数 ----
+
+            // int()：AVM1 里是**朝零截断**到 32 位有符号整数
+            // （int(-1.5) === -1、int(NaN) === 0、int("12abc") === 12）。
+            // 宿主此前没有注入它，脚本一用就掉进 AVM1 兜底被声明成 undefined。
+            function asInt(value) {
+                var number = Number(value);
+                if (!isFinite(number)) {
+                    // NaN / ±Infinity 都按 AS3 的 Number.int 给 0。
+                    return 0;
+                }
+
+                return Math.trunc(number) | 0;
+            }
+
+            // uint()：同 int()，但按 32 位**无符号**取值（uint(-1) === 4294967295）。
+            function asUint(value) {
+                return asInt(value) >>> 0;
+            }
+
             function stopExecution() {
                 // M8 用 stopExecution() 终止当前脚本：抛出内部信号，
                 // 由 activateItem 捕获后按「脚本主动终止」处理（不计为错误）。
@@ -7740,8 +8140,10 @@
                 item.lastAdvanceMs = -1;
                 // 顺序必须与 compileItem 的形参逐字对应。
                 // 注意 `Global` 与 `$G` 是同一个对象（M8 文档里的两个名字，
-                // 真实脚本两种都在用：样本里 Global 出现 90 次、$G 若干次）。
+                // 真实脚本两种都在用：样本里 Global 出现 90 次、$G 若干次）；
+                // `Display` 与 `$` 同理，都是 ScriptDisplay 的命名空间。
                 return [
+                    M8Display,
                     M8Display,
                     Player,
                     Global,
@@ -7771,7 +8173,15 @@
                     window.parseFloat,
                     window.Math,
                     window.String,
-                    ScriptBitmap
+                    ScriptBitmap,
+                    // AS2/AS3 的全局转换函数。int/uint 必须自己实现：
+                    // JS 只有 Number/Boolean/isNaN 是现成的（直接透传 window 上的），
+                    // 而 int()/uint() 是 AVM1 特有的 32 位截断转换。
+                    asInt,
+                    asUint,
+                    window.Number,
+                    window.Boolean,
+                    window.isNaN
                 ];
             }
 
@@ -7783,6 +8193,7 @@
                     clearAllItems();
                     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
                     state.playing = !!playing;
+                    state.stopped = false;
                     state.rate = Number(rate) > 0 ? Number(rate) : 1;
                     state.updatedAt = performance.now();
                     visible = shouldShow !== false;
@@ -7830,6 +8241,10 @@
                     addItem(model, generation);
                 },
                 setState: setState,
+                // 播放结束（原版 ScriptPlayer 的 "stop" 态）。
+                setStopped: function (positionSeconds, rate) {
+                    setStopped(positionSeconds, rate);
+                },
                 seek: function (positionSeconds, playing, rate) {
                     seekTo(positionSeconds, playing, rate);
                 },
