@@ -222,10 +222,18 @@ namespace BiliBili.UWP.Modules.Home
         {
             int minMinutes = SettingHelper.Get_RecommendDurationMin();
             int maxMinutes = SettingHelper.Get_RecommendDurationMax();
+            bool hideAD = SettingHelper.Get_HideAD();
             for (int i = items.Count - 1; i >= 0; i--)
             {
                 var item = items[i];
                 if (item.card_goto.Contains("ad_web") || (includeBanner && item.card_goto.Contains("banner")))
+                {
+                    items.RemoveAt(i);
+                    continue;
+                }
+
+                //开启「过滤推荐页推广视频」时，带 ad_info 的推广项整条移除，不再只是打「广告」角标
+                if (hideAD && item.ad_info != null)
                 {
                     items.RemoveAt(i);
                     continue;

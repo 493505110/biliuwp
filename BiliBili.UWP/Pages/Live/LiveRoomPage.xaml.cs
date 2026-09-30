@@ -549,6 +549,18 @@ namespace BiliBili.UWP.Pages
             mediaElement.Stop();
             mediaElement.MediaSource = null;
             danmu.ClearAll();
+            //简介弹层里的 WebView2 不会随页面销毁自动关闭，不 Close 会留下 Chromium 进程
+            try
+            {
+                if (web.CoreWebView2 != null)
+                {
+                    web.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("关闭直播简介WebView2失败", LogType.ERROR, ex);
+            }
 
         }
         private async void GetMyGifts()

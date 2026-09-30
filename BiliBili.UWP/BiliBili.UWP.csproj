@@ -306,6 +306,7 @@
     <Compile Include="Api\Home\HomeAPI.cs" />
     <Compile Include="Api\Home\HotAPI.cs" />
     <Compile Include="Api\Home\RecommendAPI.cs" />
+    <Compile Include="Api\Home\WeeklyAPI.cs" />
     <Compile Include="Api\Live\LiveCenterAPI.cs" />
     <Compile Include="Api\Live\LiveRoomAPI.cs" />
     <Compile Include="Api\PlayerAPI.cs" />
@@ -416,6 +417,7 @@
     <Compile Include="Helper\MusicHelper.cs" />
     <Compile Include="Helper\InteractiveDanmakuService.cs" />
     <Compile Include="Helper\InteractiveDanmakuTypeDialog.cs" />
+    <Compile Include="Helper\DanmakuLocationTypeDialog.cs" />
     <Compile Include="Helper\PlayurlHelper.cs" />
     <Compile Include="Helper\SettingHelper.cs" />
     <Compile Include="Helper\SqlHelper.cs" />
@@ -424,6 +426,7 @@
     <Compile Include="Helper\Utils.cs" />
     <Compile Include="Helper\WbiEncodeHelper.cs" />
     <Compile Include="Helper\SignHelper.cs" />
+    <Compile Include="Helper\SplashImageSelector.cs" />
     <Compile Include="Helper\BackgroundTaskRegistrar.cs" />
     <Compile Include="Helper\WebView2CookieHelper.cs" />
     <Compile Include="Helper\WebClientClass.cs" />
@@ -473,6 +476,7 @@
     <Compile Include="Modules\Home\HotVM.cs" />
     <Compile Include="Modules\Home\RecommendVM.cs" />
     <Compile Include="Modules\Home\TopicVM.cs" />
+    <Compile Include="Modules\Home\WeeklyVM.cs" />
     <Compile Include="Modules\LiveArea.cs" />
     <Compile Include="Modules\Live\LiveCenterVM.cs" />
     <Compile Include="Modules\Live\LiveWatchHistoryVM.cs" />
@@ -536,6 +540,9 @@
     </Compile>
     <Compile Include="Pages\Home\RecommendPage.xaml.cs">
       <DependentUpon>RecommendPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\Home\WeeklyPage.xaml.cs">
+      <DependentUpon>WeeklyPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Pages\Live\LiveMyMedalPage.xaml.cs">
       <DependentUpon>LiveMyMedalPage.xaml</DependentUpon>
@@ -1011,6 +1018,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\Home\RecommendPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Pages\Home\WeeklyPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

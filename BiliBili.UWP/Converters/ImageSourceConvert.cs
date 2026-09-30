@@ -17,11 +17,12 @@ namespace BiliBili.UWP.Converters
             {
                 return new BitmapImage(new Uri("ms-appx:///Assets/Logo/PI160_100.png"));
             }
-            if (value.ToString().Contains("@"))
+            // ms-appx 本地资源必须在拼接之前返回，否则会被拼成 ms-appx:///...png@240h.jpg 而加载失败
+            if (value.ToString().Contains("ms-appx"))
             {
                 return new BitmapImage(new Uri(value.ToString()));
             }
-            if (value.ToString().Contains("ms-appx"))
+            if (value.ToString().Contains("@"))
             {
                 return new BitmapImage(new Uri(value.ToString()));
             }

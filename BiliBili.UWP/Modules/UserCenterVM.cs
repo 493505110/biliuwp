@@ -68,7 +68,11 @@ namespace BiliBili.UWP.Modules
             try
             {
                 Loading = true;
-                
+
+                // 头图和详情互不依赖，和详情同时发出；否则要等详情返回后才开始请求头图，
+                // 页面先按默认图渲染，头图会明显晚一步才出来
+                _ = GetTopImage();
+
                 var api = userCenterAPI.UserCenterDetail(mid);
 
                 var results = await api.Request();
@@ -78,7 +82,6 @@ namespace BiliBili.UWP.Modules
                     if (data.success)
                     {
                         UserCenterDetail = data.data;
-                        GetTopImage();
                         SubmitVideos = new IncrementalLoadingCollection<UserSubmitVideoSource, SubmitVideoItemModel>(new UserSubmitVideoSource(mid),30);
                     }
                     else
@@ -108,13 +111,19 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                var result=await userCenterAPI.UserProfileWeb(mid).Request();
+                // x/space/acc/info 已固定被风控拦截（-401 crawler_main_space_acc_info），取不到 top_photo，
+                // 换 card 接口：带 photo=true 时 data.space 里仍有完整头图地址。
+                var result=await userCenterAPI.UserCard(mid).Request();
                 if (result.status)
                 {
                     var data =await result.GetData<JObject>();
-                    if (data.success)
+                    if (data.success && data.data != null)
                     {
-                        top_image = data.data["top_photo"].ToString();
+                        var image = ResolveTopImage(data.data);
+                        if (!string.IsNullOrEmpty(image))
+                        {
+                            top_image = image;
+                        }
                     }
                 }
             }
@@ -122,6 +131,44 @@ namespace BiliBili.UWP.Modules
             {
                 HandleError(ex);
             }
+        }
+
+        /// <summary>
+        /// card 接口的头图在 data.space，l_img 是大图，s_img 是缩略图；
+        /// 不带 photo=true 时该字段为 null。
+        /// </summary>
+        private static string ResolveTopImage(JObject data)
+        {
+            var space = data["space"];
+            var large = space?["l_img"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(large))
+            {
+                return NormalizeImageUrl(large);
+            }
+            return NormalizeImageUrl(space?["s_img"]?.ToString());
+        }
+
+        private static string NormalizeImageUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return null;
+            }
+
+            var value = url.Trim();
+            if (value.StartsWith("//", StringComparison.Ordinal))
+            {
+                return "https:" + value;
+            }
+            if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://" + value.Substring("http://".Length);
+            }
+            if (value.IndexOf("://", StringComparison.Ordinal) < 0)
+            {
+                return "https://i0.hdslb.com/" + value.TrimStart('/');
+            }
+            return value;
         }
 
     }

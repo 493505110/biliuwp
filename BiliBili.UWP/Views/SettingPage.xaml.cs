@@ -48,6 +48,9 @@ namespace BiliBili.UWP.Views
             {
                 GetSetting();
             }
+
+            // 本页被缓存，播放器面板里也能改弹幕位置类型，每次进入都刷新入口文案
+            UpdateDanmakuLocationTypeSummary();
         }
         bool get_ing = true;
         bool loadsetting = true;
@@ -119,6 +122,7 @@ namespace BiliBili.UWP.Views
                 sw_BoldDanmu.IsOn = SettingHelper.Get_BoldDanmu();
                 sw_StatusDanmu.IsOn = SettingHelper.Get_DMStatus();
                 UpdateInteractiveDanmakuTypeSummary();
+                UpdateDanmakuLocationTypeSummary();
                 sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
                 sw_EnableScriptDanmaku.IsOn = SettingHelper.Get_EnableScriptDanmaku();
 
@@ -196,6 +200,7 @@ namespace BiliBili.UWP.Views
                     grid_Stretch.Visibility = Visibility.Collapsed;
                     grid_Ver.Visibility = Visibility.Collapsed;
                     grid_Opacity.Visibility = Visibility.Collapsed;
+                    grid_FrostedGlass.Visibility = Visibility.Collapsed;
                 }
 
 
@@ -235,6 +240,8 @@ namespace BiliBili.UWP.Views
                         break;
                 }
                 get_ing = false;
+
+                sw_FollowSystemTheme.IsOn = SettingHelper.Get_FollowSystemTheme();
 
                 cb_Rigth.SelectedIndex = SettingHelper.Get_Rigth();
 
@@ -321,6 +328,22 @@ namespace BiliBili.UWP.Views
             //await CoreApplication.RequestRestartAsync(string.Empty);
         }
 
+        private void sw_FollowSystemTheme_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            //系统处于浅色时开关此选项并不会改变有效主题，此时没必要触发一次换肤
+            string before = SettingHelper.Get_EffectiveTheme();
+            SettingHelper.Set_FollowSystemTheme(sw_FollowSystemTheme.IsOn);
+            if (before != SettingHelper.Get_EffectiveTheme())
+            {
+                MessageCenter.SendChanageThemeEvent(null);
+            }
+        }
+
         private void btn_Back_Click(object sender, RoutedEventArgs e)
         {
             this.Frame.GoBack();
@@ -340,6 +363,23 @@ namespace BiliBili.UWP.Views
         private void sw_LoadSe_Toggled(object sender, RoutedEventArgs e)
         {
             SettingHelper.Set_LoadSplash(sw_LoadSe.IsOn);
+        }
+
+        /// <summary>双击「加载启动首屏壁纸/广告」重新走一遍启动页，方便直接预览开屏图效果。</summary>
+        private void txt_LoadSe_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            e.Handled = true;
+            //SplashPage 挂在顶层 Frame（Window.Current.Content）上，
+            //这里必须对它导航才能重放启动流程，而不是在设置页所在的 main_frame 里导航
+            Frame rootFrame = Window.Current.Content as Frame;
+            if (rootFrame == null)
+            {
+                return;
+            }
+
+            rootFrame.Navigate(typeof(SplashPage), null);
+            //清掉导航历史：否则返回键会退回来，反复双击还会让返回栈越堆越深
+            rootFrame.BackStack.Clear();
         }
 
         private void sw_CloseAD_Toggled(object sender, RoutedEventArgs e)
@@ -522,6 +562,7 @@ namespace BiliBili.UWP.Views
                 grid_Stretch.Visibility = Visibility.Visible;
                 grid_Ver.Visibility = Visibility.Visible;
                 grid_Opacity.Visibility = Visibility.Visible;
+                grid_FrostedGlass.Visibility = Visibility.Visible;
             }
             else
             {
@@ -532,6 +573,7 @@ namespace BiliBili.UWP.Views
                 grid_Stretch.Visibility = Visibility.Collapsed;
                 grid_Ver.Visibility = Visibility.Collapsed;
                 grid_Opacity.Visibility = Visibility.Collapsed;
+                grid_FrostedGlass.Visibility = Visibility.Collapsed;
             }
             SettingHelper.Set_CustomBG(sw_CustomBg.IsOn);
             MessageCenter.SendChangedBg();
@@ -830,6 +872,11 @@ namespace BiliBili.UWP.Views
             btn_InteractiveDanmakuTypes.Content = InteractiveDanmakuTypeDialog.GetSummary();
         }
 
+        private void UpdateDanmakuLocationTypeSummary()
+        {
+            btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetSummary();
+        }
+
         private async void InteractiveDanmakuTypes_Click(object sender, RoutedEventArgs e)
         {
             if (loadsetting)
@@ -840,6 +887,19 @@ namespace BiliBili.UWP.Views
             if (await InteractiveDanmakuTypeDialog.ShowAsync())
             {
                 UpdateInteractiveDanmakuTypeSummary();
+            }
+        }
+
+        private async void DanmakuLocationTypes_Click(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting)
+            {
+                return;
+            }
+
+            if (await DanmakuLocationTypeDialog.ShowAsync())
+            {
+                UpdateDanmakuLocationTypeSummary();
             }
         }
 

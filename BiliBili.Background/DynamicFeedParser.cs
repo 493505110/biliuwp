@@ -15,7 +15,7 @@ namespace BiliBili.Background
         public string Cover { get; set; }
 
         /// <summary>
-        /// Toast 的 launch 参数，由 App.OnLaunched 解析：
+        /// Toast 的 launch 参数，点击通知时由 App.OnActivated 交给 ParseStartArguments 解析：
         /// 视频直接传 aid，番剧传 "bangumi,{season_id}"。
         /// </summary>
         public string LaunchArgument { get; set; }

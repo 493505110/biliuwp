@@ -141,29 +141,7 @@ namespace BiliBili.UWP
 
                 ApiHelper.access_key = SettingHelper.Get_Access_key();
                 UserManage.access_key = SettingHelper.Get_Access_key();
-                var par = new StartModel() { StartType = StartTypes.None };
-                if (e.Arguments.Length != 0)
-                {
-                    var d = e.Arguments.Split(',');
-                    if (d.Length > 1)
-                    {
-                        if (d[0] == "bangumi")
-                        {
-                            par.StartType = StartTypes.Bangumi;
-                            par.Par1 = d[1];
-                        }
-                        if (d[0] == "live")
-                        {
-                            par.StartType = StartTypes.Live;
-                            par.Par1 = d[1];
-                        }
-                    }
-                    else
-                    {
-                        par.StartType = StartTypes.Video;
-                        par.Par1 = e.Arguments;
-                    }
-                }
+                var par = ParseStartArguments(e.Arguments);
 
                 if (rootFrame.Content == null)
                 {
@@ -171,19 +149,7 @@ namespace BiliBili.UWP
                 }
                 else
                 {
-                    if (par.StartType == StartTypes.Video)
-                    {
-                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), par.Par1);
-                    }
-                    if (par.StartType == StartTypes.Bangumi)
-                    {
-                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), par.Par1);
-                    }
-                    if (par.StartType == StartTypes.Live)
-                    {
-                        MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(LiveRoomPage), par.Par1);
-                    }
-
+                    NavigateToStartModel(par);
                 }
 
                 // 确保当前窗口处于活动状态
@@ -191,6 +157,81 @@ namespace BiliBili.UWP
 
             }
             Window.Current.Activate();
+        }
+
+        /// <summary>
+        /// 解析启动参数字符串：番剧为 "bangumi,{season_id}"，直播为 "live,{room_id}"，其余按视频 ID 处理。
+        /// 命令行/快捷方式启动（OnLaunched）与点击通知（OnActivated）共用。
+        /// </summary>
+        private static StartModel ParseStartArguments(string arguments)
+        {
+            var par = new StartModel() { StartType = StartTypes.None };
+            if (string.IsNullOrEmpty(arguments))
+            {
+                return par;
+            }
+            var d = arguments.Split(',');
+            if (d.Length > 1)
+            {
+                if (d[0] == "bangumi")
+                {
+                    par.StartType = StartTypes.Bangumi;
+                    par.Par1 = d[1];
+                }
+                if (d[0] == "live")
+                {
+                    par.StartType = StartTypes.Live;
+                    par.Par1 = d[1];
+                }
+            }
+            else
+            {
+                par.StartType = StartTypes.Video;
+                par.Par1 = arguments;
+            }
+            return par;
+        }
+
+        /// <summary>
+        /// 应用已运行时按启动参数把目标页推进当前外壳。
+        /// 应用未运行（含仅被预启动）时不能走这里：MainPage 还没订阅 MessageCenter 事件，由 SplashPage 代为处理。
+        /// </summary>
+        private static void NavigateToStartModel(StartModel par)
+        {
+            if (par.StartType == StartTypes.Video)
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), par.Par1);
+            }
+            if (par.StartType == StartTypes.Bangumi)
+            {
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(BanInfoPage), par.Par1);
+            }
+            if (par.StartType == StartTypes.Live)
+            {
+                //直播统一走 Play 面板：MessageCenter 会把 LiveRoomPage 换成 LiveRoomPC，
+                //与 MainPage 的 StartTypes.Live 及其余直播入口保持一致
+                MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(LiveRoomPage), par.Par1);
+            }
+        }
+
+        /// <summary>
+        /// 为激活入口准备窗口的根框架与访问凭证。
+        /// 点击通知、协议激活、打开文件都不会走 OnLaunched，未运行（含仅被预启动）时
+        /// 必须在这里补齐，否则窗口里没有任何内容，表现为白屏。
+        /// </summary>
+        private Frame EnsureRootFrameForActivation()
+        {
+            var rootFrame = Window.Current.Content as Frame;
+            if (rootFrame == null)
+            {
+                SYEngine.Core.Initialize();
+                rootFrame = new Frame();
+                rootFrame.NavigationFailed += OnNavigationFailed;
+                Window.Current.Content = rootFrame;
+            }
+            ApiHelper.access_key = SettingHelper.Get_Access_key();
+            UserManage.access_key = SettingHelper.Get_Access_key();
+            return rootFrame;
         }
 
         /// <summary>
@@ -236,8 +277,6 @@ namespace BiliBili.UWP
             if (args.Kind == ActivationKind.Protocol)
             {
 
-                Frame rootFrame = Window.Current.Content as Frame;
-
                 StartModel par = new StartModel() { StartType = StartTypes.HandleUri };
 
                 ProtocolActivatedEventArgs eventArgs = args as ProtocolActivatedEventArgs;
@@ -252,38 +291,31 @@ namespace BiliBili.UWP
                 //string article = Regex.Match(eventArgs.Uri.AbsoluteUri, @"article/(\d+)").Groups[1].Value;
                 //string author = Regex.Match(eventArgs.Uri.AbsoluteUri, @"author/(\d+)").Groups[1].Value;
 
-                if (rootFrame != null)
+                Frame rootFrame = Window.Current.Content as Frame;
+                if (rootFrame == null || rootFrame.Content == null)
                 {
-                    if (!await MessageCenter.HandleUrl(eventArgs.Uri.AbsoluteUri))
-                    {
-                        ContentDialog contentDialog = new ContentDialog()
-                        {
-                            PrimaryButtonText = "确定",
-                            Title = "不支持跳转的地址"
-                        };
-                        TextBlock textBlock = new TextBlock()
-                        {
-                            Text = eventArgs.Uri.AbsoluteUri,
-                            IsTextSelectionEnabled = true
-                        };
-                        contentDialog.Content = textBlock;
-                        contentDialog.ShowAsync();
-                    }
-                }
-                else
-                {
-                    SYEngine.Core.Initialize();
-                    // 创建要充当导航上下文的框架，并导航到第一页
-                    rootFrame = new Frame();
-                    rootFrame.NavigationFailed += OnNavigationFailed;
-                    // 将框架放在当前窗口中
-                    Window.Current.Content = rootFrame;
-
+                    //未运行（或仅被预启动）时 MainPage 尚未订阅 MessageCenter 事件，
+                    //交给 SplashPage 完成初始化后再按 HandleUri 参数跳转
+                    rootFrame = EnsureRootFrameForActivation();
                     rootFrame.Navigate(typeof(SplashPage), par);
-                    Window.Current.Activate();
-
-
                 }
+                else if (!await MessageCenter.HandleUrl(eventArgs.Uri.AbsoluteUri))
+                {
+                    ContentDialog contentDialog = new ContentDialog()
+                    {
+                        PrimaryButtonText = "确定",
+                        Title = "不支持跳转的地址"
+                    };
+                    TextBlock textBlock = new TextBlock()
+                    {
+                        Text = eventArgs.Uri.AbsoluteUri,
+                        IsTextSelectionEnabled = true
+                    };
+                    contentDialog.Content = textBlock;
+                    contentDialog.ShowAsync();
+                }
+
+                Window.Current.Activate();
 
                 //if (live.Length != 0)
                 //{
@@ -402,6 +434,25 @@ namespace BiliBili.UWP
 
 
             }
+            else if (args.Kind == ActivationKind.ToastNotification)
+            {
+                var par = ParseStartArguments((args as ToastNotificationActivatedEventArgs).Argument);
+
+                Frame rootFrame = Window.Current.Content as Frame;
+                if (rootFrame == null || rootFrame.Content == null)
+                {
+                    //未运行（或仅被预启动）时窗口里没有任何内容，
+                    //交给 SplashPage 完成初始化后再按参数进入目标页
+                    rootFrame = EnsureRootFrameForActivation();
+                    rootFrame.Navigate(typeof(SplashPage), par);
+                }
+                else
+                {
+                    NavigateToStartModel(par);
+                }
+
+                Window.Current.Activate();
+            }
         }
 
         protected override void OnFileActivated(FileActivatedEventArgs args)
@@ -409,21 +460,8 @@ namespace BiliBili.UWP
 
             RegisterExceptionHandlingSynchronizationContext();
             StartModel par = new StartModel() { StartType = StartTypes.File, Par3 = args.Files };
-            Frame rootFrame = Window.Current.Content as Frame;
-            if (rootFrame == null)
-            {
-                SYEngine.Core.Initialize();
-                rootFrame = new Frame();
-                Window.Current.Content = rootFrame;
-            }
-            if (rootFrame.Content == null)
-            {
-                rootFrame.Navigate(typeof(SplashPage), par);
-                Window.Current.Activate();
-                return;
-            }
-
-            rootFrame.Navigate(typeof(SplashPage), par);
+            //原实现的两个分支做的是同一件事，这里合并；顺带补上 NavigationFailed 与访问凭证初始化
+            EnsureRootFrameForActivation().Navigate(typeof(SplashPage), par);
             Window.Current.Activate();
         }
 

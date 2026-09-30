@@ -22,7 +22,8 @@ namespace BiliBili.UWP.Modules
                 throw new ArgumentNullException(nameof(article));
             }
 
-            if (article.type == 0)
+            //type=2 是笔记类专栏，正文同样是 HTML，与 type=0 走同一条解析
+            if (article.type == 0 || article.type == 2)
             {
                 return ParseHtml(article.content);
             }
@@ -177,7 +178,7 @@ namespace BiliBili.UWP.Modules
             {
                 blocks.Add(new ArticleImageBlockModel
                 {
-                    Url = GetString(value, "url"),
+                    Url = NormalizeImageUrl(GetString(value, "url")),
                     Alt = GetString(value, "alt"),
                     Width = GetInt(value, "width"),
                     Height = GetInt(value, "height")
@@ -220,7 +221,7 @@ namespace BiliBili.UWP.Modules
             {
                 EmbedType = embedType,
                 Id = id,
-                CoverUrl = GetString(value, "url"),
+                CoverUrl = NormalizeImageUrl(GetString(value, "url")),
                 Title = GetString(value, "alt"),
                 Link = link
             });
@@ -320,7 +321,7 @@ namespace BiliBili.UWP.Modules
             {
                 blocks.Add(new ArticleImageBlockModel
                 {
-                    Url = GetString(picture, "url"),
+                    Url = NormalizeImageUrl(GetString(picture, "url")),
                     Alt = GetString(picture, "alt"),
                     Width = GetInt(picture, "width"),
                     Height = GetInt(picture, "height")
@@ -333,6 +334,35 @@ namespace BiliBili.UWP.Modules
             return value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                 ? value.Substring(prefix.Length)
                 : value;
+        }
+
+        /// <summary>
+        /// 专栏正文里的图片地址可能是协议相对形式（//i0.hdslb.com/bfs/note/xxx.jpg）或明文
+        /// http，个别只给出不带域名的路径。前两种 Image.Source 解析不了，统一补成 https 绝对地址。
+        /// </summary>
+        private static string NormalizeImageUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                return url;
+            }
+
+            string value = url.Trim();
+            if (value.StartsWith("//", StringComparison.Ordinal))
+            {
+                return "https:" + value;
+            }
+            if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://" + value.Substring("http://".Length);
+            }
+            if (value.IndexOf("://", StringComparison.Ordinal) < 0)
+            {
+                //裸路径没有域名可用，只能拿静态资源默认入口兜底，不补域名会得到一个无效地址；
+                //与 UserCenterVM.NormalizeImageUrl 保持同一套回退
+                return "https://i0.hdslb.com/" + value.TrimStart('/');
+            }
+            return value;
         }
 
         private static string GetString(JObject value, string name)
@@ -518,7 +548,7 @@ namespace BiliBili.UWP.Modules
 
             blocks.Add(new ArticleImageBlockModel
             {
-                Url = HtmlEntity.DeEntitize(url.Trim()),
+                Url = NormalizeImageUrl(HtmlEntity.DeEntitize(url.Trim())),
                 Alt = HtmlEntity.DeEntitize(GetAttribute(node, "alt") ?? string.Empty),
                 Width = GetPositiveInt(node, "width", "data-w"),
                 Height = GetPositiveInt(node, "height", "data-h")

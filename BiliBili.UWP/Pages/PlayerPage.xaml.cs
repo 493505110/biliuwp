@@ -107,6 +107,12 @@ namespace BiliBili.UWP.Pages
         private const double BasDanmakuLookbackSeconds = 45;
         private const double BasDanmakuLookaheadSeconds = 70;
         private const double BasDanmakuWindowRefreshThresholdSeconds = 25;
+        /// <summary>
+        /// 这一下点击是否落在了播放控制栏上（由 MTC_Tapped_1 登记）。
+        /// 控制栏的 Tapped 先于 playerSurface 触发，需要等 BAS 弹幕判定完是否命中互动元素，
+        /// 才能决定要不要切换控制栏显隐
+        /// </summary>
+        bool mtcTapPendingToggle;
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
@@ -116,7 +122,6 @@ namespace BiliBili.UWP.Pages
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
             MTC.DanmuLoaded += MTC_DanmuLoaded;
-            basDanmakuControl.ActionRequested += BasDanmakuControl_ActionRequested;
             scriptDanmakuControl.ActionRequested += ScriptDanmakuControl_ActionRequested;
             playerSurface.AddHandler(
                 UIElement.TappedEvent,
@@ -943,6 +948,8 @@ namespace BiliBili.UWP.Pages
         List<PlayerModel> playList;
         List<NSDanmaku.Model.DanmakuModel> DanMuPool = null;
         List<BasDanmakuModel> BasDanmuPool = new List<BasDanmakuModel>();
+        /// <summary>BAS 弹幕控件。由 EnsureBasDanmakuControl 按需创建，开关关闭时整体释放</summary>
+        BasDanmakuControl basDanmakuControl;
         List<InteractiveDanmakuModel> interactiveDanmakuPool = new List<InteractiveDanmakuModel>();
         InteractiveDanmakuModel currentInteractiveDanmaku;
         PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel> danmakuTimeline;
@@ -1102,6 +1109,10 @@ namespace BiliBili.UWP.Pages
                     ClearSubTitle();
                     ClearBasDanmaku();
                     ClearScriptDanmaku();
+                    //退出视频时确定性地关掉 BAS 弹幕的 WebView2。
+                    //控件自身的 Unloaded 也会兜底释放，但那条路径依赖页面被移出可视树，
+                    //这里显式释放更直接，不会留下 Chromium 进程
+                    ReleaseBasDanmakuControl();
                     ClearInteractiveDanmaku();
                     MTC.timer2.Stop();
                     MTC.DanmuLoaded -= MTC_DanmuLoaded;
@@ -1282,9 +1293,8 @@ namespace BiliBili.UWP.Pages
             btn_ViewPost.Visibility = Visibility.Collapsed;
 
             //danmu.borderStyle = (NSDanmaku.Model.DanmakuBorderStyle)SettingHelper.Get_DMStyle();
-            menu_setting_buttom.IsChecked = !SettingHelper.Get_DMVisBottom();
-            menu_setting_top.IsChecked = !SettingHelper.Get_DMVisTop();
-            menu_setting_gd.IsChecked = !SettingHelper.Get_DMVisRoll();
+            // 弹幕层可见性与入口摘要都由位置类型掩码推导
+            ApplyDanmakuLocationVisibility();
 
             var danmuStatus = SettingHelper.Get_DMStatus();
             if (danmuStatus)
@@ -1317,7 +1327,51 @@ namespace BiliBili.UWP.Pages
         bool hidePointerFlag = false;
         int DanmuNum = 0;
         bool mergeDanmu = false;
+        // 弹幕位置类型掩码的本地副本：ShowDanmaku 每条弹幕都要判定，避免高频读 LocalSettings
+        int danmakuLocationMask = -1;
         List<string> sended = new List<string>();
+
+        /// <summary>
+        /// 创建 BAS 弹幕控件并挂进宿主容器。控件必须每次新建：Release() 里 Close() 后的
+        /// CoreWebView2 是终态，同一个实例无法再初始化。
+        /// </summary>
+        private bool EnsureBasDanmakuControl()
+        {
+            if (basDanmakuControl != null)
+            {
+                return true;
+            }
+
+            if (basDanmakuHost == null)
+            {
+                return false;
+            }
+
+            var control = new BasDanmakuControl();
+            control.ActionRequested += BasDanmakuControl_ActionRequested;
+            basDanmakuControl = control;
+            basDanmakuHost.Children.Add(control);
+            return true;
+        }
+
+        /// <summary>
+        /// 释放 BAS 弹幕控件并结束它的 WebView2。Release() 是终态，之后要显示只能重新创建。
+        /// BasDanmuPool 保留，重新打开时不必重新请求数据。
+        /// </summary>
+        private void ReleaseBasDanmakuControl()
+        {
+            var control = basDanmakuControl;
+            if (control == null)
+            {
+                return;
+            }
+
+            //先摘掉引用再释放：移除出可视树会触发 Unloaded，释放逻辑有回调进来
+            basDanmakuControl = null;
+            control.ActionRequested -= BasDanmakuControl_ActionRequested;
+            basDanmakuHost?.Children.Remove(control);
+            control.Release();
+        }
 
         private void SetBasDanmakuPool(IEnumerable<BasDanmakuModel> pool)
         {
@@ -1330,7 +1384,8 @@ namespace BiliBili.UWP.Pages
             ResetBasDanmakuPositionTracking();
             ResetBasDanmakuWindow();
 
-            if (basDanmakuControl == null)
+            if (!SettingHelper.Get_BasDanmakuEnabled()
+                || !EnsureBasDanmakuControl())
             {
                 return;
             }
@@ -1416,7 +1471,9 @@ namespace BiliBili.UWP.Pages
             bool shouldPlay,
             bool force)
         {
-            if (basDanmakuControl == null)
+            //开关关闭时不应该有控件；有残留说明状态没同步，直接放行会被重新拉起 WebView2
+            if (basDanmakuControl == null
+                || !SettingHelper.Get_BasDanmakuEnabled())
             {
                 return false;
             }
@@ -1823,6 +1880,11 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
+            if (!IsDanmakuLocationEnabled(item.location))
+            {
+                return;
+            }
+
             var itemSecond = item.time < 0 ? 0 : (int)Math.Floor(item.time);
             if (itemSecond != danmakuLimitSecond)
             {
@@ -1942,26 +2004,11 @@ namespace BiliBili.UWP.Pages
         //    });
         //}
 
-        #region 弹幕设置
-        /// <summary>
-        /// 弹幕屏蔽
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void btn_Dis_Remove_Click(object sender, RoutedEventArgs e)
-        {
-            foreach (NSDanmaku.Model.DanmakuModel item in list_DisDanmu.SelectedItems)
-            {
-                DanDis_Add(item.sendID, true);
-                danmu.Remove(item);
-                list_DisDanmu.Items.Remove(item);
-            }
-        }
+        #region 弹幕屏蔽
         List<string> Guanjianzi = new List<string>();
         List<string> Yonghu = new List<string>();
         private void DanDis_Get()
         {
-
 
             string a = SettingHelper.Get_Guanjianzi();
             string b = SettingHelper.Get_Yonghu();
@@ -1988,21 +2035,6 @@ namespace BiliBili.UWP.Pages
             {
                 return false;
             }
-        }
-        private void DanDis_Add(string text, bool IsYonghu)
-        {
-            if (IsYonghu)
-            {
-                SettingHelper.Set_Yonghu(SettingHelper.Get_Yonghu() + "|" + text);
-                Yonghu.Add(text);
-            }
-            else
-            {
-                SettingHelper.Set_Guanjianzi(SettingHelper.Get_Guanjianzi() + "|" + text);
-
-                Guanjianzi.Add(text);
-            }
-
         }
         #endregion
 
@@ -2343,7 +2375,8 @@ namespace BiliBili.UWP.Pages
                 {
                     var videoPlaybackItem = result.ffmpegDashSource.CreateVideoPlaybackItem();
                     var audioPlaybackItem = result.ffmpegDashSource.CreateAudioPlaybackItem();
-                    if (videoPlaybackItem != null && audioPlaybackItem != null)
+                    //无音轨投稿只有视频项，audioPlaybackItem 为 null 是正常情况
+                    if (videoPlaybackItem != null)
                     {
                         source = videoPlaybackItem;
                         audioSource = audioPlaybackItem;
@@ -2376,11 +2409,15 @@ namespace BiliBili.UWP.Pages
                     ReleaseFFmpegDashSource();
                     ffmpegDashSource = result.ffmpegDashSource;
                     ffmpegOwnershipTransferred = true;
-                    mediaPlayer_audio = new MediaPlayer();
-                    mediaPlayer_audio.CommandManager.IsEnabled = false;
-                    mediaPlayer_audio.Volume = mediaPlayer.Volume;
-                    mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
-                    mediaPlayer_audio.Source = audioSource;
+                    //没有音轨就不建伴奏播放器，其余同步逻辑都按 mediaPlayer_audio 为 null 处理
+                    if (audioSource != null)
+                    {
+                        mediaPlayer_audio = new MediaPlayer();
+                        mediaPlayer_audio.CommandManager.IsEnabled = false;
+                        mediaPlayer_audio.Volume = mediaPlayer.Volume;
+                        mediaPlayer_audio.PlaybackSession.PlaybackRate = mediaPlayer.PlaybackSession.PlaybackRate;
+                        mediaPlayer_audio.Source = audioSource;
+                    }
                 }
                 mediaPlayer.Source = source;
                 UpdateSoftwareDecodeInfo(result);
@@ -3438,7 +3475,6 @@ namespace BiliBili.UWP.Pages
             grid_Setting.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
             sp_View.IsPaneOpen = true;
         }
@@ -3491,7 +3527,6 @@ namespace BiliBili.UWP.Pages
             gv_story_list.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
             //string info = string.Format("视频高度：{0}\r\n视频宽度：{1}\r\n视频长度：{2}\r\n缓冲进度:{3}", mediaElement.NaturalVideoHeight, mediaElement.NaturalVideoWidth, mediaElement.MediaPlayer.PlaybackSession.NaturalDuration.TimeSpan.Hours.ToString("00") + ":" + mediaElement.MediaPlayer.PlaybackSession.NaturalDuration.TimeSpan.Minutes.ToString("00") + ":" + mediaElement.MediaPlayer.PlaybackSession.NaturalDuration.TimeSpan.Seconds.ToString("00"), mediaElement.DownloadProgress.ToString("P"));
             //await new MessageDialog(info, "视频信息").ShowAsync();
@@ -3605,27 +3640,7 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Visible;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
 
-        }
-
-        private void menuitem_PB_Click(object sender, RoutedEventArgs e)
-        {
-
-            mediaElement.MediaPlayer.Pause();
-            sp_View.IsPaneOpen = true;
-            grid_Setting.Visibility = Visibility.Collapsed;
-            gv_play.Visibility = Visibility.Collapsed;
-            grid_DM.Visibility = Visibility.Collapsed;
-            gv_story_list.Visibility = Visibility.Collapsed;
-            grid_Info.Visibility = Visibility.Collapsed;
-            grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Visible;
-            list_DisDanmu.Items.Clear();
-            foreach (var item in danmu.GetDanmakus())
-            {
-                list_DisDanmu.Items.Add(item);
-            }
         }
 
         private void menuitem_Info_Click(object sender, RoutedEventArgs e)
@@ -3643,7 +3658,6 @@ namespace BiliBili.UWP.Pages
             gv_story_list.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Visible;
-            grid_PB.Visibility = Visibility.Collapsed;
         }
 
         #region 设置
@@ -3737,65 +3751,113 @@ namespace BiliBili.UWP.Pages
 
 
 
-        private void menu_setting_top_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 按当前掩码同步弹幕层可见性与入口摘要。
+        /// 滚动与逆向滚动共用 grid_Scroll，按两者的并集决定这一层的显示。
+        /// </summary>
+        private void ApplyDanmakuLocationVisibility()
         {
-
-            danmu.HideDanmaku(NSDanmaku.Model.DanmakuLocation.Top);
-            SettingHelper.Set_DMVisTop(false);
-
-
-        }
-
-        private void menu_setting_buttom_Click(object sender, RoutedEventArgs e)
-        {
-            danmu.HideDanmaku(NSDanmaku.Model.DanmakuLocation.Bottom);
-            SettingHelper.Set_DMVisBottom(false);
-        }
-
-        private void menu_setting_gd_Checked(object sender, RoutedEventArgs e)
-        {
-            danmu.HideDanmaku(NSDanmaku.Model.DanmakuLocation.Scroll);
-            SettingHelper.Set_DMVisRoll(false);
-        }
-
-        private void menu_setting_gd_Unchecked(object sender, RoutedEventArgs e)
-        {
-            danmu.ShowDanmaku(NSDanmaku.Model.DanmakuLocation.Scroll);
-            SettingHelper.Set_DMVisRoll(true);
-        }
-
-        private void menu_setting_top_Unchecked(object sender, RoutedEventArgs e)
-        {
-            danmu.ShowDanmaku(NSDanmaku.Model.DanmakuLocation.Top);
-            SettingHelper.Set_DMVisTop(true);
-        }
-
-        private void menu_setting_buttom_Unchecked(object sender, RoutedEventArgs e)
-        {
-            // danmu.SetDanmuVisibility(true, MyDanmaku.DanmuMode.Buttom);
-            danmu.ShowDanmaku(NSDanmaku.Model.DanmakuLocation.Bottom);
-            SettingHelper.Set_DMVisBottom(true);
-        }
-
-
-        private void btn_OK_Click(object sender, RoutedEventArgs e)
-        {
-
-            DanDis_Add(txt_Dis.Text, false);
-            txt_Dis.Text = "";
-            var s = danmu.GetDanmakus();
-            foreach (var item in s)
+            var mask = SettingHelper.Get_DanmakuLocationTypes();
+            danmakuLocationMask = mask;
+            if (danmu != null)
             {
-                if (DanDis_Dis(item.text))
-                {
-                    danmu.Remove(item);
-                }
+                SetDanmakuGridVisibility(
+                    NSDanmaku.Model.DanmakuLocation.Scroll,
+                    SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.Scroll)
+                    || SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.ReverseScroll));
+                SetDanmakuGridVisibility(
+                    NSDanmaku.Model.DanmakuLocation.Top,
+                    SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.Top));
+                SetDanmakuGridVisibility(
+                    NSDanmaku.Model.DanmakuLocation.Bottom,
+                    SettingHelper.Is_DanmakuLocationTypeEnabled(
+                        mask,
+                        NSDanmaku.Model.DanmakuLocation.Bottom));
+            }
+
+            btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetShortSummary();
+            ApplyBasDanmakuVisibility();
+        }
+
+        /// <summary>
+        /// 按设置同步 BAS 弹幕。开关关闭时销毁控件并结束它的 WebView2——Close() 是终态，
+        /// 重新打开只能重建实例，所以这里不保留控件。BasDanmuPool 保留，重开不必重新请求数据。
+        /// </summary>
+        private void ApplyBasDanmakuVisibility()
+        {
+            if (!SettingHelper.Get_BasDanmakuEnabled())
+            {
+                ReleaseBasDanmakuControl();
+                ResetBasDanmakuWindow();
+                ResetBasDanmakuPositionTracking();
+                return;
+            }
+
+            if (!EnsureBasDanmakuControl())
+            {
+                return;
+            }
+
+            if (LoadDanmu)
+            {
+                _ = basDanmakuControl.SetVisibleAsync(true);
+            }
+
+            var session = mediaPlayer?.PlaybackSession;
+            if (session != null)
+            {
+                EnsureBasDanmakuWindow(
+                    Math.Max(0, session.Position.TotalSeconds),
+                    session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu,
+                    true);
             }
         }
 
+        private bool IsDanmakuLocationEnabled(NSDanmaku.Model.DanmakuLocation location)
+        {
+            if (danmakuLocationMask < 0)
+            {
+                danmakuLocationMask = SettingHelper.Get_DanmakuLocationTypes();
+            }
 
+            return SettingHelper.Is_DanmakuLocationTypeEnabled(danmakuLocationMask, location);
+        }
 
+        private void SetDanmakuGridVisibility(
+            NSDanmaku.Model.DanmakuLocation location,
+            bool visible)
+        {
+            if (visible)
+            {
+                danmu.ShowDanmaku(location);
+            }
+            else
+            {
+                danmu.HideDanmaku(location);
+            }
+        }
 
+        private async void DanmakuLocationTypes_Click(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag)
+            {
+                return;
+            }
+
+            if (!await DanmakuLocationTypeDialog.ShowAsync())
+            {
+                return;
+            }
+
+            // 选择可能来自设置页的对话框，这里按最新掩码重新同步入口摘要
+            ApplyDanmakuLocationVisibility();
+        }
 
 
         #endregion
@@ -3814,38 +3876,6 @@ namespace BiliBili.UWP.Pages
 
 
 
-
-        private void btn_Dis_Report_Click(object sender, RoutedEventArgs e)
-        {
-            if (list_DisDanmu.SelectedItems.Count == 0)
-            {
-                return;
-            }
-            foreach (NSDanmaku.Model.DanmakuModel item in list_DisDanmu.SelectedItems)
-            {
-                ReportDM(item.rowID);
-            }
-        }
-
-        private async void ReportDM(string dmid)
-        {
-            try
-            {
-                string results = await WebClientClass.PostResults(new Uri("https://interface.bilibili.com/dmreport"), string.Format("reportToAdmin=0&reason=&dm_inid={0}&dmid={1}", playNow.Mid, dmid), "https://www.bilibili.com");
-                if (results == "0")
-                {
-                    Utils.ShowMessageToast("举报成功", 3000);
-                }
-                else
-                {
-                    Utils.ShowMessageToast("举报失败", 3000);
-                }
-            }
-            catch (Exception)
-            {
-                Utils.ShowMessageToast("举报错误", 3000);
-            }
-        }
 
         private async void menuitem_UpdateDanmu_Click(object sender, RoutedEventArgs e)
         {
@@ -3939,7 +3969,16 @@ namespace BiliBili.UWP.Pages
         private void MTC_OpenDanmaku(object sender, bool e)
         {
             LoadDanmu = e;
-            _ = basDanmakuControl?.SetVisibleAsync(e);
+            if (e)
+            {
+                //弹幕开关重新打开时 BAS 控件可能已被释放（开关关闭时销毁），这里按需重建
+                ApplyBasDanmakuVisibility();
+            }
+            else if (basDanmakuControl != null)
+            {
+                _ = basDanmakuControl.SetVisibleAsync(false);
+            }
+
             SyncBasDanmakuPlaybackState();
             _ = scriptDanmakuControl?.SetVisibleAsync(e);
             SyncScriptDanmakuPlaybackState();
@@ -4041,6 +4080,10 @@ namespace BiliBili.UWP.Pages
                     SeekFromBasDanmaku(e.PositionSeconds);
                     break;
                 case BasDanmakuActionKind.Navigate:
+                    //跳转要关掉 BAS 弹幕的 WebView2，而这一路是从 WebView2 自己的
+                    //WebMessageReceived 事件里同步回调进来的，直接在里面销毁宿主会出问题；
+                    //先让出一条消息循环再处理
+                    await Task.Yield();
                     await NavigateFromBasDanmakuAsync(e.Url);
                     break;
             }
@@ -4077,7 +4120,10 @@ namespace BiliBili.UWP.Pages
 
             try
             {
-                mediaPlayer?.Pause();
+                //跳转目标是 Info 帧还是 Play 帧由 MessageCenter 解析决定，事先不知道，
+                //但无论哪种都必须先退出播放页：play_frame 的 z-order 在 frame 之上，
+                //不退掉就会盖住 Info 帧的目标页面，看起来像「没有跳转」
+                await ExitPlayerForNavigationAsync();
                 if (!await MessageCenter.HandleUrl(url))
                 {
                     MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(WebPage), url);
@@ -4087,6 +4133,23 @@ namespace BiliBili.UWP.Pages
             {
                 LogHelper.WriteLog("处理 BAS 弹幕跳转失败", LogType.ERROR, ex);
                 Utils.ShowMessageToast("BAS 弹幕跳转失败");
+            }
+        }
+
+        /// <summary>
+        /// 跳转到别的页面之前退出播放页：停播、释放播放器、收起 play_frame。
+        /// </summary>
+        private async Task ExitPlayerForNavigationAsync()
+        {
+            BeginExit();
+            await ClosePlayerAsync();
+            if (Frame?.CanGoBack == true)
+            {
+                Frame.GoBack();
+            }
+            else
+            {
+                Frame.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -4134,16 +4197,7 @@ namespace BiliBili.UWP.Pages
                         return;
                     }
 
-                    BeginExit();
-                    await ClosePlayerAsync();
-                    if (Frame?.CanGoBack == true)
-                    {
-                        Frame.GoBack();
-                    }
-                    else
-                    {
-                        Frame.Visibility = Visibility.Collapsed;
-                    }
+                    await ExitPlayerForNavigationAsync();
 
                     MessageCenter.SendNavigateTo(
                         NavigateMode.Info,
@@ -4498,7 +4552,6 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Visible;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
         }
 
         private void MTC_SelectList(object sender, EventArgs e)
@@ -4519,7 +4572,6 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Collapsed;
-            grid_PB.Visibility = Visibility.Collapsed;
 
             sp_View.IsPaneOpen = true;
         }
@@ -4778,7 +4830,9 @@ namespace BiliBili.UWP.Pages
 
         private void MTC_Tapped_1(object sender, TappedRoutedEventArgs e)
         {
-            MTC.HideOrShowMTC();
+            //控制栏的 Tapped 冒泡到 playerSurface 之前会先到这里，此刻还不知道这一下
+            //有没有点在 BAS 弹幕的互动元素上，先登记，由 PlayerSurface_Tapped 统一决定
+            mtcTapPendingToggle = true;
         }
 
         private void MTC_FastForward(object sender, double e)
@@ -5061,7 +5115,6 @@ namespace BiliBili.UWP.Pages
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Collapsed;
             grid_Subtitle.Visibility = Visibility.Visible;
-            grid_PB.Visibility = Visibility.Collapsed;
         }
 
         private void Slider_SubtitleTran_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -5204,27 +5257,50 @@ namespace BiliBili.UWP.Pages
 
         private async void PlayerSurface_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            if (!LoadDanmu
-                || basDanmakuControl == null
-                || IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject))
+            //无论走哪条分支都要消费掉，避免残留到下一次点击
+            var toggleBar = mtcTapPendingToggle;
+            mtcTapPendingToggle = false;
+
+            if (IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject))
             {
                 return;
+            }
+
+            //点在 BAS 弹幕的互动元素上时，这一下已经由弹幕自己处理（跳转/seek），
+            //不能再顺手收起控制栏，否则播放器的单击效果会叠加到弹幕交互上
+            var handledByBas = await TryHandleBasDanmakuTapAsync(e);
+            if (!handledByBas && toggleBar)
+            {
+                MTC.HideOrShowMTC();
+            }
+        }
+
+        /// <summary>
+        /// 把这一下点击交给 BAS 弹幕判定是否落在可交互元素上。
+        /// 返回 true 表示命中并已处理，调用方据此抑制播放器自身的单击行为
+        /// </summary>
+        private async Task<bool> TryHandleBasDanmakuTapAsync(TappedRoutedEventArgs e)
+        {
+            //控件只在开关打开时存在，关掉即销毁，因此这里只需判定控件即可
+            if (!LoadDanmu || basDanmakuControl == null)
+            {
+                return false;
             }
 
             var width = basDanmakuControl.ActualWidth;
             var height = basDanmakuControl.ActualHeight;
             if (width <= 0 || height <= 0)
             {
-                return;
+                return false;
             }
 
             var point = e.GetPosition(basDanmakuControl);
             if (point.X < 0 || point.X > width || point.Y < 0 || point.Y > height)
             {
-                return;
+                return false;
             }
 
-            await basDanmakuControl.TryHandleTapAsync(point.X / width, point.Y / height);
+            return await basDanmakuControl.TryHandleTapAsync(point.X / width, point.Y / height);
         }
 
         private bool IsTapFromPlayerOverlay(DependencyObject source)

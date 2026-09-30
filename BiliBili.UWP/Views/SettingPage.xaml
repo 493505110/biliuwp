@@ -116,6 +116,10 @@
                                 </ComboBox>
                                
                             </Grid>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">跟随系统深色主题</TextBlock>
+                                <ToggleSwitch x:Name="sw_FollowSystemTheme" Toggled="sw_FollowSystemTheme_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
+                            </Grid>
                             <Grid Margin="0 10 0 0" x:Name="CustomBg">
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">自定义背景图</TextBlock>
                                 <ToggleSwitch  x:Name="sw_CustomBg" Toggled="sw_CustomBg_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
@@ -275,13 +279,13 @@
 
                             </Grid>
                             <Grid Margin="0 10 0 0">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">加载启动首屏壁纸/广告</TextBlock>
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center" DoubleTapped="txt_LoadSe_DoubleTapped">加载启动首屏壁纸/广告</TextBlock>
                                 <ToggleSwitch x:Name="sw_LoadSe" Toggled="sw_LoadSe_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
 
                             </Grid>
                            
-                            <Grid Margin="0 10 0 0" Visibility="Collapsed">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">关闭应用全部广告(重启生效)</TextBlock>
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">过滤推荐页推广视频</TextBlock>
                                 <ToggleSwitch  x:Name="sw_CloseAD" Toggled="sw_CloseAD_Toggled" HorizontalAlignment="Right"  Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
 
                             </Grid>
@@ -541,7 +545,12 @@
                             </Grid>
 
                             <Grid Margin="0 10 0 0">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">显示互动弹幕</TextBlock>
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">弹幕显示</TextBlock>
+                                <HyperlinkButton x:Name="btn_DanmakuLocationTypes" Content="全部" Click="DanmakuLocationTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
+                            </Grid>
+
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">互动弹幕显示</TextBlock>
                                 <HyperlinkButton x:Name="btn_InteractiveDanmakuTypes" Content="全部" Click="InteractiveDanmakuTypes_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Padding="0 4" Margin="10 0"></HyperlinkButton>
                             </Grid>
 
@@ -564,7 +573,7 @@
                             </StackPanel>
                             <StackPanel Margin="0 10 0 0">
                                 <Grid >
-                                    <TextBlock Foreground="Gray" VerticalAlignment="Center">弹幕速度(越小越快)</TextBlock>
+                                    <TextBlock Foreground="Gray" VerticalAlignment="Center">弹幕速度(默认5,越小越快)</TextBlock>
                                     <TextBlock  VerticalAlignment="Center" HorizontalAlignment="Right" Margin="10 0" Text="{Binding Value, ElementName=slider_DanmuSpeed}"></TextBlock>
                                 </Grid>
                                 <Slider x:Name="slider_DanmuSpeed" ValueChanged="slider_DanmuSpeed_ValueChanged"  Width="300" HorizontalAlignment="Left"   Maximum="25" />
@@ -853,6 +862,7 @@
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">VLC(https://code.videolan.org/videolan/vlc-winrt)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">AppStudio.Uwp(https://github.com/wasteam/waslibs)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">bilijump-ai(https://github.com/qingmeng1/bilijump-ai)</TextBlock>
+                        <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">bas(https://github.com/Bilibili/bas)</TextBlock>
                     </StackPanel>
                 </ScrollViewer>
             </PivotItem>

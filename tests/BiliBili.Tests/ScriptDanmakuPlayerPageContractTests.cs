@@ -101,11 +101,11 @@ namespace BiliBili.Tests
         public void ScriptControlSitsAboveBasAndBelowInteractive()
         {
             var xaml = TestRepository.ReadFile(PlayerPageXamlPath);
-            var bas = xaml.IndexOf("x:Name=\"basDanmakuControl\"", StringComparison.Ordinal);
+            var bas = xaml.IndexOf("x:Name=\"basDanmakuHost\"", StringComparison.Ordinal);
             var script = xaml.IndexOf("x:Name=\"scriptDanmakuControl\"", StringComparison.Ordinal);
             var interactive = xaml.IndexOf("x:Name=\"interactiveDanmakuControl\"", StringComparison.Ordinal);
 
-            Assert.IsTrue(bas >= 0, "未找到 basDanmakuControl");
+            Assert.IsTrue(bas >= 0, "未找到 basDanmakuHost");
             Assert.IsTrue(script >= 0, "未找到 scriptDanmakuControl");
             Assert.IsTrue(interactive >= 0, "未找到 interactiveDanmakuControl");
             Assert.IsTrue(bas < script, "脚本弹幕应叠在 BAS 之上");

@@ -50,15 +50,20 @@ namespace BiliBili.UWP.Views
                 b_btn_Refresh.Visibility = Visibility.Collapsed;
 
             }
-            if (e.NavigationMode == NavigationMode.New )
+            if (e.NavigationMode == NavigationMode.New || list_ban_mine.ItemsSource == null || list_ban_jp.ItemsSource == null)
             {
                 await Task.Delay(200);
-                
+
                 if (ApiHelper.IsLogin())
                 {
-                    
+
                     myban.Visibility = Visibility.Visible;
-                    LoadMy();
+                    //加载失败时 ItemsSource 会留在 null，返回本页时要补拉一次，
+                    //否则页面被缓存后追番一直是空的
+                    if (e.NavigationMode == NavigationMode.New || list_ban_mine.ItemsSource == null)
+                    {
+                        LoadMy();
+                    }
                 }
                 else
                 {
@@ -69,7 +74,7 @@ namespace BiliBili.UWP.Views
                 {
                     LoadHome();
                 }
-                
+
             }
             // await Task.Delay(200);
           

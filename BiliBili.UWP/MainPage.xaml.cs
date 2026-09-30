@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Controls;
 using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.User;
+using BiliBili.UWP.Controls;
 using BiliBili.UWP.Helper;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules;
@@ -37,6 +38,7 @@ using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Hosting;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
+using Windows.UI.Xaml.Media.Animation;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Navigation;
 using Windows.UI.Text;
@@ -77,6 +79,25 @@ namespace BiliBili.UWP
     /// </summary>
     public sealed partial class MainPage : Page
     {
+        /// <summary>SplashPage 拉到的开屏图；本页在 OnNavigatedTo 里消费一次后立即清空，
+        /// 避免后续再导航到本页时重复播放。</summary>
+        public static SplashImageItem PendingSplash;
+
+        //开屏图展示时长的下限/上限（毫秒）：服务端 duration 常为 1000，直接照搬会一闪而过
+        private const int SplashMinShowMs = 2500;
+        private const int SplashMaxShowMs = 5000;
+        //淡入与上滑离场的时长（毫秒）
+        private const int SplashFadeInMs = 500;
+        private const int SplashSlideOutMs = 420;
+
+        //点击跳过用：开屏图展示期间被点击则提前结束停留
+        private TaskCompletionSource<bool> _splashSkip;
+
+        //开屏图播放过程（含滑出动画）。更新日志等首帧弹层要等它结束再弹，
+        //否则 ContentDialog 会盖在还没滑走的开屏图上，看起来像「动画没结束就弹出来了」
+        private Task _splashTask;
+
+
         public MainPage()
         {
             this.InitializeComponent();
@@ -92,8 +113,56 @@ namespace BiliBili.UWP
             SystemNavigationManager.GetForCurrentView().BackRequested += MainPage_BackRequested;
             DisplayInformation.GetForCurrentView().OrientationChanged += MainPage_OrientationChanged;
             Window.Current.Content.PointerPressed += MainPage_PointerEntered;
+            //注销时要清 WebView2 存储，但登录弹窗里的 WebView2 活不到那时，
+            //故由主页面临时借出一个用完即弃的载体（WebView2 每实例都会拉起一组渲染进程，不留常驻）
+            WebView2CookieHelper.CleanupHostProvider = AcquireCleanupWebViewAsync;
+            WebView2CookieHelper.CleanupHostReleaser = ReleaseCleanupWebView;
 
 
+        }
+
+        private Microsoft.UI.Xaml.Controls.WebView2 cleanupWebView;
+
+        /// <summary>
+        /// 借出一个未显示的 WebView2 作为清理载体。首次调用会拉起 Chromium 渲染进程，
+        /// 因此每次注销只在需要时创建，用完立刻由 <see cref="ReleaseCleanupWebView"/> 释放。
+        /// </summary>
+        private async Task<Microsoft.Web.WebView2.Core.CoreWebView2> AcquireCleanupWebViewAsync()
+        {
+            if (cleanupWebView == null)
+            {
+                cleanupWebView = new Microsoft.UI.Xaml.Controls.WebView2();
+                //放进可视树才能初始化；Visible 且尺寸为 0，不占布局也不接收输入
+                cleanupWebView.Width = 0;
+                cleanupWebView.Height = 0;
+                cleanupWebView.IsHitTestVisible = false;
+                cleanupWebView.HorizontalAlignment = HorizontalAlignment.Left;
+                cleanupWebView.VerticalAlignment = VerticalAlignment.Top;
+                RootPanel.Children.Add(cleanupWebView);
+            }
+            await cleanupWebView.EnsureCoreWebView2Async();
+            return cleanupWebView.CoreWebView2;
+        }
+
+        /// <summary>
+        /// 归还清理载体：关闭 CoreWebView2 并移出可视树，避免渲染进程常驻。
+        /// </summary>
+        private void ReleaseCleanupWebView()
+        {
+            if (cleanupWebView == null)
+            {
+                return;
+            }
+            try
+            {
+                cleanupWebView.Close();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("关闭WebView2清理载体失败", LogType.ERROR, ex);
+            }
+            RootPanel.Children.Remove(cleanupWebView);
+            cleanupWebView = null;
         }
       
 
@@ -290,6 +359,8 @@ namespace BiliBili.UWP
         DispatcherTimer timer;
         protected async override void OnNavigatedTo(NavigationEventArgs e)
         {
+            //开屏图要尽早铺上：在首帧渲染前就显示，才不会先闪出主界面
+            ConsumePendingSplash();
 
             if (SettingHelper.IsPc())
             {
@@ -305,6 +376,7 @@ namespace BiliBili.UWP
             timer.Start();
             timer.Tick += Timer_Tick;
             MessageCenter.ChanageThemeEvent += MessageCenter_ChanageThemeEvent;
+            RegisterSystemThemeWatcher();
             MessageCenter.HasMessaged += MessageCenter_HasMessaged;
             MessageCenter.MianNavigateToEvent += MessageCenter_MianNavigateToEvent;
             MessageCenter.InfoNavigateToEvent += MessageCenter_InfoNavigateToEvent;
@@ -402,6 +474,8 @@ namespace BiliBili.UWP
 
             if (SettingHelper.Get_First())
             {
+                //更新日志弹层要等开屏图滑走，否则会盖在开屏图上
+                await WaitSplashFinishedAsync();
                 await AppHelper.LoadChangelogAsync();
                 var ver = AppHelper.Changelog.FirstOrDefault();
                 if (ver != null)
@@ -470,7 +544,7 @@ namespace BiliBili.UWP
                     var data = await account.RefreshToken(SettingHelper.Get_Access_key(), SettingHelper.Get_Refresh_Token());
                     if (!data.success)
                     {
-                        UserManage.Logout();
+                        await UserManage.LogoutAsync();
                         Utils.ShowMessageToast("登录过期，请重新登录");
                         await Utils.ShowLoginDialog();
                     }
@@ -482,6 +556,7 @@ namespace BiliBili.UWP
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             MessageCenter.ChanageThemeEvent -= MessageCenter_ChanageThemeEvent;
+            UnregisterSystemThemeWatcher();
             MessageCenter.MianNavigateToEvent -= MessageCenter_MianNavigateToEvent;
             MessageCenter.InfoNavigateToEvent -= MessageCenter_InfoNavigateToEvent;
             MessageCenter.PlayNavigateToEvent -= MessageCenter_PlayNavigateToEvent;
@@ -546,6 +621,127 @@ namespace BiliBili.UWP
                 img_bg.Source = null;
             }
         }
+
+
+        #region 开屏图
+
+        /// <summary>取走待显示的开屏图并开始播放。标志消费一次即清空。</summary>
+        private void ConsumePendingSplash()
+        {
+            var pending = PendingSplash;
+            PendingSplash = null;
+            if (pending != null)
+            {
+                _splashTask = ShowSplashAsync(pending);
+            }
+        }
+
+        /// <summary>等开屏图完全滑走再放行首个弹层；本次没展示开屏图时立即返回。</summary>
+        private async Task WaitSplashFinishedAsync()
+        {
+            var task = _splashTask;
+            if (task == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await task;
+            }
+            catch (Exception ex)
+            {
+                //ShowSplashAsync 内部已兜底，这里只是防止异常冒到调用方
+                LogHelper.WriteLog("等待开屏图结束异常", LogType.ERROR, ex);
+            }
+        }
+
+        /// <summary>把开屏图铺在最上层，停留后向上滑走 —— 滑走过程露出的就是下面已经加载好的主界面。</summary>
+        private async Task ShowSplashAsync(SplashImageItem splash)
+        {
+            try
+            {
+                splash_bg.Source = splash.Image;
+                splash_img.Source = splash.Image;
+                splash_layer.Visibility = Visibility.Visible;
+
+                //淡入。此前几轮淡入「无效」的真正原因是：Frame 的导航动画（Page Refresh）正在对整个
+                //页面播「上滑 + 淡入」，会覆盖掉页面内部元素的透明度变化。现已在 SplashPage 侧用
+                //SuppressNavigationTransitionInfo 抑制了那次导航动画，这里的淡入才可能真正生效。
+                //注意淡入的是内层 content：外层已不透明，先遮住主界面，避免淡入时透出主界面内容。
+                splash_content.Opacity = 0;
+                var fadeIn = new DoubleAnimation
+                {
+                    From = 0,
+                    To = 1,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(SplashFadeInMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                    EnableDependentAnimation = true
+                };
+                Storyboard.SetTarget(fadeIn, splash_content);
+                Storyboard.SetTargetProperty(fadeIn, "(UIElement.Opacity)");
+                var fadeStoryboard = new Storyboard { FillBehavior = FillBehavior.HoldEnd };
+                fadeStoryboard.Children.Add(fadeIn);
+                fadeStoryboard.Begin();
+
+                try
+                {
+                    //模糊强度沿用自定义背景图的写法（d * 5）
+                    InitializedFrostedGlass(splash_glass, 2);
+                }
+                catch (Exception ex)
+                {
+                    //毛玻璃失败只影响背景观感，不应让整张开屏图显示失败
+                    LogHelper.WriteLog("开屏图毛玻璃初始化失败", LogType.ERROR, ex);
+                }
+
+                _splashSkip = new TaskCompletionSource<bool>();
+                try
+                {
+                    //时长夹取规则同样有单元测试覆盖
+                    var displayMs = SplashImageSelector.NormalizeDurationMs(splash.DurationMs, SplashMinShowMs, SplashMaxShowMs);
+                    //倒计时到点或用户点击跳过，先到者生效
+                    await Task.WhenAny(Task.Delay(displayMs), _splashSkip.Task);
+                }
+                finally
+                {
+                    _splashSkip = null;
+                }
+
+                //向上滑出，露出已在下方渲染好的主界面。
+                //AnimateDoublePropertyAsync 是 CarouselHelper 的扩展方法，类外必须用扩展调用语法
+                await splash_layer.GetCompositeTransform().AnimateDoublePropertyAsync(
+                    "TranslateY",
+                    0,
+                    -splash_layer.ActualHeight,
+                    SplashSlideOutMs,
+                    new CubicEase { EasingMode = EasingMode.EaseIn });
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("展示启动开屏图异常", LogType.ERROR, ex);
+            }
+            finally
+            {
+                //无论如何都要把覆盖层收掉，绝不能挡住主界面
+                splash_layer.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>点击开屏图立即跳过，不必等倒计时。</summary>
+        private void splash_layer_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            _splashSkip?.TrySetResult(true);
+        }
+
+        /// <summary>交给 MainPage 展示的开屏图。</summary>
+        public class SplashImageItem
+        {
+            public BitmapImage Image { get; set; }
+            public int DurationMs { get; set; }
+        }
+
+        #endregion
 
 
         private void InitializedFrostedGlass(UIElement glassHost, int d)
@@ -680,7 +876,9 @@ namespace BiliBili.UWP
 
         private void MessageCenter_ChanageThemeEvent(object par, params object[] par1)
         {
-            ChangeTheme();
+            //只换肤，不重设右侧背景页。ChangeTheme() 里的 switch 读的是 Get_Rigth()，
+            //与主题无关，却会在 UI 线程同步重建页面，导致切换主题时卡顿。
+            ApplyTheme();
         }
 
         private void ChangeTheme()
@@ -708,7 +906,18 @@ namespace BiliBili.UWP
                     break;
             }
 
-            string ThemeName = SettingHelper.Get_Theme();
+            //tuic.To = this.ActualWidth;
+            //storyboardPopOut.Begin();
+            ApplyTheme();
+        }
+
+        /// <summary>
+        /// 只重新解析主题资源，不动右侧背景页。
+        /// 系统深色模式变化时走这里，避免跟随系统导致背景页被反复重载。
+        /// </summary>
+        private void ApplyTheme()
+        {
+            string ThemeName = SettingHelper.Get_EffectiveTheme();
             if (ThemeName== "Dark")
             {
                 RequestedTheme = ElementTheme.Dark;
@@ -721,9 +930,39 @@ namespace BiliBili.UWP
                 RequestedTheme = ElementTheme.Dark;
                 RequestedTheme = ElementTheme.Light;
             }
-            //tuic.To = this.ActualWidth;
-            //storyboardPopOut.Begin();
             ChangeTitbarColor();
+        }
+
+        private UISettings uiSettings;
+
+        private void RegisterSystemThemeWatcher()
+        {
+            if (uiSettings != null)
+            {
+                return;
+            }
+            uiSettings = new UISettings();
+            uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
+        }
+
+        private void UnregisterSystemThemeWatcher()
+        {
+            if (uiSettings == null)
+            {
+                return;
+            }
+            uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
+            uiSettings = null;
+        }
+
+        //ColorValuesChanged 在后台线程触发，必须切回 UI 线程才能改 RequestedTheme
+        private async void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        {
+            if (!SettingHelper.Get_FollowSystemTheme())
+            {
+                return;
+            }
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, ApplyTheme);
         }
         private void ChangeTitbarColor()
         {
@@ -1159,13 +1398,14 @@ namespace BiliBili.UWP
             fy.Hide();
         }
 
-        private void btn_LogOut_Click(object sender, RoutedEventArgs e)
+        private async void btn_LogOut_Click(object sender, RoutedEventArgs e)
         {
-            UserManage.Logout();
+            //清理 WebView2 存储是异步的，先收起浮层再等清理完成，避免清完还带着旧账号
             btn_Login.Visibility = Visibility.Visible;
             btn_UserInfo.Visibility = Visibility.Collapsed;
             gv_User.Visibility = Visibility.Collapsed;
             fy.Hide();
+            await UserManage.LogoutAsync();
         }
 
      

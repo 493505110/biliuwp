@@ -9,7 +9,17 @@ namespace BiliBili.UWP.Helper
 {
     public static class WebView2CookieHelper
     {
-        private static CoreWebView2CookieManager cookieManager;
+        /// <summary>
+        /// 由常驻页面（MainPage）注入：借出一个可用于清理的 CoreWebView2。
+        /// 注销时用它清 Chromium 侧登录状态。载体用完即弃，不留在可视树上。
+        /// </summary>
+        public static Func<Task<CoreWebView2>> CleanupHostProvider;
+
+        /// <summary>
+        /// 由常驻页面（MainPage）注入：归还并销毁 CleanupHostProvider 借出的载体。
+        /// 必须在清理结束后调用，否则 Chromium 渲染进程会一直驻留。
+        /// </summary>
+        public static Action CleanupHostReleaser;
 
         private static readonly string[] BilibiliOrigins =
         {
@@ -28,7 +38,6 @@ namespace BiliBili.UWP.Helper
 
         public static async Task<string> GetCookieAsync(CoreWebView2 webView, string name)
         {
-            Register(webView);
             try
             {
                 var cookies = await webView.CookieManager.GetCookiesAsync("https://www.bilibili.com");
@@ -49,7 +58,6 @@ namespace BiliBili.UWP.Helper
 
         public static async Task CopyToHttpClientAsync(CoreWebView2 webView)
         {
-            Register(webView);
             try
             {
                 var filter = new HttpBaseProtocolFilter();
@@ -89,19 +97,24 @@ namespace BiliBili.UWP.Helper
             }
         }
 
-        public static Task CopyToWebViewAsync(CoreWebView2 webView)
+        public static async Task CopyToWebViewAsync(CoreWebView2 webView)
         {
-            Register(webView);
             try
             {
                 var filter = new HttpBaseProtocolFilter();
                 var copied = new HashSet<string>();
+                //WinRT 侧登录凭证的实际名字集合，用来判定 WebView2 里的同组 cookie 是否已过期
+                var loginCookiesInApp = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var origin in BilibiliOrigins)
                 {
                     var originUri = new Uri(origin);
                     var cookies = filter.CookieManager.GetCookies(originUri);
                     foreach (var item in cookies)
                     {
+                        if (SharedLoginCookieNames.Contains(item.Name))
+                        {
+                            loginCookiesInApp.Add(item.Name);
+                        }
                         var isSharedLoginCookie = SharedLoginCookieNames.Contains(item.Name);
                         var domain = isSharedLoginCookie
                             ? ".bilibili.com"
@@ -129,29 +142,83 @@ namespace BiliBili.UWP.Helper
                         }
                     }
                 }
+                //只写不删会让 WebView2 里留着 App 已不认的登录凭证（换号、注销残留），
+                //导致网页仍是旧账号的登录态，所以登录凭证组要和 WinRT 严格对齐。
+                await RemoveStaleLoginCookiesAsync(webView, loginCookiesInApp);
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("回写cookie到WebView2失败", LogType.ERROR, ex);
             }
-            return Task.CompletedTask;
         }
 
-        public static void Register(CoreWebView2 webView)
+        /// <summary>
+        /// 删除 WebView2 中属于登录凭证组、但 App 侧已经不存在的 cookie
+        /// </summary>
+        private static async Task RemoveStaleLoginCookiesAsync(CoreWebView2 webView, HashSet<string> loginCookiesInApp)
         {
-            cookieManager = webView.CookieManager;
-            UserManage.ClearWebViewCookies = ClearCookies;
+            foreach (var origin in BilibiliOrigins)
+            {
+                var cookies = await webView.CookieManager.GetCookiesAsync(origin);
+                foreach (var item in cookies)
+                {
+                    if (SharedLoginCookieNames.Contains(item.Name) && !loginCookiesInApp.Contains(item.Name))
+                    {
+                        try
+                        {
+                            webView.CookieManager.DeleteCookie(item);
+                        }
+                        catch (Exception)
+                        {
+                            // 单个 cookie 删除失败不影响其余清理。
+                        }
+                    }
+                }
+            }
         }
 
-        private static void ClearCookies()
+        /// <summary>
+        /// 注销时清 Chromium 侧的登录状态。
+        /// 只删 cookie 不够：B站网页的登录态还会落到 localStorage / IndexedDB，
+        /// 且 WebView2 与 WinRT HttpClient 不共用存储，必须单独清。
+        /// 载体用完立即释放——WebView2 每实例都会拉起一组渲染进程，常驻不划算。
+        /// </summary>
+        public static async Task ClearAllAsync()
         {
+            var provider = CleanupHostProvider;
+            if (provider == null)
+            {
+                LogHelper.WriteLog("未注册WebView2清理载体，跳过清除", LogType.INFO);
+                return;
+            }
             try
             {
-                cookieManager?.DeleteAllCookies();
+                var webView = await provider();
+                if (webView == null)
+                {
+                    return;
+                }
+                await webView.Profile.ClearBrowsingDataAsync(
+                    CoreWebView2BrowsingDataKinds.Cookies |
+                    CoreWebView2BrowsingDataKinds.AllDomStorage |
+                    CoreWebView2BrowsingDataKinds.ServiceWorkers |
+                    CoreWebView2BrowsingDataKinds.CacheStorage);
             }
             catch (Exception ex)
             {
-                LogHelper.WriteLog("清除WebView2 cookie失败", LogType.ERROR, ex);
+                LogHelper.WriteLog("清除WebView2数据失败", LogType.ERROR, ex);
+            }
+            finally
+            {
+                //无论清理成功与否都要归还载体，否则会漏一个常驻渲染进程
+                try
+                {
+                    CleanupHostReleaser?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    LogHelper.WriteLog("释放WebView2清理载体失败", LogType.ERROR, ex);
+                }
             }
         }
     }

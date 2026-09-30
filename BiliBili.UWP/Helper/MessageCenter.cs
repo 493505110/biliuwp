@@ -454,7 +454,7 @@ namespace BiliBili.UWP
 
         private static void ChangeTheme(Frame f)
         {
-            string ThemeName = SettingHelper.Get_Theme();
+            string ThemeName = SettingHelper.Get_EffectiveTheme();
             if (ThemeName == "Dark")
             {
                 f.RequestedTheme = ElementTheme.Dark;

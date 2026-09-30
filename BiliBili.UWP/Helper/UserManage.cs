@@ -174,11 +174,10 @@ namespace BiliBili.UWP.Helper
             return base64String;
         }
         /// <summary>
-        /// WebView2初始化后由LoginDialog注入，注销时用来清Chromium cookie存储
+        /// 注销：清 WinRT 侧 cookie、本地凭证，以及 WebView2（Chromium）侧的登录状态。
+        /// WebView2 清理必须等清完再返回，否则紧接着弹出的登录页可能还带着旧账号 cookie。
         /// </summary>
-        public static Action ClearWebViewCookies;
-
-        public static void Logout()
+        public static async Task LogoutAsync()
         {
             List<HttpCookie> listCookies = new List<HttpCookie>();
             listCookies.Add(new HttpCookie("sid", ".bilibili.com", "/"));
@@ -202,8 +201,8 @@ namespace BiliBili.UWP.Helper
             SettingHelper.Set_LoginExpires(DateTime.Now);
             SettingHelper.Set_BiliplusCookie(string.Empty);
             SettingHelper.Set_UserIsVip(false);
-            //清 WebView2 的 Chromium cookie（与 WinRT HttpClient 不共用存储）
-            ClearWebViewCookies?.Invoke();
+            //清 WebView2 的 Chromium 存储（与 WinRT HttpClient 不共用，cookie 之外还有 DOM 存储）
+            await WebView2CookieHelper.ClearAllAsync();
         }
 
 

@@ -66,13 +66,20 @@ namespace BiliBili.UWP.Pages.User
                     userCenterVM.mid = mid;
                     userCenterVM.is_self = mid == ApiHelper.GetUserId();
                     userCenterVM.UserCenterDetail = null;
-                    userCenterVM.SubmitVideos.Clear();
+                    //上次加载失败时 SubmitVideos 还没创建，这里不能直接 Clear
+                    userCenterVM.SubmitVideos?.Clear();
                     //切换用户时同步重置动态状态
                     _dynItems.Clear();
                     _dynOffset = "";
                     _dynHasMore = true;
                     ls_new_dynamic.ItemsSource = null;
                     tb_dynEmpty.Visibility = Visibility.Collapsed;
+                    await userCenterVM.GetUserDetail();
+                }
+                else if (userCenterVM.UserCenterDetail == null && !userCenterVM.Loading)
+                {
+                    //同一个用户上次没加载成功（接口风控等），再次进入时重试，
+                    //否则页面被缓存后这个用户永远是空白的
                     await userCenterVM.GetUserDetail();
                 }
             }

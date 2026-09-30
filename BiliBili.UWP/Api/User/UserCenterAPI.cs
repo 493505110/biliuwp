@@ -42,6 +42,27 @@ namespace BiliBili.UWP.Api.User
         }
 
         /// <summary>
+        /// 用户名片（网页API）。只有带上 photo=true 才会返回 data.space 里的头图地址，
+        /// x/space/acc/info 已固定被风控拦截（-401 crawler_main_space_acc_info），头图改从这里取。
+        /// </summary>
+        /// <param name="mid"></param>
+        /// <returns></returns>
+        public ApiModel UserCard(string mid)
+        {
+            return new ApiModel()
+            {
+                method = HttpMethod.GET,
+                baseUrl = "https://api.bilibili.com/x/web-interface/card",
+                parameter = $"mid={mid}&photo=true",
+                headers = new Dictionary<string, string>()
+                {
+                    { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+                    { "Referer", $"https://space.bilibili.com/{mid}" }
+                }
+            };
+        }
+
+        /// <summary>
         /// 获取当前用户的关注列表（网页 API）
         /// </summary>
         public ApiModel GetFollowings(int page = 1, int pageSize = 20)

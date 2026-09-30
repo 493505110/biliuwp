@@ -19,12 +19,21 @@ namespace BiliBili.UWP.Modules.Home
     public class HotVM:IModules
     {
         readonly Api.Home.HotAPI hotAPI;
-        public HotVM()
+        public HotVM() : this(0)
+        {
+        }
+        public HotVM(int entranceId)
         {
             hotAPI = new Api.Home.HotAPI();
+            EntranceId = entranceId;
             RefreshCommand = new RelayCommand(Refresh);
             LoadMoreCommand = new RelayCommand(LoadMore);
         }
+
+        /// <summary>
+        /// 热门子频道 ID（如美食为 9），0 表示全部热门。
+        /// </summary>
+        public int EntranceId { get; private set; }
         public ICommand RefreshCommand { get; private set; }
         public ICommand LoadMoreCommand { get; private set; }
 
@@ -55,7 +64,7 @@ namespace BiliBili.UWP.Modules.Home
             try
             {
                 Loading = true;
-                var result = await hotAPI.Popular("0","").Request();
+                var result = await hotAPI.Popular("0","", EntranceId).Request();
                 if (result.status)
                 {
                     var data = result.GetJObject();
@@ -72,7 +81,7 @@ namespace BiliBili.UWP.Modules.Home
                             if (items[i].card_goto != "av")
                                 items.Remove(items[i]);
                         }
-                        Items = new IncrementalLoadingCollection<HotItemSource, HotDataItemModel>(new HotItemSource(items));
+                        Items = new IncrementalLoadingCollection<HotItemSource, HotDataItemModel>(new HotItemSource(items, EntranceId));
                     }
                     else
                     {
@@ -105,6 +114,21 @@ namespace BiliBili.UWP.Modules.Home
             TopItems = null;
             await GetPopular();
         }
+
+        /// <summary>
+        /// 切换热门子频道（如美食 entrance_id=9），传 0 回到全部热门。
+        /// 顶部入口列表保持不变，方便来回切换。
+        /// </summary>
+        public async Task SwitchChannel(int entranceId)
+        {
+            if (Loading || EntranceId == entranceId)
+            {
+                return;
+            }
+            EntranceId = entranceId;
+            Items = null;
+            await GetPopular();
+        }
         public async void LoadMore()
         {
             if (Loading)
@@ -118,9 +142,11 @@ namespace BiliBili.UWP.Modules.Home
     public class HotItemSource : IIncrementalSource<HotDataItemModel>
     {
         readonly Api.Home.HotAPI hotAPI;
-        public HotItemSource(List<HotDataItemModel> items)
+        readonly int entranceId;
+        public HotItemSource(List<HotDataItemModel> items, int entranceId = 0)
         {
             hotAPI = new Api.Home.HotAPI();
+            this.entranceId = entranceId;
             last_idx = items.LastOrDefault().idx ?? "0";
             last_param = items.LastOrDefault()?.param ?? "";
             this.hot_items = items;
@@ -133,7 +159,7 @@ namespace BiliBili.UWP.Modules.Home
             try
             {
 
-                var result = await hotAPI.Popular(last_idx, last_param).Request();
+                var result = await hotAPI.Popular(last_idx, last_param, entranceId).Request();
                 if (result.status)
                 {
                     var data = result.GetJObject();
