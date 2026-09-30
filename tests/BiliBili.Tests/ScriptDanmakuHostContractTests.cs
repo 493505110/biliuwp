@@ -58,7 +58,7 @@ namespace BiliBili.Tests
 
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AppendModuleSource("BiliBili.UWP/Assets/script-danmaku/host.js", visited, new StringBuilder());
-            Assert.AreEqual(10, visited.Count, "入口应加载全部十个职责模块");
+            Assert.AreEqual(12, visited.Count, "入口应加载全部十二个职责模块");
 
             var project = XDocument.Load(TestRepository.GetPath("BiliBili.UWP/BiliBili.UWP.csproj"));
             XNamespace msbuild = "http://schemas.microsoft.com/developer/msbuild/2003";
@@ -339,13 +339,13 @@ namespace BiliBili.Tests
             StringAssert.Contains(playerBody, "setMask: function (obj) {");
             StringAssert.Contains(playerBody, "setStageMask(obj);");
 
-            // 裁剪必须在 composeElement（合成期）施加，且擦除 / 整屏清空不带裁剪。
-            // 另外被当作遮罩的元件本身不参与合成（连呈现记录都不留）。
-            var composeBody = TestRepository.MethodBody(source, "function composeElement(element) {");
-            StringAssert.Contains(composeBody, "if (isUsedAsMask(element)) {");
-            StringAssert.Contains(composeBody, "var clipped = applyStageMask(hostState.context2d);");
-            StringAssert.Contains(composeBody, "if (clipped) {");
+            // 裁剪必须在实际合成期施加，且擦除 / 整屏清空不带裁剪。
+            var composeBody = TestRepository.MethodBody(source, "function composeElementClipped(element, rect) {");
+            StringAssert.Contains(composeBody, "var masked = applyStageMask(hostState.context2d);");
+            StringAssert.Contains(composeBody, "if (masked) {");
             StringAssert.Contains(composeBody, "hostState.context2d.restore();");
+            var paintBody = TestRepository.MethodBody(source, "function paintDirtyElements() {");
+            StringAssert.Contains(paintBody, "if (!isElementVisible(element) || isUsedAsMask(element)) continue;");
             var flushBody = TestRepository.MethodBody(source, "function flushEraseRects(rects) {");
             Assert.IsFalse(
                 flushBody.Contains("applyStageMask"),
@@ -557,14 +557,14 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "target.createLinearGradient(");
             StringAssert.Contains(source, "target.createRadialGradient(");
 
-            // drawPath 复用 moveTo/lineTo/curveTo 的路径模型，所以描边/填充/包围盒
-            // 以及元素级遮罩的路径描摹都自动生效。
-            var drawPathBody = TestRepository.MethodBody(source, "drawPath: function (commands, data) {");
-            StringAssert.Contains(drawPathBody, "graphics.moveTo(");
-            StringAssert.Contains(drawPathBody, "graphics.lineTo(");
-            StringAssert.Contains(drawPathBody, "graphics.curveTo(");
-            // 没有前置 MOVE_TO 时，Flash 把首个 LINE_TO 当起点。
-            StringAssert.Contains(drawPathBody, "if (!graphics.__path || graphics.__path.kind !== \"poly\") {");
+            // 复合轮廓一起填充；绘制、遮罩和几何尺寸使用同一份曲线命令。
+            var drawPathBody = TestRepository.MethodBody(source, "drawPath: function (commands, data, winding) {");
+            StringAssert.Contains(drawPathBody, "kind: \"path\"");
+            StringAssert.Contains(drawPathBody, "winding === \"nonZero\" ? \"nonzero\" : \"evenodd\"");
+            StringAssert.Contains(source, "target.fill(item.winding);");
+            StringAssert.Contains(source, "target.quadraticCurveTo(points[0].x");
+            StringAssert.Contains(source, "target.bezierCurveTo(points[0].x");
+            StringAssert.Contains(source, "function displayObjectBounds(element, parentSpace) {");
 
             // drawGraphicsData 仍然显式报错（两条真实脚本 0 次使用）。
             StringAssert.Contains(source, "drawGraphicsData 尚未支持");
@@ -875,7 +875,7 @@ namespace BiliBili.Tests
             // 合成必须走「脏元素才重画」的路径，而不是整帧重画。
             var paintBody = PaintBody();
             StringAssert.Contains(paintBody, "if (prepareElement(element)) {");
-            StringAssert.Contains(paintBody, "composeElement(candidate);");
+            StringAssert.Contains(paintBody, "composeElementClipped(element, hits[j]);");
         }
 
         [TestMethod]
@@ -954,9 +954,9 @@ namespace BiliBili.Tests
                 source,
                 "function paintDirtyElements() {");
             StringAssert.Contains(paintBody, "if (prepareElement(element)) {");
-            StringAssert.Contains(paintBody, "candidates.push(element);");
-            StringAssert.Contains(paintBody, "composeElement(candidate);");
-            var composeBody = TestRepository.MethodBody(source, "function composeElement(element) {");
+            StringAssert.Contains(paintBody, "element.dirtyCandidate = true;");
+            StringAssert.Contains(paintBody, "composeElementClipped(element, hits[j]);");
+            var composeBody = TestRepository.MethodBody(source, "function composeElementClipped(element, rect) {");
             StringAssert.Contains(composeBody, "blitElement(hostState.context2d, element);");
 
             // 元素属性可写：赋值即标脏（属性描述符的 setter 里做）。
@@ -1121,8 +1121,8 @@ namespace BiliBili.Tests
 
             // 顺序：先擦上一帧的包围盒，再合成本帧的脏元素。反了会把刚画好的擦掉。
             var paintBody = PaintBody();
-            var flushIndex = paintBody.IndexOf("flushEraseRects(erasedRects);", System.StringComparison.Ordinal);
-            var composeIndex = paintBody.IndexOf("composeElement(candidate);", System.StringComparison.Ordinal);
+            var flushIndex = paintBody.IndexOf("flushEraseRects(regions);", System.StringComparison.Ordinal);
+            var composeIndex = paintBody.IndexOf("composeElementClipped(element, hits[j]);", System.StringComparison.Ordinal);
             Assert.IsTrue(
                 flushIndex >= 0 && composeIndex > flushIndex,
                 "擦除必须早于本帧合成");
@@ -1645,14 +1645,14 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void Host_FilterSamplesTheGlowRadiusFromTheFilter()
+        public void Host_FiltersApplyToBothLeafAndContainerBitmaps()
         {
-            // glow 的模糊半径按滤镜自己的 blurX 取（原版文本两档是 4 / 3），
-            // 不再是写死的 4px。颜色仍是刻意的近似（见宿主内的说明）。
             var source = HostSource();
-            StringAssert.Contains(source, "function glowFilterRadius(element) {");
-            StringAssert.Contains(source, "\"blur(\" + glowFilterRadius(element) + \"px)\"");
-            StringAssert.Contains(source, "return Math.max(1, toFiniteNumber(filters[index].blurX, 4));");
+            StringAssert.Contains(source, "function filterPadding(filters) {");
+            StringAssert.Contains(source, "applyEffects(element.cacheCanvas, element, ratio);");
+            StringAssert.Contains(source, "applyEffects(element.composite, element, ratio);");
+            StringAssert.Contains(source, "applyColorTransform(canvas, element.props.colorTransform);");
+            StringAssert.Contains(source, "return Math.max(0, readNumberMember(config, \"startDelay\") || 0);");
         }
     }
 }

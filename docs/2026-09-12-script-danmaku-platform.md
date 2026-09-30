@@ -1,7 +1,8 @@
 # 脚本弹幕平台（mode8 风格）
 
 > **状态：阶段 1（核心渲染）已完成代码与构建验证，待页面级验证；阶段 2-5 未开始。** 见 §实施阶段。
-> **宿主拆分（2026-09-30）**：运行时已移到 `Assets/script-danmaku/` 下的十个 ES 模块，HTML 只保留舞台、样式与入口引用；模块职责及初始化约定见 §3。历史实施记录中的 HTML 行号不再对应当前源码，请按函数名定位。
+> **渲染修复（2026-09-30）**：3D、Blur/Glow、颜色变换、文字尺寸与曲线路径现已接入实际绘制；旧实施记录中的“只存储参数”和滤镜近似描述属于历史状态。验证方法和剩余限制见 [渲染修复记录](2026-09-30-m8-rendering.md)。
+> **宿主拆分（2026-09-30）**：运行时已移到 `Assets/script-danmaku/` 下的十二个 ES 模块，HTML 只保留舞台、样式与入口引用；模块职责及初始化约定见 §3。历史实施记录中的 HTML 行号不再对应当前源码，请按函数名定位。
 > **阶段 1 收尾（2026-09-26）**：宿主的「擦除 / 重合成」返工做到第三条路（按擦除矩形裁剪后重贴），
 > 中段 119s/121s 已超过基线（0.662/0.936 对 0.560/0.918），但尾部 123~142s 同时退化
 > （0.117 对 0.056，录屏 0.009），**按「不留残影也不打空洞」的判据仍未收敛**。
@@ -70,7 +71,7 @@
                       │ module 入口
                       ▼
              Assets/script-danmaku/host.js
-        （十个职责模块：保留对象树 + tween 补间 + 脏元素重绘；TS 转译待接入）
+        （十二个职责模块：保留对象树 + tween 补间 + 脏元素重绘；TS 转译待接入）
 ```
 
 **关键决策：交互与拦截的"处理权"全在 PlayerPage，控件只转发。** 控件通过事件把脚本的请求抛给 PlayerPage；PlayerPage 用自己已有字段/方法处理，再调控件方法把结果推回。这样 `PlayerPage` 的 private 成员**无需改可见性**。
@@ -107,7 +108,7 @@ public sealed class ScriptDanmakuDocument
 
 ### 3. 宿主运行时（`Assets/script-danmaku-host.html`）
 
-> 宿主脚本已按职责拆为 `Assets/script-danmaku/` 下的十个原生 ES 模块，HTML 通过 `<script type="module" src="script-danmaku/host.js">` 加载入口。共享可变状态由 `core.js` 的 `hostState` 保存；跨模块的舞台根创建和 `$.Global` 别名绑定集中到 `host.js`，在依赖全部求值后执行。所有模块均作为 Content 注册到 UWP 工程，沿用现有 WebView2 虚拟主机映射，无需打包器或运行时源码拼接。
+> 宿主脚本已按职责拆为 `Assets/script-danmaku/` 下的十二个原生 ES 模块，HTML 通过 `<script type="module" src="script-danmaku/host.js">` 加载入口。共享可变状态由 `core.js` 的 `hostState` 保存；跨模块的舞台根创建和 `$.Global` 别名绑定集中到 `host.js`，在依赖全部求值后执行。所有模块均作为 Content 注册到 UWP 工程，沿用现有 WebView2 虚拟主机映射，无需打包器或运行时源码拼接。
 
 | 文件 | 职责 |
 |---|---|
@@ -116,6 +117,8 @@ public sealed class ScriptDanmakuDocument
 | `tween.js` | 声明式 motion、Tween 句柄及组合子 |
 | `display.js` | 保留元素、显示列表、工厂、2D/3D 变换 |
 | `renderer.js` | 绘制、缓存、遮罩、脏矩形合成 |
+| `geometry.js` | Flash 矩阵、世界/相对变换、3D 透视投影 |
+| `effects.js` | Blur/Glow 像素滤镜与 ColorTransform |
 | `lifecycle.js` | 编译、条目生命周期、播放同步、帧调度 |
 | `player.js` | Player API、音效、弹幕快照、触发器 |
 | `bitmap.js` | 位图与粒子 API |

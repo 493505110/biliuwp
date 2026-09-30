@@ -17,6 +17,7 @@ import {
 } from "./lifecycle.js";
 import {
     createElementTransform,
+    displayObjectBounds,
     enqueueElementErase,
     markElementMoved,
     retirePaintedAncestorRect,
@@ -31,6 +32,8 @@ import {
     readDeclaredSeconds,
     resolveDeclaredLifeTimeMs
 } from "./tween.js";
+
+import { localMatrix, transformPoint } from "./geometry.js";
 
 // ---- 保留元素 ----
 
@@ -72,7 +75,7 @@ function createRetainedElement(kind) {
             matrix: null,
             filters: null,
             // 以下四项是 Flash DisplayObject 的平移面属性：
-            //  - scaleZ        ：3D 缩放（2D 画布不呈现，只存储）
+            //  - scaleZ        ：3D 缩放
             //  - blendMode     ：混合模式，映射到 canvas 的 globalCompositeOperation
             //  - scrollRect    ：滚动矩形（需要裁剪语义，当前只存储）
             //  - mask          ：元素级遮罩（真实现，见 applyElementMaskClip）
@@ -114,6 +117,10 @@ function createRetainedElement(kind) {
         // 复合缓存：元素有子节点时，首帧把子树烘到离屏画布，
         // 之后整体作为一个元素做变换合成，子树不再逐帧绘制。
         composite: null,
+        compositeDpr: 1,
+        projectedComposite: false,
+        projectedPlanar: false,
+        projectedEffectCanvas: null,
         compositeDirty: false,
         // 复合层位图在元素本地坐标系里的原点与尺寸（子树内容决定）。
         compositeBounds: null,
@@ -145,8 +152,7 @@ function createRetainedElement(kind) {
 
     // transform 命名空间：脚本里 22 次访问，必须挂在元素自身上。
     // `.matrix` 与已有 props.matrix 是同一个对象（不另起一套），
-    // `.matrix3D` / `.colorTransform` 只存储，`.perspectiveProjection`
-    // 返回 Flash 默认值的纯数据对象。
+    // 3D 与颜色变换由渲染器应用于整份元件位图。
     Object.defineProperty(element, "transform", {
         configurable: true,
         enumerable: false,
@@ -170,6 +176,16 @@ function createRetainedElement(kind) {
     attachElementApi(element);
     defineTreeProperties(element);
     attachDisplayListApi(element);
+    ["width", "height"].forEach(function (name) {
+        Object.defineProperty(element, name, {
+            configurable: true, enumerable: false,
+            get: function () { var bounds = displayObjectBounds(this, true); return bounds ? bounds[name] : 0; },
+            set: function (value) {
+                var current = this[name];
+                if (current > 0) this[name === "width" ? "scaleX" : "scaleY"] *= Math.max(0, toFiniteNumber(value, 0)) / current;
+            }
+        });
+    });
     hideElementInternals(element);
     return element;
 }
@@ -194,7 +210,38 @@ function setPropertyInternal(element, name, value, markDirty) {
         retainMaskReference(value);
     }
 
+    var previous = props[name];
     props[name] = value;
+    if (name === "matrix" && value) {
+        props.matrix3D = null;
+        props.x = value.tx; props.y = value.ty;
+        props.scaleX = Math.sqrt(value.a * value.a + value.b * value.b);
+        props.scaleY = Math.sqrt(value.c * value.c + value.d * value.d);
+        props.rotation = props.rotationZ = Math.atan2(value.b, value.a) * 180 / Math.PI;
+        props.rotationX = props.rotationY = props.z = 0;
+    } else if (name === "x" || name === "y" || name === "z") {
+        if (name === "z" && value) props.matrix = null;
+        if (props.matrix && name !== "z") props.matrix[name === "x" ? "tx" : "ty"] = value;
+        if (props.matrix3D) props.matrix3D.rawData[name === "x" ? 12 : name === "y" ? 13 : 14] = value;
+    } else if (name === "rotationX" || name === "rotationY" || name === "scaleZ" || (name === "z" && value)) {
+        props.matrix = null; props.matrix3D = null;
+    } else if (name === "scaleX" || name === "scaleY" || name === "rotation" || name === "rotationZ") {
+        props.matrix3D = null;
+        if (props.matrix) {
+            var m = props.matrix;
+            if (name === "scaleX" || name === "scaleY") {
+                var factor = previous ? value / previous : 1;
+                if (name === "scaleX") { m.a *= factor; m.b *= factor; }
+                else { m.c *= factor; m.d *= factor; }
+                if (!previous) props.matrix = null;
+            } else {
+                var angle = (value - previous) * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+                var a = m.a, b = m.b, c = m.c, d = m.d;
+                m.a = a * cos - b * sin; m.b = a * sin + b * cos;
+                m.c = c * cos - d * sin; m.d = c * sin + d * cos;
+            }
+        }
+    }
     // rotationZ 是 rotation 的别名，与 M8 移植层一致。
     if (name === "rotation" || name === "rotationZ") {
         props.rotation = value;
@@ -698,37 +745,8 @@ function applyElementMaskClip(target, element) {
 // 遮罩元件的局部坐标 → 父坐标（与 applyElementTransform 同序：
 // 缩放 → matrix → 旋转 → 平移）。
 function createMaskPointMapper(masker) {
-    var props = masker.props;
-    var scaleX = toFiniteNumber(props.scaleX, 1);
-    var scaleY = toFiniteNumber(props.scaleY, 1);
-    var matrix = props.matrix;
-    var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
-    var cos = Math.cos(rotation);
-    var sin = Math.sin(rotation);
-    var offsetX = toFiniteNumber(props.x, 0);
-    var offsetY = toFiniteNumber(props.y, 0);
-    var hasMatrix = !!matrix && typeof matrix === "object";
-    return function (x, y) {
-        var px = x * scaleX;
-        var py = y * scaleY;
-        if (hasMatrix) {
-            var mx = px * toFiniteNumber(matrix.a, 1) + py * toFiniteNumber(matrix.c, 0)
-                + toFiniteNumber(matrix.tx, 0);
-            var my = px * toFiniteNumber(matrix.b, 0) + py * toFiniteNumber(matrix.d, 1)
-                + toFiniteNumber(matrix.ty, 0);
-            px = mx;
-            py = my;
-        }
-
-        if (rotation) {
-            var rx = px * cos - py * sin;
-            var ry = px * sin + py * cos;
-            px = rx;
-            py = ry;
-        }
-
-        return { x: px + offsetX, y: py + offsetY };
-    };
+    var matrix = localMatrix(masker);
+    return function (x, y) { return transformPoint(matrix, x, y, 0); };
 }
 
 // Flash 的 DisplayObjectContainer 显示列表查询。
@@ -1126,7 +1144,7 @@ function createGraphics(element) {
         moveTo: function (x, y) {
             graphics.__path = {
                 kind: "poly",
-                points: [toFiniteNumber(x, 0), toFiniteNumber(y, 0)]
+                points: [toFiniteNumber(x, 0), toFiniteNumber(y, 0)], segments: []
             };
             if (graphics.__line) {
                 element.shapeItems.push({ kind: "line", path: graphics.__path, style: graphics.__line });
@@ -1140,6 +1158,7 @@ function createGraphics(element) {
             }
 
             graphics.__path.points.push(toFiniteNumber(x, 0), toFiniteNumber(y, 0));
+            graphics.__path.segments.push([2, toFiniteNumber(x, 0), toFiniteNumber(y, 0)]);
         },
         curveTo: function (cx, cy, x, y) {
             if (!graphics.__path || graphics.__path.kind !== "poly") {
@@ -1152,6 +1171,7 @@ function createGraphics(element) {
                 toFiniteNumber(x, 0), toFiniteNumber(y, 0)
             ]);
             graphics.__path.points.push(toFiniteNumber(x, 0), toFiniteNumber(y, 0));
+            graphics.__path.segments.push([3, toFiniteNumber(cx, 0), toFiniteNumber(cy, 0), toFiniteNumber(x, 0), toFiniteNumber(y, 0)]);
         },
         drawRect: function (x, y, width, height) {
             element.shapeItems.push({
@@ -1224,57 +1244,14 @@ function createGraphics(element) {
             });
         },
         // Flash 的 Graphics.drawPath(commands, data, winding)。
-        // 复用 moveTo / lineTo / curveTo 的路径模型，因此描边、填充与
-        // 包围盒计算全都自动生效（元素级遮罩的路径描摹也认这条路径）。
-        //
-        // 命令码按 Flash：1 MOVE_TO / 2 LINE_TO / 3 CURVE_TO(二次) /
-        // 4 WIDE_MOVE_TO / 5 WIDE_LINE_TO / 6 CUBIC_CURVE_TO。
-        // 6 号（三次曲线）本宿主的路径只表达二次曲线，取第一个控制点近似
-        // （见文档 §3 的已知近似）；其余命令码忽略该段、不抛错。
-        drawPath: function (commands, data) {
+        // 同一 drawPath 的所有轮廓一起填充，保留曲线、字形空洞和 winding。
+        drawPath: function (commands, data, winding) {
             if (!commands || !data) {
                 return;
             }
 
-            var dataIndex = 0;
-            for (var index = 0; index < commands.length; index++) {
-                switch (commands[index]) {
-                    case 1:
-                    case 4:
-                        graphics.moveTo(data[dataIndex], data[dataIndex + 1]);
-                        dataIndex += 2;
-                        break;
-                    case 2:
-                    case 5:
-                        // 没有前置 MOVE_TO 时，Flash 把首个 LINE_TO 当起点。
-                        if (!graphics.__path || graphics.__path.kind !== "poly") {
-                            graphics.moveTo(data[dataIndex], data[dataIndex + 1]);
-                        } else {
-                            graphics.lineTo(data[dataIndex], data[dataIndex + 1]);
-                        }
-
-                        dataIndex += 2;
-                        break;
-                    case 3:
-                        graphics.curveTo(
-                            data[dataIndex],
-                            data[dataIndex + 1],
-                            data[dataIndex + 2],
-                            data[dataIndex + 3]);
-                        dataIndex += 4;
-                        break;
-                    case 6:
-                        graphics.curveTo(
-                            data[dataIndex],
-                            data[dataIndex + 1],
-                            data[dataIndex + 4],
-                            data[dataIndex + 5]);
-                        dataIndex += 6;
-                        break;
-                    default:
-                        break;
-                }
-            }
+            element.shapeItems.push({ kind: "path", commands: Array.from(commands), data: Array.from(data),
+                winding: winding === "nonZero" ? "nonzero" : "evenodd", fill: graphics.__fill, line: graphics.__line });
 
             element.propertyDirty["*"] = true;
             scheduleElementCache(element);
@@ -1354,8 +1331,8 @@ function createImageElement(url) {
     element.imageValue = null;
     element.loaded = false;
     element.failed = false;
-    element.width = 0;
-    element.height = 0;
+    element.imageWidth = 0;
+    element.imageHeight = 0;
     element.autoCached = true;
     defineContentProperties(element);
 
@@ -1380,8 +1357,8 @@ function loadImageElement(element) {
 
         element.imageValue = bitmap;
         element.loaded = true;
-        element.width = bitmap.naturalWidth || bitmap.width;
-        element.height = bitmap.naturalHeight || bitmap.height;
+        element.imageWidth = bitmap.naturalWidth || bitmap.width;
+        element.imageHeight = bitmap.naturalHeight || bitmap.height;
         element.needsCache = true;
         element.painted = false;
         markElementDirty(element);
@@ -1527,6 +1504,9 @@ function releaseElementCaches(element) {
     element.cacheCtx = null;
     element.cacheBounds = null;
     element.composite = null;
+    element.projectedComposite = false;
+    element.projectedPlanar = false;
+    element.projectedEffectCanvas = null;
     element.compositeBounds = null;
     element.propertyDirty = {};
 
@@ -1729,9 +1709,7 @@ var M8Display = {
     },
     // M8 的 Global：`$.Global` 与 `$G` 指向同一个对象。
     Global: null,
-    // ---- 以下为占位：Flash 元件模型 / 外部库依赖，当前不生效 ----
-    // 待接数据链（阶段 2-4）：需要完整 Flash DisplayObject 模型或
-    // 位图/字体外部库，当前返回 null 让脚本不抛错继续执行。
+    // Flash 几何对象与滤镜工厂。未绘制的滤镜类型仍保留可读参数。
     // Flash 的 Vector（数值数组）。entry_08 里还把它当可增长的动态数组用
     // （`var vLocal=$.toNumberVector([]); vLocal.push(...)`），
     // 普通 Array 因此正合适。
@@ -1812,7 +1790,7 @@ var M8Display = {
     },
     // 原版另外五个滤镜工厂（ColorMatrix / Convolution / DisplacementMap /
     // GradientBevel / GradientGlow）。宿主按既有占位约定返回可读对象，
-    // 元素 filters 目前只识别 GlowFilter，这里保证「名字在、能调用、不抛错」。
+    // 元素 filters 目前绘制 GlowFilter / BlurFilter，其余类型只保留参数。
     createColorMatrixFilter: function () {
         return createPlaceholderFilter("ColorMatrixFilter", arguments);
     },
@@ -1996,17 +1974,19 @@ function ensureMatrixMethods(matrix) {
         return this;
     };
     matrix.scale = function (x, y) {
-        this.a *= toFiniteNumber(x, 1);
-        this.d *= toFiniteNumber(y, 1);
+        x = toFiniteNumber(x, 1); y = toFiniteNumber(y, 1);
+        this.a *= x; this.c *= x; this.tx *= x;
+        this.b *= y; this.d *= y; this.ty *= y;
         return this;
     };
     matrix.rotate = function (radians) {
         var cos = Math.cos(toFiniteNumber(radians, 0));
         var sin = Math.sin(toFiniteNumber(radians, 0));
         var a = this.a;
-        var b = this.b;
-        this.a = a * cos - b * sin;
-        this.b = a * sin + b * cos;
+        var b = this.b, c = this.c, d = this.d, tx = this.tx, ty = this.ty;
+        this.a = a * cos - b * sin; this.b = a * sin + b * cos;
+        this.c = c * cos - d * sin; this.d = c * sin + d * cos;
+        this.tx = tx * cos - ty * sin; this.ty = tx * sin + ty * cos;
         return this;
     };
     matrix.clone = function () {
@@ -2201,13 +2181,13 @@ function createMatrix3D(rawData) {
         return matrix;
     };
 
-    // this = this × other（Flash 的 append 语义）。
+    // Flash append：this = other × this（列向量，左乘）。
     matrix.append = function (other) {
         if (!other || !other.rawData) {
             return matrix;
         }
 
-        matrix.rawData = multiplyMatrix3D(matrix.rawData, other.rawData);
+        matrix.rawData = multiplyMatrix3D(other.rawData, matrix.rawData);
         return matrix;
     };
 
@@ -2216,7 +2196,7 @@ function createMatrix3D(rawData) {
             return matrix;
         }
 
-        matrix.rawData = multiplyMatrix3D(other.rawData, matrix.rawData);
+        matrix.rawData = multiplyMatrix3D(matrix.rawData, other.rawData);
         return matrix;
     };
 
@@ -2270,12 +2250,6 @@ function createMatrix3D(rawData) {
             x * data[1] + y * data[5] + z * data[9] + data[13],
             x * data[2] + y * data[6] + z * data[10] + data[14]);
         result.w = x * data[3] + y * data[7] + z * data[11] + data[15];
-        if (result.w !== 0 && result.w !== 1) {
-            result.x /= result.w;
-            result.y /= result.w;
-            result.z /= result.w;
-        }
-
         return result;
     };
 
@@ -2421,34 +2395,32 @@ function invertMatrix3D(data) {
 // Flash 的 PerspectiveProjection：纯数据对象（M8 的 clone() 明确不复制
 // 函数，脚本也是 clone 出来当数据用），默认值与 Flash 一致。
 function createPerspectiveProjection() {
-    return {
-        fieldOfView: 55,
-        focalLength: 633.9496459960938,
-        projectionCenter: createVector3D(0, 0, 0)
-    };
+    var fieldOfView = 55;
+    var width = hostState.viewportWidth || 500;
+    var projection = { projectionCenter: createVector3D(width / 2, (hostState.viewportHeight || 500) / 2, 0) };
+    Object.defineProperty(projection, "fieldOfView", {
+        enumerable: true, get: function () { return fieldOfView; },
+        set: function (value) { fieldOfView = Math.max(0.00001, Math.min(179.99999, Number(value))); }
+    });
+    Object.defineProperty(projection, "focalLength", {
+        enumerable: true, get: function () { return width / (2 * Math.tan(fieldOfView * Math.PI / 360)); },
+        set: function (value) { fieldOfView = 360 * Math.atan(width / (2 * Number(value))) / Math.PI; }
+    });
+    return projection;
 }
 
-// 滤镜占位：仅保留「有名字、能赋值、不抛错」。
-// 元素的 filters 属性只识别 GlowFilter（缓存期近似发光），其余不生效。
+// 原版工厂的参数顺序及默认值（ScriptDisplay.as）。
 function createPlaceholderFilter(kind, args) {
-    return {
-        type: kind,
-        kind: kind,
-        // Flash 滤镜的参数顺序（color/alpha/blur/strength/quality…）
-        // 本宿主不做完整移植，只保留最常用的两个值供脚本读取。
-        color: args.length > 0 ? toFiniteNumber(args[0], 0) : 0,
-        alpha: args.length > 1 ? toFiniteNumber(args[1], 1) : 1,
-        blurX: args.length > 2 ? toFiniteNumber(args[2], 0) : 0,
-        blurY: args.length > 3 ? toFiniteNumber(args[3], 0) : 0
-    };
+    var filter = { type: kind, kind: kind };
+    var names = kind === "BlurFilter" ? ["blurX", "blurY", "quality"]
+        : ["color", "alpha", "blurX", "blurY", "strength", "quality", "inner", "knockout"];
+    var defaults = kind === "BlurFilter" ? [0, 0, 1] : [16711680, 1, 6, 6, 2, 1, false, false];
+    for (var i = 0; i < names.length; i++) filter[names[i]] = args[i] === undefined ? defaults[i] : args[i];
+    return filter;
 }
 
 // Flash 的 ColorTransform：8 个分量齐全、可读可写。
-// 与 Matrix3D / colorTransform 一样，宿主只**存储**——2D 画布的合成
-// 没有逐通道乘加这一步（要真做需要逐元素 offscreen 乘算 + HTML filter）。
-// 但脚本（entry_08 的 Akari.Utilities.Color）会把返回值的字段再读回来
-// （rgb[0]/rgb[1]… 就是从这个对象上取的比例与偏移），返回 null 会直接
-// 断在属性访问上，所以「有对象、字段对、可读写」是硬要求。
+// 渲染器逐通道应用乘数与偏移；容器的颜色变换作用于整份合成结果。
 function createColorTransform(redMultiplier, greenMultiplier, blueMultiplier,
     alphaMultiplier, redOffset, greenOffset, blueOffset, alphaOffset) {
     return {

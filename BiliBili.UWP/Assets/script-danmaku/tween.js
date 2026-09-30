@@ -83,7 +83,7 @@ function readTrackDelayMs(config) {
         return Math.max(0, milliseconds);
     }
 
-    return Math.max(0, readSeconds(config, "startDelay", 0) * 1000);
+    return Math.max(0, readNumberMember(config, "startDelay") || 0);
 }
 
 // repeat 的次数：缺省 1；0 或负数按「无限重复」处理（由元素寿命收口，
@@ -112,7 +112,7 @@ var TRANSFORM_ONLY_KEYS = {
     x: true, y: true, z: true,
     alpha: true, scaleX: true, scaleY: true, scaleZ: true,
     rotation: true, rotationX: true, rotationY: true, rotationZ: true,
-    matrix: true, visible: true, filters: true,
+    matrix: true, matrix3D: true, visible: true,
     // 合成/裁剪类：改变的是「怎么画上去」，不是元素自己的位图内容，
     // 因此复用位图缓存，只把该元素标脏重合成（Flash 的 blendMode 与 mask）。
     blendMode: true, mask: true, scrollRect: true

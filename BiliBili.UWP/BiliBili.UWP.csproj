@@ -117,6 +117,8 @@
     <Content Include="Assets\script-danmaku\tween.js" />
     <Content Include="Assets\script-danmaku\display.js" />
     <Content Include="Assets\script-danmaku\renderer.js" />
+    <Content Include="Assets\script-danmaku\geometry.js" />
+    <Content Include="Assets\script-danmaku\effects.js" />
     <Content Include="Assets\script-danmaku\lifecycle.js" />
     <Content Include="Assets\script-danmaku\player.js" />
     <Content Include="Assets\script-danmaku\bitmap.js" />

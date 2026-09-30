@@ -193,7 +193,7 @@ function createContextStub(canvas) {
         const bounds = pathBounds(ctx.__path);
         if (!bounds) return;
         const rect = transformedAABB(ctx.__matrix, bounds.x, bounds.y, bounds.width, bounds.height);
-        ctx.__clip = ctx.__clip ? intersectRect(ctx.__clip, rect) : rect;
+        ctx.__clip = ctx.__clip ? (intersectRect(ctx.__clip, rect) || { x: 0, y: 0, width: 0, height: 0 }) : rect;
     };
     ctx.setTransform = function (a, b, c, d, e, f) { ctx.__matrix = [a, b, c, d, e, f]; };
     ctx.transform = function (a, b, c, d, e, f) { ctx.__matrix = multiply(ctx.__matrix, [a, b, c, d, e, f]); };
@@ -244,6 +244,8 @@ function createContextStub(canvas) {
 
     // 渐变对象（宿主 beginGradientFill 会用到）。记录色标数量，便于断言。
     ctx.__gradients = [];
+    ctx.getImageData = function (x, y, width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; };
+    ctx.putImageData = function () { };
     ctx.createLinearGradient = function (x0, y0, x1, y1) {
         const gradient = { kind: 'linear', x0, y0, x1, y1, stops: [], addColorStop(o, c) { gradient.stops.push([o, c]); } };
         ctx.__gradients.push(gradient);
@@ -1515,7 +1517,7 @@ test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读
             + 'var vWorld = $.toNumberVector([]);'
             + 'rel.transformVectors(vLocal, vWorld);'
             + 'window.__worldLength = vWorld.length;'
-            + 'window.__perspective = typeof box.transform.perspectiveProjection.fieldOfView;')
+            + 'window.__perspective = typeof $.root.transform.perspectiveProjection.fieldOfView;')
     ]);
     host.setState(0.1, true, 1);
     host.runFrames(2);
@@ -1525,11 +1527,11 @@ test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读
     assert.equal(host.sandbox.__hasTransform, true, 'element.transform 应是对象');
     assert.equal(host.sandbox.__matrixIsProps, true, 'transform.matrix 必须与 props.matrix 是同一份对象');
     assert.equal(host.sandbox.__afterIdentity, '1,0,0,1,0,0', 'identity() 应重置为单位矩阵');
-    assert.equal(host.sandbox.__afterOps, '2,3,5,6', 'translate/scale 应就地生效');
+    assert.equal(host.sandbox.__afterOps, '2,3,10,18', 'scale 同时缩放平移（Flash Matrix）');
     assert.equal(host.sandbox.__m3dNull, null, 'matrix3D 赋 null 后应读回 null（不报错）');
     assert.equal(host.sandbox.__m3dSame, true, 'matrix3D 应原样存回');
-    // 绕 X 轴转 90°：(1,0,0) → (1,0,0)（X 轴不变），平移分量是 (10,20,30)
-    assert.equal(host.sandbox.__m3dVector, '11,20,30', 'Matrix3D 的平移与旋转应真算');
+    // 先平移再绕 X 轴转 90°：平移也被旋转为 (10,-30,20)。
+    assert.equal(host.sandbox.__m3dVector, '11,-30,20', 'appendRotation 左乘并旋转已有平移');
     assert.equal(host.sandbox.__worldLength, 3, 'transformVectors 必须原地填充目标数组');
     assert.equal(host.sandbox.__perspective, 'number', 'perspectiveProjection 应是可读的默认值对象');
 });
@@ -1770,7 +1772,7 @@ test('D23 嵌套元件被摘除后，主画布上它占过的像素要被擦掉'
         '擦除必须发生在本帧重新合成父层之前');
 });
 
-test('D24 移动嵌套元件不该擦掉祖先的主画布矩形', async () => {
+test('D24 移动嵌套元件后同组静止兄弟的像素仍在', async () => {
     const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
@@ -1799,13 +1801,10 @@ test('D24 移动嵌套元件不该擦掉祖先的主画布矩形', async () => {
     host.runFrames(1);
 
     const ops = canvas.__ops.slice(before);
-    const eraseIndex = ops.findIndex(
-        (op) => op.type === 'clearRect' && rectsOverlap(op.rect, siblingRect));
-    assert.equal(
-        eraseIndex, -1,
-        '移动嵌套元件不能擦祖先的主画布矩形：祖先本帧不保证重烘，擦完会留下空洞，'
-        + '把同层其它元件的像素一起抹掉；ops='
-        + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
+    assert.ok(
+        canvas.__marks.some((mark) => rectsOverlap(mark, siblingRect)),
+        '损伤区域可覆盖祖先，但必须同帧重贴静止兄弟，不能留下空洞；ops='
+        + JSON.stringify(ops));
 });
 
 test('D25 条目窗口结束后，嵌套元件不能在画布上留下最后一帧', async () => {

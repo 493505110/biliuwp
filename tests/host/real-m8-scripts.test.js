@@ -108,6 +108,8 @@ function createContextStub(canvas) {
     ctx.drawImage = function () { mark('drawImage'); };
     ctx.fill = function () { mark('fill'); };
     ctx.stroke = function () { mark('stroke'); };
+    ctx.getImageData = function (x, y, width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; };
+    ctx.putImageData = function () { };
     ctx.createLinearGradient = function () {
         return { addColorStop: function () { } };
     };

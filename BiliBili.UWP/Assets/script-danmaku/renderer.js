@@ -2,14 +2,12 @@
 import {
     DEFAULT_BOUNDS_PADDING,
     DIRTY_RECT_PADDING,
-    GLOW_PADDING,
     container,
     hostState,
     normalizeColor,
     toFiniteNumber
 } from "./core.js";
 import {
-    MATRIX3D_IDENTITY,
     applyElementBlendMode,
     applyElementMaskClip,
     createMatrix3D,
@@ -30,6 +28,11 @@ import {
 import {
     markPropertyDirty
 } from "./tween.js";
+
+import { localMatrix, relativeMatrix, worldMatrix, transformedBounds,
+    transformPoint, subtree3D, projectionFor, projectPoint, drawProjected,
+    beginProjectedBatch, flushProjectedBatch, endProjectedBatch } from "./geometry.js";
+import { filterPadding, applyEffects } from "./effects.js";
 
 function ensureCanvas() {
     if (hostState.canvas) {
@@ -74,6 +77,7 @@ function resizeCanvas() {
 //  - layer 元素：脚本自绘的离屏 canvas，逐帧直接合成，不走缓存。
 
 var currentBounds = null;
+var rasterVersion = 0;
 
 function boundsReset() {
     currentBounds = {
@@ -216,6 +220,14 @@ function tracePolygon(target, path, offsetX, offsetY) {
     var points = path.points;
     target.beginPath();
     target.moveTo(points[0] + offsetX, points[1] + offsetY);
+    if (path.segments) {
+        for (var i = 0; i < path.segments.length; i++) {
+            var segment = path.segments[i];
+            if (segment[0] === 3) target.quadraticCurveTo(segment[1] + offsetX, segment[2] + offsetY, segment[3] + offsetX, segment[4] + offsetY);
+            else target.lineTo(segment[1] + offsetX, segment[2] + offsetY);
+        }
+        return;
+    }
     var index = 2;
     while (index < points.length) {
         target.lineTo(points[index] + offsetX, points[index + 1] + offsetY);
@@ -223,9 +235,37 @@ function tracePolygon(target, path, offsetX, offsetY) {
     }
 }
 
+function visitGraphicsPath(item, visit) {
+    var offset = 0;
+    for (var i = 0; i < item.commands.length; i++) {
+        var command = item.commands[i], count = command === 3 ? 4 : command === 6 ? 6 : command >= 1 && command <= 5 ? (command >= 4 ? 4 : 2) : 0;
+        if (!count) continue;
+        var points = item.data.slice(offset, offset + count); offset += count;
+        if (command === 4 || command === 5) { points = points.slice(2); command -= 3; }
+        visit(command, points);
+    }
+}
+
+function traceGraphicsPath(target, item, map) {
+    visitGraphicsPath(item, function (command, values) {
+        var points = [];
+        for (var i = 0; i < values.length; i += 2) points.push(map(values[i], values[i + 1]));
+        if (command === 1) target.moveTo(points[0].x, points[0].y);
+        else if (command === 2) target.lineTo(points[0].x, points[0].y);
+        else if (command === 3) target.quadraticCurveTo(points[0].x, points[0].y, points[1].x, points[1].y);
+        else if (command === 6) target.bezierCurveTo(points[0].x, points[0].y, points[1].x, points[1].y, points[2].x, points[2].y);
+    });
+}
+
 function drawShapeItem(target, item, offsetX, offsetY) {
     var path;
     switch (item.kind) {
+        case "path":
+            target.beginPath();
+            traceGraphicsPath(target, item, function (x, y) { return { x: x + offsetX, y: y + offsetY }; });
+            if (item.fill) { applyFillStyle(target, item.fill); target.fill(item.winding); }
+            if (item.line) { applyStrokeStyle(target, item.line); target.stroke(); }
+            return;
         case "line":
         case "fill":
             path = item.path;
@@ -338,13 +378,46 @@ function roundedRectPath(target, x, y, width, height, rx, ry) {
     target.closePath();
 }
 
-function computeShapeBounds(element) {
+// 曲线极值参与显示对象尺寸；控制点只界定曲线，不属于绘制内容。
+function pathBounds(item) {
+    var x = 0, y = 0;
+    visitGraphicsPath(item, function (command, values) {
+        if (command === 1) { x = values[0]; y = values[1]; return; }
+        var xs = [x], ys = [y];
+        for (var i = 0; i < values.length; i += 2) { xs.push(values[i]); ys.push(values[i + 1]); }
+        boundsAdd(x, y); boundsAdd(xs[xs.length - 1], ys[ys.length - 1]);
+        function valueAt(points, t) {
+            var values = points.slice();
+            while (values.length > 1) { for (var j = 0; j + 1 < values.length; j++) values[j] = values[j] * (1 - t) + values[j + 1] * t; values.pop(); }
+            return values[0];
+        }
+        [xs, ys].forEach(function (points) {
+            var roots = [];
+            if (points.length === 3) {
+                var denominator = points[0] - 2 * points[1] + points[2];
+                if (denominator) roots.push((points[0] - points[1]) / denominator);
+            } else if (points.length === 4) {
+                var a = -points[0] + 3 * points[1] - 3 * points[2] + points[3];
+                var b = 2 * (points[0] - 2 * points[1] + points[2]), c = points[1] - points[0];
+                if (Math.abs(a) < 1e-12) { if (b) roots.push(-c / b); }
+                else { var discriminant = b * b - 4 * a * c; if (discriminant >= 0) roots.push((-b + Math.sqrt(discriminant)) / (2 * a), (-b - Math.sqrt(discriminant)) / (2 * a)); }
+            }
+            roots.forEach(function (t) { if (t > 0 && t < 1) boundsAdd(valueAt(xs, t), valueAt(ys, t)); });
+        });
+        x = xs[xs.length - 1]; y = ys[ys.length - 1];
+    });
+}
+
+function computeShapeBounds(element, padding) {
     var items = element.shapeItems || [];
     boundsReset();
     for (var index = 0; index < items.length; index++) {
         var item = items[index];
         var path;
         switch (item.kind) {
+            case "path":
+                pathBounds(item);
+                break;
             case "line":
             case "fill":
                 path = item.path;
@@ -394,7 +467,26 @@ function computeShapeBounds(element) {
         }
     }
 
-    return boundsResult(element.padding);
+    return boundsResult(padding === undefined ? element.padding : padding);
+}
+
+// 同步读取几何尺寸，不能等待下一帧缓存：Akari 在排字时立即读取 glyph.width。
+// Flash 尺寸不含滤镜/缓存扩边，隐藏的孩子仍计入容器几何范围。
+function displayObjectBounds(element, parentSpace) {
+    var rectangles = [], own = null;
+    if (element.kind === "shape") own = computeShapeBounds(element, 0);
+    else if (element.kind === "text") { var metrics = measureTextElement(element); own = { x: 0, y: 0, width: metrics.width, height: metrics.height }; }
+    else if (element.kind === "image" && element.loaded) own = { x: 0, y: 0, width: element.imageWidth, height: element.imageHeight };
+    else if (element.kind === "layer") own = { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
+    if (own) rectangles.push(own);
+    for (var i = 0; i < element.childList.length; i++) {
+        var child = element.childList[i];
+        if (child.expired) continue;
+        var bounds = displayObjectBounds(child, true);
+        if (bounds) rectangles.push(bounds);
+    }
+    var result = unionRects(rectangles);
+    return result && parentSpace ? transformedBounds(result, localMatrix(element)) : result;
 }
 
 function elementLocalBounds(element) {
@@ -418,8 +510,8 @@ function elementLocalBounds(element) {
             return {
                 x: 0,
                 y: 0,
-                width: Math.max(1, element.width),
-                height: Math.max(1, element.height)
+                width: Math.max(1, element.imageWidth),
+                height: Math.max(1, element.imageHeight)
             };
         case "layer":
             return {
@@ -434,102 +526,31 @@ function elementLocalBounds(element) {
 }
 
 function applyElementTransform(target, element) {
-    var props = element.props;
-    var matrix = props.matrix;
-    target.translate(props.x, props.y);
-    if (props.rotation) {
-        target.rotate(props.rotation * Math.PI / 180);
-    }
-
-    if (matrix && typeof matrix === "object") {
-        target.transform(
-            toFiniteNumber(matrix.a, 1),
-            toFiniteNumber(matrix.b, 0),
-            toFiniteNumber(matrix.c, 0),
-            toFiniteNumber(matrix.d, 1),
-            toFiniteNumber(matrix.tx, 0),
-            toFiniteNumber(matrix.ty, 0));
-    }
-
-    target.scale(props.scaleX, props.scaleY);
-    target.globalAlpha = Math.max(0, Math.min(1, props.alpha));
+    var m = localMatrix(element);
+    target.transform(m[0], m[1], m[4], m[5], m[12], m[13]);
+    target.globalAlpha = Math.max(0, Math.min(1, element.props.alpha));
 }
 
-function hasGlowFilter(element) {
-    var filters = element.props.filters;
-    if (!filters || !filters.length) {
-        return false;
-    }
-
-    for (var index = 0; index < filters.length; index++) {
-        var filter = filters[index];
-        var name = filter && (filter.type || filter.kind);
-        if (name === "GlowFilter" || name === "Glow") {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-// 内容绘制：把元素自己的图元画到给定的 2D 上下文（本地坐标系）。
 function paintElementContent(target, element) {
-    if (element.kind === "shape") {
-        drawShapeElement(target, element, 0, 0);
-    } else if (element.kind === "text") {
-        drawTextElement(target, element, 0, 0);
-    } else if (element.kind === "image" && element.imageValue) {
-        target.drawImage(element.imageValue, 0, 0);
-    } else if (element.kind === "layer") {
-        target.drawImage(element.layerCanvas, 0, 0);
-    }
-
-    // 发光滤镜在缓存阶段一次性施加：脚本只画一次，滤镜不必每帧重算。
-    //
-    // 这是**近似**，两处已知偏离（都不是移植疏漏，是保留模式的取舍）：
-    //  ① 衰减形状：原版是取 alpha 通道做高斯模糊后按 color/alpha/strength
-    //     着色，再与原图叠加；宿主用 blur + lighter 叠加近似。要更接近得把
-    //     原图渲到离屏、转 alpha mask、多次 box-blur，成本远大于收益。
-    //  ② 着色：原版 CommentConfig.getFilterByColor(color) 只在**黑/白**
-    //     两档里选（color != 0 → 白 glow，否则黑 glow），脚本传给
-    //     $.createGlowFilter 的颜色则完全被忽略。宿主取元素的显示色，
-    //     等于把「白字白 glow、黑字黑 glow」这一档算对了，其余颜色会比
-    //     原版亮一些——这是刻意的：按两档猜色反而会在彩色文字上更失真。
-    if (hasGlowFilter(element) && typeof target.filter === "string") {
-        target.filter = "blur(" + glowFilterRadius(element) + "px)";
-        target.globalCompositeOperation = "lighter";
-        paintElementContentRaw(target, element);
-        target.globalCompositeOperation = "source-over";
-        target.filter = "none";
-    }
+    if (element.kind === "shape") drawShapeElement(target, element, 0, 0);
+    else if (element.kind === "text") drawTextElement(target, element, 0, 0);
+    else if (element.kind === "image" && element.imageValue) target.drawImage(element.imageValue, 0, 0);
+    else if (element.kind === "layer") target.drawImage(element.layerCanvas, 0, 0);
 }
 
-// 取第一个 GlowFilter 的模糊半径（第三参 blurX）。
-// 原版文本那两档是 4（重墨）/ 3（描边），缺省按 4 走。
-function glowFilterRadius(element) {
-    var filters = element.props.filters;
-    if (!filters || !filters.length) {
-        return 4;
+// 缓存按最终显示倍率选取分辨率，防止放大的小字形变成模糊位图。
+// 倍率分档，纯移动不重烘；尺寸上限防止场外巨型图元分配过大位图。
+function rasterRatio(element, bounds) {
+    var m = worldMatrix(element), scale = Math.max(Math.hypot(m[0], m[1]), Math.hypot(m[4], m[5]));
+    if (subtree3D(element)) {
+        var focal = projectionFor(element).focalLength;
+        scale *= focal / Math.max(1, focal + m[14]);
     }
-
-    for (var index = 0; index < filters.length; index++) {
-        var name = filters[index] && (filters[index].type || filters[index].kind);
-        if (name === "GlowFilter" || name === "Glow") {
-            return Math.max(1, toFiniteNumber(filters[index].blurX, 4));
-        }
-    }
-
-    return 4;
-}
-
-function paintElementContentRaw(target, element) {
-    if (element.kind === "shape") {
-        drawShapeElement(target, element, 0, 0);
-    } else if (element.kind === "text") {
-        drawTextElement(target, element, 0, 0);
-    } else if (element.kind === "image" && element.imageValue) {
-        target.drawImage(element.imageValue, 0, 0);
-    }
+    // 字体轮廓常有几千个本地单位，实际显示仅几十像素；缩小时同样分档。
+    var bucket = Math.pow(2, Math.ceil(Math.log2(Math.max(1 / 64, Math.min(8, scale)))));
+    var ratio = (window.devicePixelRatio || 1) * bucket;
+    if (bounds) ratio = Math.min(ratio, 4096 / Math.max(1, bounds.width), 4096 / Math.max(1, bounds.height));
+    return ratio;
 }
 
 // 叶子元素的内容缓存。只有 needsCache 置位时才会走到这里——
@@ -545,10 +566,11 @@ function rebuildElementCache(element) {
         return;
     }
 
-    var padding = hasGlowFilter(element) ? GLOW_PADDING : 0;
-    var ratio = window.devicePixelRatio || 1;
-    var width = Math.max(1, Math.ceil((bounds.width + padding * 2) * ratio));
-    var height = Math.max(1, Math.ceil((bounds.height + padding * 2) * ratio));
+    var padding = filterPadding(element.childList.length ? null : element.props.filters);
+    var ratio = rasterRatio(element, { width: bounds.width + padding.x * 2, height: bounds.height + padding.y * 2 });
+    element.cacheDpr = ratio;
+    var width = Math.max(1, Math.ceil((bounds.width + padding.x * 2) * ratio));
+    var height = Math.max(1, Math.ceil((bounds.height + padding.y * 2) * ratio));
     if (!element.cacheCanvas) {
         element.cacheCanvas = document.createElement("canvas");
     }
@@ -563,15 +585,17 @@ function rebuildElementCache(element) {
     target.setTransform(1, 0, 0, 1, 0, 0);
     target.clearRect(0, 0, width, height);
     target.setTransform(ratio, 0, 0, ratio, 0, 0);
-    target.translate(padding - bounds.x, padding - bounds.y);
+    target.translate(padding.x - bounds.x, padding.y - bounds.y);
     target.globalAlpha = 1;
     paintElementContent(target, element);
+    if (!element.childList.length) applyEffects(element.cacheCanvas, element, ratio);
+    element.cacheCanvas.__m8RasterVersion = ++rasterVersion;
 
     element.cacheBounds = {
-        x: bounds.x - padding,
-        y: bounds.y - padding,
-        width: bounds.width + padding * 2,
-        height: bounds.height + padding * 2
+        x: bounds.x - padding.x,
+        y: bounds.y - padding.y,
+        width: bounds.width + padding.x * 2,
+        height: bounds.height + padding.y * 2
     };
     element.painted = true;
     hostState.paintCount++;
@@ -582,100 +606,41 @@ function rebuildElementCache(element) {
 // 复合层的实际尺寸取决于子树内容（子元素坐标相对父元件注册点）。
 // 返回 null 表示子树当前没有可绘制内容（空容器首帧不建复合层）。
 function computeCompositeBounds(element) {
-    boundsReset();
-    for (var index = 0; index < element.childList.length; index++) {
-        var child = element.childList[index];
-        if (child.expired || child.props.visible === false) {
-            continue;
-        }
-
-        if (child.childList.length > 0) {
-            var childBounds = computeCompositeBounds(child);
-            if (!childBounds) {
-                continue;
-            }
-
-            var childTransform = compositeChildBounds(child, childBounds);
-            boundsAdd(childTransform.x, childTransform.y);
-            boundsAdd(
-                childTransform.x + childTransform.width,
-                childTransform.y + childTransform.height);
-            continue;
-        }
-
-        var bounds = elementLocalBounds(child);
-        if (!bounds) {
-            continue;
-        }
-
-        var transformed = compositeChildBounds(child, bounds);
-        boundsAdd(transformed.x, transformed.y);
-        boundsAdd(
-            transformed.x + transformed.width,
-            transformed.y + transformed.height);
+    // 每层独立累计；递归调用不能重置父级的包围盒。
+    var rectangles = [], own = elementLocalBounds(element);
+    if (own) rectangles.push(own);
+    for (var i = 0; i < element.childList.length; i++) {
+        var child = element.childList[i];
+        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        var bounds = child.childList.length ? child.compositeBounds : child.cacheBounds;
+        if (!bounds) bounds = child.childList.length ? computeCompositeBounds(child) : elementLocalBounds(child);
+        if (bounds) rectangles.push(compositeChildBounds(child, bounds));
     }
-
-    return boundsResult(0);
+    return unionRects(rectangles);
 }
 
-// 子元素在父元件坐标系里的外接矩形（缩放 → 旋转 → 平移，
-// 与 applyElementTransform 同序）。
 function compositeChildBounds(child, bounds) {
-    var props = child.props;
-    var scaleX = toFiniteNumber(props.scaleX, 1);
-    var scaleY = toFiniteNumber(props.scaleY, 1);
-    var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
-    var cos = Math.cos(rotation);
-    var sin = Math.sin(rotation);
-    var corners = [
-        [bounds.x, bounds.y],
-        [bounds.x + bounds.width, bounds.y],
-        [bounds.x + bounds.width, bounds.y + bounds.height],
-        [bounds.x, bounds.y + bounds.height]
-    ];
-
-    var minX = Infinity;
-    var minY = Infinity;
-    var maxX = -Infinity;
-    var maxY = -Infinity;
-    for (var index = 0; index < corners.length; index++) {
-        var localX = corners[index][0] * scaleX;
-        var localY = corners[index][1] * scaleY;
-        var pageX = localX * cos - localY * sin + props.x;
-        var pageY = localX * sin + localY * cos + props.y;
-        if (pageX < minX) {
-            minX = pageX;
-        }
-
-        if (pageY < minY) {
-            minY = pageY;
-        }
-
-        if (pageX > maxX) {
-            maxX = pageX;
-        }
-
-        if (pageY > maxY) {
-            maxY = pageY;
-        }
-    }
-
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    return transformedBounds(bounds, localMatrix(child));
 }
 
 function rebuildComposite(element) {
     var bounds = computeCompositeBounds(element);
     element.compositeDirty = false;
     if (!bounds) {
-        // 子树当前没有内容：不建/不重建复合层。保留已有位图（若有），
-        // 位置也不改——空容器在屏幕上本来就不占像素。
+        // 最后一个孩子隐藏后，旧复合位图也必须作废。
+        element.composite = null; element.compositeBounds = null;
+        element.painted = true;
         return;
     }
 
     // 子元素坐标相对父元件注册点：烘焙时把 bounds 原点平移到
     // (padding, padding)，blit 时再按 bounds 的偏移取用，
     // 这样父元件自己移动/缩放/旋转时子树不必重绘（见 D4）。
-    var ratio = window.devicePixelRatio || 1;
+    var padding = filterPadding(element.props.filters);
+    bounds = { x: bounds.x - padding.x, y: bounds.y - padding.y,
+        width: bounds.width + padding.x * 2, height: bounds.height + padding.y * 2 };
+    var ratio = rasterRatio(element, bounds);
+    element.compositeDpr = ratio;
     var width = Math.max(1, Math.ceil(bounds.width * ratio));
     var height = Math.max(1, Math.ceil(bounds.height * ratio));
     if (!element.composite) {
@@ -692,9 +657,13 @@ function rebuildComposite(element) {
     target.clearRect(0, 0, width, height);
     target.setTransform(ratio, 0, 0, ratio, 0, 0);
     target.translate(-bounds.x, -bounds.y);
+    // Sprite 自己的 graphics 与子节点都参与合成。
+    paintElementContent(target, element);
     for (var index = 0; index < element.childList.length; index++) {
         blitElement(target, element.childList[index]);
     }
+    applyEffects(element.composite, element, ratio);
+    element.composite.__m8RasterVersion = ++rasterVersion;
 
     element.compositeBounds = bounds;
     element.painted = true;
@@ -706,6 +675,13 @@ function blitElement(target, element) {
         return;
     }
 
+    if (element.projectedComposite) {
+        target.save();
+        applyElementBlendMode(target, element);
+        var projected = element.compositeBounds;
+        if (projected && element.composite) target.drawImage(element.composite, projected.x, projected.y, projected.width, projected.height);
+        target.restore(); return;
+    }
     // 被当作遮罩的元件自己不参与渲染（Flash 语义：遮罩对象不绘制）。
     if (isUsedAsMask(element)) {
         return;
@@ -818,7 +794,10 @@ function computeElementCanvasRect(element) {
     }
 
     var bounds;
-    if (element.childList.length > 0) {
+    if (element.projectedComposite) {
+        if (!element.composite || !element.compositeBounds) return null;
+        bounds = element.compositeBounds;
+    } else if (element.childList.length > 0) {
         if (!element.composite || !element.compositeBounds) {
             return null;
         }
@@ -833,44 +812,8 @@ function computeElementCanvasRect(element) {
         return null;
     }
 
-    var props = element.props;
-    var scaleX = toFiniteNumber(props.scaleX, 1);
-    var scaleY = toFiniteNumber(props.scaleY, 1);
-    var rotation = toFiniteNumber(props.rotation, 0) * Math.PI / 180;
-    var cos = Math.cos(rotation);
-    var sin = Math.sin(rotation);
-    var corners = [
-        [bounds.x, bounds.y],
-        [bounds.x + bounds.width, bounds.y],
-        [bounds.x + bounds.width, bounds.y + bounds.height],
-        [bounds.x, bounds.y + bounds.height]
-    ];
-
-    var minX = Infinity;
-    var minY = Infinity;
-    var maxX = -Infinity;
-    var maxY = -Infinity;
-    for (var index = 0; index < corners.length; index++) {
-        var localX = corners[index][0] * scaleX;
-        var localY = corners[index][1] * scaleY;
-        var pageX = localX * cos - localY * sin + props.x;
-        var pageY = localX * sin + localY * cos + props.y;
-        if (pageX < minX) {
-            minX = pageX;
-        }
-
-        if (pageY < minY) {
-            minY = pageY;
-        }
-
-        if (pageX > maxX) {
-            maxX = pageX;
-        }
-
-        if (pageY > maxY) {
-            maxY = pageY;
-        }
-    }
+    var rect = element.projectedComposite ? bounds : compositeChildBounds(element, bounds);
+    var minX = rect.x, minY = rect.y, maxX = rect.x + rect.width, maxY = rect.y + rect.height;
 
     var ratio = window.devicePixelRatio || 1;
     return {
@@ -905,16 +848,6 @@ function rectsOverlap(a, b) {
         || a.y + a.height < b.y || b.y + b.height < a.y);
 }
 
-function intersectsAnyEraseRect(rect) {
-    for (var index = 0; index < hostState.pendingEraseRects.length; index++) {
-        if (rectsOverlap(rect, hostState.pendingEraseRects[index])) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 // 先擦掉「本帧移动过 / 已释放 / 已隐藏」的元素上一帧的包围盒，
 // 再合成本帧的脏元素。顺序不能反：反了会把刚画好的像素擦掉。
 function flushEraseRects(rects) {
@@ -935,8 +868,7 @@ function flushEraseRects(rects) {
 // lastPaintedRect。从元件自己往上找最近这样一个祖先，把它的旧矩形入队
 // 擦除并让它本帧重烘重合成；整条链都没矩形就什么都不用做。
 // 只在「摘除」路径调用（removeChildFromParent / detachElement）。
-// 普通移动不能走这里：祖先的主画布矩形那时仍然有效，擦了会在画布上
-// 留下空洞——实测把一段真作品的画面打薄了一半。
+// 普通移动由 paintDirtyElements 统一收集旧、新范围并恢复相交图层。
 function retirePaintedAncestorRect(element) {
     var current = element;
     while (current && current !== hostState.rootElement) {
@@ -1130,6 +1062,9 @@ function traceShapeItemClipPath(target, item, mapper) {
     };
 
     switch (item.kind) {
+        case "path":
+            traceGraphicsPath(target, item, point);
+            return true;
         case "line":
         case "fill":
             if (!item.path || !item.path.points || item.path.points.length < 2) {
@@ -1220,90 +1155,66 @@ function traceShapeItemClipPath(target, item, mapper) {
 // 元素的 transform 命名空间（Flash DisplayObject.transform）。
 function createElementTransform(element) {
     var transform = {
-        // perspectiveProjection 是纯数据对象；M8 的 clone() 明确不复制函数，
-        // 脚本也是 clone 出来当数据读，所以给默认值的普通对象即可。
-        perspectiveProjection: createPerspectiveProjection(),
-        // 相对变换矩阵：脚本用它做 3D 深度排序。本宿主是 2D 合成，
-        // 按「目标元件到自己」的累计 2D 变换（平移/缩放/旋转）拼出一个
-        // Matrix3D——z 分量恒为 0，排序退化成稳定的层序（不报错、不崩），
-        // 这正是 2D 画布下的正确近似（见文档 §3 的已知近似）。
+        perspectiveProjection: element === hostState.rootElement ? createPerspectiveProjection() : null,
         getRelativeMatrix3D: function (target) {
-            return createMatrix3D(relativeMatrix3DData(element, target));
+            var data = relativeMatrix3DData(element, target);
+            return data ? createMatrix3D(data) : null;
         }
     };
-
     Object.defineProperty(transform, "matrix", {
-        configurable: true,
-        enumerable: true,
+        configurable: true, enumerable: true,
         get: function () {
             if (!element.props.matrix) {
+                var m = localMatrix(element);
                 element.props.matrix = createPlaceholderMatrix();
+                element.props.matrix.a = m[0]; element.props.matrix.b = m[1];
+                element.props.matrix.c = m[4]; element.props.matrix.d = m[5];
+                element.props.matrix.tx = m[12]; element.props.matrix.ty = m[13];
             }
-
             return element.props.matrix;
         },
         set: function (value) {
             setPropertyInternal(element, "matrix", value, true);
-            markPropertyDirty(element, "matrix");
-            hostState.dirty = true;
+            markPropertyDirty(element, "matrix"); hostState.dirty = true;
         }
     });
-
-    // matrix3D / colorTransform：Flash 的 3D 变换与颜色变换。
-    // 本宿主是 2D 画布，这两个只存储、不参与呈现——但**必须可读可写**，
-    // entry_08 大量做 `x.transform.matrix3D = y.transform.matrix3D` 的拷贝，
-    // 读回 undefined 会让后续 `mat.append(...)` 直接崩。
     Object.defineProperty(transform, "matrix3D", {
-        configurable: true,
-        enumerable: true,
+        configurable: true, enumerable: true,
         get: function () {
+            if (!element.props.matrix3D && (element.props.z || element.props.rotationX || element.props.rotationY)) {
+                element.props.matrix3D = createMatrix3D(localMatrix(element));
+            }
             return element.props.matrix3D;
         },
         set: function (value) {
-            element.props.matrix3D = value;
-            hostState.dirty = true;
+            if (value && value.rawData) {
+                var d = value.rawData, p = element.props;
+                p.matrix = null;
+                p.x = d[12]; p.y = d[13]; p.z = d[14];
+                p.scaleX = Math.hypot(d[0], d[1], d[2]); p.scaleY = Math.hypot(d[4], d[5], d[6]); p.scaleZ = Math.hypot(d[8], d[9], d[10]);
+                p.rotationY = Math.asin(Math.max(-1, Math.min(1, -d[2] / (p.scaleX || 1)))) * 180 / Math.PI;
+                p.rotationX = Math.atan2(d[6] / (p.scaleY || 1), d[10] / (p.scaleZ || 1)) * 180 / Math.PI;
+                p.rotation = p.rotationZ = Math.atan2(d[1], d[0]) * 180 / Math.PI;
+            } else {
+                element.props.z = element.props.rotationX = element.props.rotationY = 0;
+            }
+            setPropertyInternal(element, "matrix3D", value, true);
+            markPropertyDirty(element, "matrix3D"); hostState.dirty = true;
         }
     });
-
     Object.defineProperty(transform, "colorTransform", {
-        configurable: true,
-        enumerable: true,
-        get: function () {
-            return element.props.colorTransform;
-        },
+        configurable: true, enumerable: true,
+        get: function () { return element.props.colorTransform; },
         set: function (value) {
-            element.props.colorTransform = value;
-            hostState.dirty = true;
+            setPropertyInternal(element, "colorTransform", value, true);
+            markPropertyDirty(element, "colorTransform"); hostState.dirty = true;
         }
     });
-
     return transform;
 }
 
-// 累计「从 target 到 element」的 2D 变换，铺成 16 元 Matrix3D rawData。
-// target 为空或不在祖先链上时退化成元素自己的变换。
 function relativeMatrix3DData(element, target) {
-    var accum = createPlaceholderMatrix();
-    var current = element;
-    while (current && current !== target) {
-        var props = current.props;
-        accum.translate(toFiniteNumber(props.x, 0), toFiniteNumber(props.y, 0));
-        if (props.rotation) {
-            accum.rotate(toFiniteNumber(props.rotation, 0) * Math.PI / 180);
-        }
-
-        accum.scale(toFiniteNumber(props.scaleX, 1), toFiniteNumber(props.scaleY, 1));
-        current = current.treeParent;
-    }
-
-    var data = MATRIX3D_IDENTITY.slice();
-    data[0] = accum.a;
-    data[1] = accum.b;
-    data[4] = accum.c;
-    data[5] = accum.d;
-    data[12] = accum.tx;
-    data[13] = accum.ty;
-    return data;
+    return relativeMatrix(element, target);
 }
 
 // 只把元件落在 rect 里的那部分重画回主画布。
@@ -1344,27 +1255,9 @@ function composeElementClipped(element, rect) {
     hostState.context2d.restore();
     // 刻意不覆盖呈现记录：裁剪只补了一小块，若把整元件矩形记成「已画过」，
     // 后续帧会认为它在画布上完好，遗漏处永远补不回来。
-    element.compositeDirty = true;
 }
 
-// 元件自身或任一祖先的不透明度是否已接近 0。淡出中的元件补画它是白画：
-// 它下一帧就消失，补回来的像素又要再擦一次（实测尾部 135s 因此从基线的
-// 0.005 抬到 0.058）。
-function isFadingOut(element) {
-    var current = element;
-    while (current && current !== hostState.rootElement) {
-        if (toFiniteNumber(current.props.alpha, 1) <= 0.05) {
-            return true;
-        }
-
-        current = current.treeParent;
-    }
-
-    return false;
-}
-
-// 一组矩形的最小包围盒：把「多个擦除矩形命中同一元件」合并为一次重贴，
-// 保证重贴次数与基线一致（逐块重贴会把调用次数放大到 hits.length 倍）。
+// 一组矩形的最小包围盒，供缓存边界和相交的擦除区域合并使用。
 function unionRects(rects) {
     var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
     var found = false;
@@ -1403,117 +1296,196 @@ function overlappingRects(rects, rect) {
     return hits;
 }
 
-function composeElement(element) {
-    // 被当作遮罩的元件不参与合成——连「呈现记录」都不该留
-    // （否则它的 lastPaintedRect 会被后续的擦除/邻居补画逻辑当成真画过）。
-    if (isUsedAsMask(element)) {
-        return;
-    }
-
-    // 遮罩在合成期施加：只影响「这一帧画到主画布上的可见范围」，
-    // 元素自己的离屏缓存与包围盒都不变。
-    var clipped = applyStageMask(hostState.context2d);
-    blitElement(hostState.context2d, element);
-    if (clipped) {
-        hostState.context2d.restore();
-    }
-
-    recordElementRect(element);
-}
-
 function paintDirtyElements() {
     var topLevel = hostState.rootElement.childList;
-    var candidates = [];
+    var damage = hostState.pendingEraseRects;
+    hostState.pendingEraseRects = [];
     var index;
     for (index = 0; index < topLevel.length; index++) {
         var element = topLevel[index];
-        element.rebuiltThisFrame = false;
-        element.dirtyCandidate = false;
-        if (element.expired || element.props.visible === false) {
-            continue;
-        }
-
+        element.rebuiltThisFrame = false; element.dirtyCandidate = false;
+        if (element.expired || element.props.visible === false) continue;
         if (prepareElement(element)) {
             element.dirtyCandidate = true;
-            candidates.push(element);
+            if (element.lastPaintedRect) damage.push(element.lastPaintedRect);
+            var nextRect = computeElementCanvasRect(element);
+            if (nextRect) damage.push(nextRect);
         }
     }
-
-    var erasedRects = hostState.pendingEraseRects;
-    hostState.pendingEraseRects = [];
-    flushEraseRects(erasedRects);
-
-    // 擦除是元素级的无差别矩形，可能盖住了别的（静止的）元素：
-    // 先补画「被擦到但不是本帧脏元素」的邻居，再合成脏元素，
-    // 这样既不留洞，也不会把层叠顺序反过来。
-    for (index = 0; index < topLevel.length; index++) {
-        var neighbor = topLevel[index];
-        if (neighbor.dirtyCandidate || !isElementVisible(neighbor)) {
-            continue;
-        }
-
-        var neighborHitBox = unionRects(
-            overlappingRects(erasedRects, neighbor.lastPaintedRect));
-        if (neighborHitBox) {
-            composeElementClipped(neighbor, neighborHitBox);
-        }
-    }
-
+    // 先清除整个重贴范围，再按显示列表顺序重贴所有相交元件。
+    // 邻居先画、脏元素后画会颠倒层序；重贴未清掉的区域会累积半透明像素。
+    var regions = mergeDamageRects(damage);
+    if (!regions.length) return 0;
+    flushEraseRects(regions);
     var painted = 0;
-    for (index = 0; index < candidates.length; index++) {
-        var candidate = candidates[index];
-        if (!isElementVisible(candidate)) {
-            continue;
-        }
-
-        // 位置与上一帧完全一致、内容也没重建的元素不必再合成。
-        // 这是「静态元素首帧之后不再重绘」的落点。
-        // （本帧移动过的元素 lastPaintedRect 已被清空，一定会走到合成。）
-        if (!candidate.rebuiltThisFrame && candidate.lastPaintedRect
-            && rectsEqual(candidate.lastPaintedRect, computeElementCanvasRect(candidate))) {
-            // 矩形没变不等于画布上还有它：本帧的擦除矩形可能正盖在它上面，
-            // 那些像素已经被清掉。按命中矩形的并集裁剪重贴一次即可。
-            var candidateHitBox = unionRects(
-                overlappingRects(erasedRects, candidate.lastPaintedRect));
-            if (candidateHitBox && !isFadingOut(candidate)) {
-                composeElementClipped(candidate, candidateHitBox);
-            }
-
-            continue;
-        }
-
-        composeElement(candidate);
-        painted++;
+    for (index = 0; index < topLevel.length; index++) {
+        var element = topLevel[index];
+        if (!isElementVisible(element) || isUsedAsMask(element)) continue;
+        var currentRect = computeElementCanvasRect(element);
+        if (!currentRect) continue;
+        var hits = overlappingRects(regions, currentRect);
+        for (var j = 0; j < hits.length; j++) composeElementClipped(element, hits[j]);
+        if (hits.length) { recordElementRect(element); painted++; }
     }
-
     return painted;
 }
 
-function intersectsAny(rects, rect) {
-    if (!rect) {
-        return false;
-    }
-
-    for (var index = 0; index < rects.length; index++) {
-        if (rects[index] && rectsOverlap(rect, rects[index])) {
-            return true;
+// 相交区域先合并，互不相交的区域保持分离，避免两个远处的小变更擦掉整屏。
+function mergeDamageRects(rects) {
+    var result = [];
+    for (var i = 0; i < rects.length; i++) {
+        var rect = rects[i];
+        if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+        for (var j = 0; j < result.length;) {
+            if (rectsOverlap(rect, result[j])) { rect = unionRects([rect, result.splice(j, 1)[0]]); j = 0; }
+            else j++;
         }
+        result.push(rect);
     }
-
-    return false;
+    return result;
 }
 
-function rectsEqual(a, b) {
-    if (!a || !b) {
-        return a === b;
+// 3D 子树保留每个叶子的世界矩阵，统一投影后再合成，避免先压成 2D 丢失 z。
+function prepareProjected(element) {
+    if (element.props.visible === false || element.props.alpha <= 0) {
+        var hiddenDirty = isElementDirty(element) || element.compositeDirty;
+        element.propertyDirty = {}; element.compositeDirty = false;
+        return hiddenDirty;
     }
+    var dirty = isElementDirty(element) || !element.painted || element.needsCache || element.compositeDirty || element.kind === "layer";
+    // 没有 3D 子节点的容器是一张平面：先缓存其 2D 子树，再一次性投影。
+    // 避免把几百个静止字形逐个上传纹理，也保留容器滤镜的本地坐标语义。
+    var planar = element.childList.length > 0 && !element.childList.some(subtree3D);
+    if (planar) {
+        if (element.compositeBounds && rasterRatio(element, element.compositeBounds) !== element.compositeDpr) dirty = true;
+        for (var i = 0; i < element.childList.length; i++) if (prepareElement(element.childList[i])) dirty = true;
+        if (dirty || !element.projectedPlanar) rebuildComposite(element);
+        element.projectedPlanar = true;
+        element.propertyDirty = {}; element.needsCache = false; element.compositeDirty = false;
+        element.painted = true;
+        return dirty;
+    }
+    element.projectedPlanar = false;
+    for (var i = 0; i < element.childList.length; i++) if (prepareProjected(element.childList[i])) dirty = true;
+    var cacheScaleChanged = element.cacheBounds && rasterRatio(element, element.cacheBounds) !== element.cacheDpr;
+    if (!element.painted || element.needsCache || cacheScaleChanged || element.kind === "layer") { rebuildElementCache(element); dirty = true; }
+    element.propertyDirty = {}; element.needsCache = false; element.compositeDirty = false;
+    element.painted = true;
+    return dirty;
+}
 
-    return a.x === b.x && a.y === b.y
-        && a.width === b.width && a.height === b.height;
+function projectedSubtreeBounds(element) {
+    var rectangles = [], bounds = element.projectedPlanar ? element.compositeBounds : element.cacheBounds;
+    if (bounds) {
+        var matrix = worldMatrix(element), projection = projectionFor(element);
+        var corners = [[bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
+            [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height]];
+        var points = corners.map(function (p) { return projectPoint(transformPoint(matrix, p[0], p[1], 0), projection); });
+        if (points.some(function (p) { return p.depth < 1; })) {
+            rectangles.push({ x: 0, y: 0, width: hostState.viewportWidth, height: hostState.viewportHeight });
+        } else {
+            var xs = points.map(function (p) { return p.x; }), ys = points.map(function (p) { return p.y; });
+            rectangles.push({ x: Math.min.apply(Math, xs), y: Math.min.apply(Math, ys),
+                width: Math.max.apply(Math, xs) - Math.min.apply(Math, xs), height: Math.max.apply(Math, ys) - Math.min.apply(Math, ys) });
+        }
+    }
+    for (var i = 0; !element.projectedPlanar && i < element.childList.length; i++) {
+        var child = element.childList[i];
+        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        var rect = projectedSubtreeBounds(child);
+        if (rect) rectangles.push(rect);
+    }
+    var result = unionRects(rectangles);
+    if (result && element.childList.length && !element.projectedPlanar) {
+        var pad = filterPadding(element.props.filters);
+        result = { x: result.x - pad.x, y: result.y - pad.y, width: result.width + pad.x * 2, height: result.height + pad.y * 2 };
+    }
+    return result;
+}
+
+function screenSurface(element, bounds, field) {
+    var ratio = window.devicePixelRatio || 1;
+    var left = Math.max(-256, Math.floor(bounds.x)), top = Math.max(-256, Math.floor(bounds.y));
+    var right = Math.min(hostState.viewportWidth + 256, Math.ceil(bounds.x + bounds.width));
+    var bottom = Math.min(hostState.viewportHeight + 256, Math.ceil(bounds.y + bounds.height));
+    if (right <= left || bottom <= top) return null;
+    bounds = { x: left, y: top, width: right - left, height: bottom - top };
+    var canvas = element[field] || (element[field] = document.createElement("canvas"));
+    var width = Math.ceil(bounds.width * ratio), height = Math.ceil(bounds.height * ratio);
+    if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+    var context = canvas.getContext("2d"); context.setTransform(1, 0, 0, 1, 0, 0); context.clearRect(0, 0, width, height);
+    context.setTransform(ratio, 0, 0, ratio, -bounds.x * ratio, -bounds.y * ratio);
+    return { canvas: canvas, context: context, bounds: bounds };
+}
+
+function drawProjectedNode(target, element, alpha, skipEffects) {
+    if (element.expired || element.props.visible === false || element.props.alpha <= 0 || isUsedAsMask(element)) return;
+    var groupEffects = !element.projectedPlanar && element.childList.length && (element.props.colorTransform || (element.props.filters && element.props.filters.length));
+    if (groupEffects && !skipEffects) {
+        var bounds = projectedSubtreeBounds(element);
+        var surface = bounds && screenSurface(element, bounds, "projectedEffectCanvas");
+        if (!surface) return;
+        flushProjectedBatch(target);
+        beginProjectedBatch(surface.context);
+        try { drawProjectedNode(surface.context, element, 1, true); } finally { endProjectedBatch(surface.context); }
+        applyEffects(surface.canvas, element);
+        target.save(); target.globalAlpha = alpha;
+        applyElementBlendMode(target, element);
+        target.drawImage(surface.canvas, surface.bounds.x, surface.bounds.y, surface.bounds.width, surface.bounds.height);
+        target.restore(); return;
+    }
+    target.save();
+    var mask = element.props.mask;
+    if (mask) {
+        flushProjectedBatch(target);
+        var maskMatrix = worldMatrix(mask), projection = projectionFor(mask);
+        target.beginPath();
+        if (traceElementClipPath(target, mask, function (x, y) {
+            return projectPoint(transformPoint(maskMatrix, x, y, 0), projection);
+        })) target.clip();
+    }
+    var opacity = alpha * Math.max(0, Math.min(1, element.props.alpha));
+    target.globalAlpha = opacity;
+    applyElementBlendMode(target, element);
+    if (element.projectedPlanar) {
+        if (element.composite && element.compositeBounds) drawProjected(target, element.composite, element.compositeBounds, worldMatrix(element), projectionFor(element));
+    } else {
+        if (element.cacheCanvas && element.cacheBounds) drawProjected(target, element.cacheCanvas, element.cacheBounds, worldMatrix(element), projectionFor(element));
+        for (var i = 0; i < element.childList.length; i++) drawProjectedNode(target, element.childList[i], opacity, false);
+    }
+    if (mask) flushProjectedBatch(target);
+    target.restore();
+}
+
+function rebuildProjectedComposite(element) {
+    var bounds = projectedSubtreeBounds(element);
+    var surface = bounds && screenSurface(element, bounds, "composite");
+    element.projectedComposite = true;
+    element.compositeBounds = surface ? surface.bounds : null;
+    if (surface) {
+        beginProjectedBatch(surface.context);
+        try { drawProjectedNode(surface.context, element, 1, false); } finally { endProjectedBatch(surface.context); }
+    }
+    else element.composite = null;
+    element.painted = true; element.rebuiltThisFrame = true;
+    hostState.paintCount++;
 }
 
 // 返回 true 表示该元素这一帧需要重新合成到画布上。
 function prepareElement(element) {
+    if (element.props.visible === false || element.props.alpha <= 0) {
+        var hiddenDirty = isElementDirty(element) || element.compositeDirty;
+        element.propertyDirty = {}; element.compositeDirty = false;
+        return hiddenDirty;
+    }
+    if (element.treeParent === hostState.rootElement && subtree3D(element)) {
+        var projectedDirty = prepareProjected(element);
+        if (projectedDirty || !element.projectedComposite) rebuildProjectedComposite(element);
+        return projectedDirty;
+    }
+    if (element.projectedComposite) {
+        element.projectedComposite = false; element.composite = null; element.needsCache = true;
+    }
     if (element.expired) {
         return false;
     }
@@ -1527,6 +1499,8 @@ function prepareElement(element) {
 
     var ownDirty = isElementDirty(element);
     var structural = !element.painted || element.needsCache;
+    var scaleBounds = element.childList.length ? element.compositeBounds : element.cacheBounds;
+    if (scaleBounds && rasterRatio(element, scaleBounds) !== (element.childList.length ? element.compositeDpr : element.cacheDpr)) structural = true;
     element.propertyDirty = {};
     element.needsCache = false;
 
@@ -1560,6 +1534,7 @@ function prepareElement(element) {
 export {
     clearSurface,
     createElementTransform,
+    displayObjectBounds,
     enqueueElementErase,
     ensureCanvas,
     markElementMoved,
