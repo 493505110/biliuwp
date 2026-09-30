@@ -112,6 +112,16 @@
     <Content Include="Assets\bas-host.html" />
     <Content Include="Assets\bas.js" />
     <Content Include="Assets\script-danmaku-host.html" />
+    <Content Include="Assets\script-danmaku\core.js" />
+    <Content Include="Assets\script-danmaku\easing.js" />
+    <Content Include="Assets\script-danmaku\tween.js" />
+    <Content Include="Assets\script-danmaku\display.js" />
+    <Content Include="Assets\script-danmaku\renderer.js" />
+    <Content Include="Assets\script-danmaku\lifecycle.js" />
+    <Content Include="Assets\script-danmaku\player.js" />
+    <Content Include="Assets\script-danmaku\bitmap.js" />
+    <Content Include="Assets\script-danmaku\runtime.js" />
+    <Content Include="Assets\script-danmaku\host.js" />
     <Content Include="Assets\geetest.html" />
     <Content Include="Assets\Bili\主要\coin\cn7.png" />
     <Content Include="Assets\Bili\主要\coin\dby.png" />

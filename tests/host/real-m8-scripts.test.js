@@ -20,6 +20,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { ensureModuleSupport, evaluateHost } = require('./host-loader');
+
+ensureModuleSupport();
 
 const HOST_PATH = process.env.SCRIPT_DANMAKU_HOST || path.join(
     __dirname, '..', '..', 'BiliBili.UWP', 'Assets', 'script-danmaku-host.html');
@@ -116,11 +119,7 @@ function createContextStub(canvas) {
 
 // ---- 宿主加载器 ----
 
-function loadHost() {
-    const html = fs.readFileSync(HOST_PATH, 'utf8');
-    const match = /<script>([\s\S]*?)<\/script>/.exec(html);
-    if (!match) throw new Error('宿主 HTML 里找不到内联 <script>：' + HOST_PATH);
-
+async function loadHost() {
     const messages = [];
     const frameErrors = [];
     const rafCallbacks = new Map();
@@ -154,7 +153,7 @@ function loadHost() {
     sandbox.cancelAnimationFrame = function (id) { rafCallbacks.delete(id); };
 
     vm.createContext(sandbox);
-    vm.runInContext(match[1], sandbox, { filename: HOST_PATH });
+    await evaluateHost(HOST_PATH, sandbox);
 
     return {
         sandbox: sandbox,
@@ -216,12 +215,12 @@ function test(name, fn) {
     cases.push({ name: name, fn: fn });
 }
 
-function run() {
+async function run() {
     let failed = 0;
     let skipped = 0;
     for (const item of cases) {
         try {
-            const result = item.fn();
+            const result = await item.fn();
             if (result === 'skip') {
                 skipped++;
                 process.stdout.write('  skip ' + item.name + '\n');
@@ -247,7 +246,7 @@ function run() {
 const REPO_FIXTURES = readFixtureDir(FIXTURE_DIR);
 const ALL_FIXTURES = REPO_FIXTURES.concat(readFixtureDir(EXTRA_FIXTURE_DIR));
 
-test('R1 仓库自带夹具齐备（全 11 条真实脚本）', () => {
+test('R1 仓库自带夹具齐备（全 11 条真实脚本）', async () => {
     const ids = REPO_FIXTURES.map((item) => item.id);
     assert.ok(ids.length >= 11, '仓库应自带 11 条真实脚本夹具，实际 ' + ids.length + '：' + ids.join(','));
     assert.ok(
@@ -261,8 +260,8 @@ test('R1 仓库自带夹具齐备（全 11 条真实脚本）', () => {
         '缺少字体数据脚本（只注册字形表、不出画面的那 8 条）');
 });
 
-test('R2 仓库夹具在同一宿主实例里跑完：0 runtime error', () => {
-    const host = loadHost();
+test('R2 仓库夹具在同一宿主实例里跑完：0 runtime error', async () => {
+    const host = await loadHost();
     host.api.reset(0, true, 1, true);
     for (const item of REPO_FIXTURES) {
         host.api.append([item]);
@@ -280,8 +279,8 @@ test('R2 仓库夹具在同一宿主实例里跑完：0 runtime error', () => {
         '真实脚本不应产生任何 runtime error');
 });
 
-test('R3 字体数据脚本不出画面（它们只注册数据，不是绘制脚本）', () => {
-    const host = loadHost();
+test('R3 字体数据脚本不出画面（它们只注册数据，不是绘制脚本）', async () => {
+    const host = await loadHost();
     host.api.reset(0, true, 1, true);
     const fontOnly = REPO_FIXTURES.filter((item) => isFontDataScript(item.code));
     for (const item of fontOnly) {
@@ -296,13 +295,13 @@ test('R3 字体数据脚本不出画面（它们只注册数据，不是绘制�
         '字体数据脚本只注册字形表、不该落笔——真正绘制的是 entry_10，见 R5');
 });
 
-test('R4 字体数据脚本把字形表注册进 $G（不出画面但数据要真的落地）', () => {
+test('R4 字体数据脚本把字形表注册进 $G（不出画面但数据要真的落地）', async () => {
     const fontFixtures = REPO_FIXTURES.filter((item) => isFontDataScript(item.code));
     if (fontFixtures.length === 0) {
         return 'skip';
     }
 
-    const host = loadHost();
+    const host = await loadHost();
     host.api.reset(0, true, 1, true);
     for (const item of fontFixtures) {
         host.api.append([item]);
@@ -334,8 +333,8 @@ test('R4 字体数据脚本把字形表注册进 $G（不出画面但数据要�
     assert.ok(probe.keys.indexOf('X') >= 0, '字形表应含字形 ' + probe.keys);
 });
 
-test('R5 全 11 条夹具一起跑：0 runtime error 且真的出画面', () => {
-    const host = loadHost();
+test('R5 全 11 条夹具一起跑：0 runtime error 且真的出画面', async () => {
+    const host = await loadHost();
     host.api.reset(0, true, 1, true);
     for (const item of ALL_FIXTURES) {
         host.api.append([item]);
@@ -368,4 +367,4 @@ test('R5 全 11 条夹具一起跑：0 runtime error 且真的出画面', () => 
         'Akari 的分层合成应把图层 blit 到主画布：' + JSON.stringify(canvas.__counts));
 });
 
-run();
+run().catch(error => { console.error(error); process.exitCode = 1; });

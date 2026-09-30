@@ -1,4 +1,10 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace BiliBili.Tests
 {
@@ -19,7 +25,57 @@ namespace BiliBili.Tests
 
         private static string HostSource()
         {
-            return TestRepository.ReadFile(HostPath);
+            var source = new StringBuilder();
+            AppendModuleSource(
+                "BiliBili.UWP/Assets/script-danmaku/host.js",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                source);
+            return source.ToString();
+        }
+
+        private static void AppendModuleSource(string path, HashSet<string> visited, StringBuilder source)
+        {
+            path = Path.GetFullPath(TestRepository.GetPath(path));
+            if (!visited.Add(path)) return;
+
+            var code = File.ReadAllText(path).Replace("\r\n", "\n");
+            source.AppendLine(code);
+            foreach (Match dependency in Regex.Matches(code, "\\bfrom\\s+\"(?<path>\\.[^\"]+)\""))
+            {
+                AppendModuleSource(
+                    Path.Combine(Path.GetDirectoryName(path), dependency.Groups["path"].Value),
+                    visited,
+                    source);
+            }
+        }
+
+        [TestMethod]
+        public void Host_LoadsAndPackagesEveryModule()
+        {
+            var html = TestRepository.ReadFile(HostPath);
+            StringAssert.Contains(html, "<script type=\"module\" src=\"script-danmaku/host.js\"></script>");
+            Assert.IsFalse(html.Contains("<script>"), "HTML 不应再内联宿主脚本");
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AppendModuleSource("BiliBili.UWP/Assets/script-danmaku/host.js", visited, new StringBuilder());
+            Assert.AreEqual(10, visited.Count, "入口应加载全部十个职责模块");
+
+            var project = XDocument.Load(TestRepository.GetPath("BiliBili.UWP/BiliBili.UWP.csproj"));
+            XNamespace msbuild = "http://schemas.microsoft.com/developer/msbuild/2003";
+            var packaged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var asset in project.Descendants(msbuild + "Content"))
+            {
+                var include = (string)asset.Attribute("Include");
+                if (include != null)
+                {
+                    packaged.Add(Path.GetFullPath(Path.Combine(
+                        TestRepository.Root, "BiliBili.UWP", include.Replace('\\', Path.DirectorySeparatorChar))));
+                }
+            }
+            foreach (var module in visited)
+            {
+                Assert.IsTrue(packaged.Contains(module), "宿主模块未包含在 AppX 中：" + module);
+            }
         }
 
         /// <summary>
@@ -93,16 +149,14 @@ namespace BiliBili.Tests
         }
 
         /// <summary>
-        /// 取「带脏矩形擦除」的那版 paintDirtyElements 函数体。
-        /// 文件里另有一处同名函数（无擦除的早期截面），只靠函数签名会取到前者，
-        /// 因此把锚点前移到它独有的 composeElement 定义之后（composeElement 以
-        /// recordElementRect 收尾，遮罩的裁剪包裹也在其中）。
+        /// 取带脏矩形擦除的 paintDirtyElements 函数体。
+        /// 拆分时移除了原来被后一个同名声明覆盖的早期实现。
         /// </summary>
         private static string PaintBody()
         {
             return TestRepository.MethodBody(
                 HostSource(),
-                "recordElementRect(element);\n            }\n\n            function paintDirtyElements() {");
+                "function paintDirtyElements() {");
         }
 
         [TestMethod]
@@ -199,11 +253,11 @@ namespace BiliBili.Tests
             var source = HostSource();
 
             // Player.commentList 是**推入的快照**，不是写死的空数组。
-            StringAssert.Contains(source, "var commentSnapshot = [];");
+            StringAssert.Contains(source, "hostState.commentSnapshot = [];");
             StringAssert.Contains(source, "resetComments: function () {");
-            StringAssert.Contains(source, "commentSnapshot = [];");
-            StringAssert.Contains(source, "commentSnapshot.push(normalizeComment(list[index]));");
-            StringAssert.Contains(source, "return commentSnapshot;");
+            StringAssert.Contains(source, "hostState.commentSnapshot = [];");
+            StringAssert.Contains(source, "hostState.commentSnapshot.push(normalizeComment(list[index]));");
+            StringAssert.Contains(source, "return hostState.commentSnapshot;");
 
             // 快照字段与 M8 的 CommentData 同名同义，缺省要补齐（脚本读到的形状必须完整）。
             var normalizeBody = TestRepository.MethodBody(source, "function normalizeComment(raw) {");
@@ -279,7 +333,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "function setStageMask(element) {");
             StringAssert.Contains(source, "function applyStageMask(target) {");
             StringAssert.Contains(source, "function traceElementClipPath(target, element, map) {");
-            StringAssert.Contains(source, "var stageMaskElement = null;");
+            StringAssert.Contains(source, "hostState.stageMaskElement = null;");
 
             var playerBody = TestRepository.MethodBody(source, "var Player = {");
             StringAssert.Contains(playerBody, "setMask: function (obj) {");
@@ -289,9 +343,9 @@ namespace BiliBili.Tests
             // 另外被当作遮罩的元件本身不参与合成（连呈现记录都不留）。
             var composeBody = TestRepository.MethodBody(source, "function composeElement(element) {");
             StringAssert.Contains(composeBody, "if (isUsedAsMask(element)) {");
-            StringAssert.Contains(composeBody, "var clipped = applyStageMask(context2d);");
+            StringAssert.Contains(composeBody, "var clipped = applyStageMask(hostState.context2d);");
             StringAssert.Contains(composeBody, "if (clipped) {");
-            StringAssert.Contains(composeBody, "context2d.restore();");
+            StringAssert.Contains(composeBody, "hostState.context2d.restore();");
             var flushBody = TestRepository.MethodBody(source, "function flushEraseRects(rects) {");
             Assert.IsFalse(
                 flushBody.Contains("applyStageMask"),
@@ -303,7 +357,7 @@ namespace BiliBili.Tests
 
             // reset 整批作废时遮罩也要摘掉，否则下一批弹幕会被上一批的遮罩裁掉。
             var clearAllBody = TestRepository.MethodBody(source, "function clearAllItems() {");
-            StringAssert.Contains(clearAllBody, "stageMaskElement = null;");
+            StringAssert.Contains(clearAllBody, "hostState.stageMaskElement = null;");
         }
 
         // ---- 保留模式：脚本只执行一次 ----
@@ -451,7 +505,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(hideBody, "descriptor.enumerable = false;");
 
             // 构造期之后新增的字段也要藏（工厂收尾与创建参数收尾各一次）。
-            StringAssert.Contains(source, "hideElementInternals(element);\n                return element;");
+            StringAssert.Contains(source, "hideElementInternals(element);\n    return element;");
             var optionsBody = TestRepository.MethodBody(
                 source,
                 "function applyCreateOptions(element, options) {");
@@ -598,7 +652,7 @@ namespace BiliBili.Tests
             // 执行一次就记一次数：这是「脚本只跑一次」的可观测落点。
             var activateBody = TestRepository.MethodBody(source, "function activateItem(item, now) {");
             StringAssert.Contains(activateBody, "item.runCount++;");
-            StringAssert.Contains(activateBody, "totalRunCount++;");
+            StringAssert.Contains(activateBody, "hostState.totalRunCount++;");
 
             var updateBody = TestRepository.MethodBody(source, "function updateItems(now) {");
             StringAssert.Contains(updateBody, "activateItem(item, now);");
@@ -814,8 +868,8 @@ namespace BiliBili.Tests
             // 停止两条路径的正当行为，而「元素级矩形擦除」才是移动元素不留
             // 拖影的落点；两者都在 tick 的调用链上（见 D1）。
             var body = TickBody();
-            StringAssert.Contains(body, "if (dirty) {");
-            StringAssert.Contains(body, "dirty = false;");
+            StringAssert.Contains(body, "if (hostState.dirty) {");
+            StringAssert.Contains(body, "hostState.dirty = false;");
             StringAssert.Contains(body, "paintDirtyElements();");
 
             // 合成必须走「脏元素才重画」的路径，而不是整帧重画。
@@ -830,12 +884,12 @@ namespace BiliBili.Tests
             // setState / resize 也会进 tick。若不拦隐藏状态，
             // 关闭弹幕总开关后紧跟的 setState 会把脏元素重新合成回屏幕。
             var body = TickBody();
-            StringAssert.Contains(body, "if (!visible) {");
+            StringAssert.Contains(body, "if (!hostState.visible) {");
             StringAssert.Contains(body, "clearSurface();");
             StringAssert.Contains(body, "return false;");
 
             // 隐藏分支必须在合成之前直接返回。
-            var hideIndex = body.IndexOf("if (!visible) {", System.StringComparison.Ordinal);
+            var hideIndex = body.IndexOf("if (!hostState.visible) {", System.StringComparison.Ordinal);
             var paintIndex = body.IndexOf("paintDirtyElements();", System.StringComparison.Ordinal);
             Assert.IsTrue(
                 hideIndex >= 0 && paintIndex > hideIndex,
@@ -845,7 +899,7 @@ namespace BiliBili.Tests
             Assert.IsFalse(
                 hideBranch.Contains("paintDirtyElements("),
                 "隐藏分支内不得出现合成调用");
-            StringAssert.Contains(hideBranch, "dirty = false;");
+            StringAssert.Contains(hideBranch, "hostState.dirty = false;");
         }
 
         [TestMethod]
@@ -857,17 +911,17 @@ namespace BiliBili.Tests
             // 「窗口内有没有条目」的话，无界窗口（duration 缺省）下暂停后会一直空转。
             var source = HostSource();
             StringAssert.Contains(source, "function hasPendingAnimation(now) {");
-            StringAssert.Contains(source, "running = false;");
-            StringAssert.Contains(source, "frameHandle = 0;");
+            StringAssert.Contains(source, "hostState.running = false;");
+            StringAssert.Contains(source, "hostState.frameHandle = 0;");
 
             var frameBody = TestRepository.MethodBody(source, "function frame() {");
             Assert.IsTrue(
-                frameBody.Contains("if (!state.playing && !hasPendingAnimation(now) && !dirty) {"),
+                frameBody.Contains("if (!state.playing && !hasPendingAnimation(now) && !hostState.dirty) {"),
                 "自停条件必须写在 frame() 内部");
 
-            var stopIndex = frameBody.IndexOf("if (!state.playing && !hasPendingAnimation(now) && !dirty) {", System.StringComparison.Ordinal);
+            var stopIndex = frameBody.IndexOf("if (!state.playing && !hasPendingAnimation(now) && !hostState.dirty) {", System.StringComparison.Ordinal);
             var scheduleIndex = frameBody.IndexOf(
-                "frameHandle = window.requestAnimationFrame(frame);",
+                "hostState.frameHandle = window.requestAnimationFrame(frame);",
                 System.StringComparison.Ordinal);
             Assert.IsTrue(
                 stopIndex >= 0 && scheduleIndex > stopIndex,
@@ -878,11 +932,11 @@ namespace BiliBili.Tests
                 frameBody.Contains("} finally {"),
                 "帧调度必须放在 finally 里，避免脚本异常冻结帧循环");
             Assert.IsTrue(
-                frameBody.Contains("if (running) {"),
+                frameBody.Contains("if (hostState.running) {"),
                 "续帧必须以 running 为条件");
 
             Assert.IsFalse(
-                TickBody().Contains("running = false;"),
+                TickBody().Contains("hostState.running = false;"),
                 "自停不应留在 tick 内部");
         }
 
@@ -895,12 +949,15 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "element.cacheCanvas = document.createElement(\"canvas\");");
             StringAssert.Contains(source, "if (!element.painted || element.needsCache) {");
 
-            // 只有脏元素才走合成。
+            // 脏元素进入候选队列；被擦区域内的静止邻居另走裁剪补画路径。
             var paintBody = TestRepository.MethodBody(
                 source,
                 "function paintDirtyElements() {");
             StringAssert.Contains(paintBody, "if (prepareElement(element)) {");
-            StringAssert.Contains(paintBody, "blitElement(context2d, element);");
+            StringAssert.Contains(paintBody, "candidates.push(element);");
+            StringAssert.Contains(paintBody, "composeElement(candidate);");
+            var composeBody = TestRepository.MethodBody(source, "function composeElement(element) {");
+            StringAssert.Contains(composeBody, "blitElement(hostState.context2d, element);");
 
             // 元素属性可写：赋值即标脏（属性描述符的 setter 里做）。
             var descriptorBody = TestRepository.MethodBody(
@@ -923,7 +980,9 @@ namespace BiliBili.Tests
             // resize / 改 DPI 后旧缓存不会重建，画面糊在旧比例上。
             var source = HostSource();
             StringAssert.Contains(source, "function registerElement(element) {");
-            StringAssert.Contains(source, "elements.push(element);");
+            StringAssert.Contains(
+                TestRepository.MethodBody(source, "function registerElement(element) {"),
+                "hostState.elements.push(element);");
             StringAssert.Contains(source, "function unregisterSubtree(element) {");
 
             var attachBody = TestRepository.MethodBody(
@@ -937,7 +996,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(detachBody, "unregisterSubtree(element);");
 
             var markAllBody = TestRepository.MethodBody(source, "function markAllDirty() {");
-            StringAssert.Contains(markAllBody, "elements[index].needsCache = true;");
+            StringAssert.Contains(markAllBody, "hostState.elements[index].needsCache = true;");
         }
 
         [TestMethod]
@@ -1058,7 +1117,7 @@ namespace BiliBili.Tests
             var flushBody = TestRepository.MethodBody(
                 source,
                 "function flushEraseRects(rects) {");
-            StringAssert.Contains(flushBody, "context2d.setTransform(1, 0, 0, 1, 0, 0);");
+            StringAssert.Contains(flushBody, "hostState.context2d.setTransform(1, 0, 0, 1, 0, 0);");
 
             // 顺序：先擦上一帧的包围盒，再合成本帧的脏元素。反了会把刚画好的擦掉。
             var paintBody = PaintBody();
@@ -1130,7 +1189,7 @@ namespace BiliBili.Tests
 
             var finallyIndex = frameBody.IndexOf("} finally {", System.StringComparison.Ordinal);
             var scheduleIndex = frameBody.IndexOf(
-                "frameHandle = window.requestAnimationFrame(frame);",
+                "hostState.frameHandle = window.requestAnimationFrame(frame);",
                 System.StringComparison.Ordinal);
             Assert.IsTrue(
                 scheduleIndex > finallyIndex,
@@ -1251,7 +1310,7 @@ namespace BiliBili.Tests
                 "脚本弹幕不得把条目挂到 DOM 上");
 
             // 元素树是 JS 对象树，唯一挂到 DOM 的是主画布。
-            StringAssert.Contains(source, "container.appendChild(canvas);");
+            StringAssert.Contains(source, "container.appendChild(hostState.canvas);");
         }
 
         [TestMethod]
@@ -1262,10 +1321,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "var ratio = window.devicePixelRatio || 1;");
             StringAssert.Contains(
                 source,
-                "canvas.width = Math.max(1, Math.round(width * ratio));");
+                "hostState.canvas.width = Math.max(1, Math.round(width * ratio));");
             StringAssert.Contains(
                 source,
-                "context2d.setTransform(ratio, 0, 0, ratio, 0, 0);");
+                "hostState.context2d.setTransform(ratio, 0, 0, ratio, 0, 0);");
         }
 
         [TestMethod]
@@ -1274,13 +1333,13 @@ namespace BiliBili.Tests
             // generation 必须在批次入口取一次再下传；
             // 若在 addItem 内部取，「reset 后丢弃剩余条目」的检查恒为假，形同虚设。
             var source = HostSource();
-            StringAssert.Contains(source, "var itemGeneration = generation;");
+            StringAssert.Contains(source, "var itemGeneration = hostState.generation;");
             StringAssert.Contains(source, "addItem(list[index], itemGeneration);");
             StringAssert.Contains(source, "function addItem(model, itemGeneration) {");
 
             // 分块路径（beginItem → appendItemChunk* → endItem）同样受保护。
             var endItemBody = TestRepository.MethodBody(source, "endItem: function () {");
-            StringAssert.Contains(endItemBody, "addItem(model, generation);");
+            StringAssert.Contains(endItemBody, "addItem(model, hostState.generation);");
         }
 
         [TestMethod]
@@ -1289,10 +1348,10 @@ namespace BiliBili.Tests
             // 大脚本走分块传输，宿主必须逐块拼接后整体解析。
             var source = HostSource();
             var beginBody = TestRepository.MethodBody(source, "beginItem: function () {");
-            StringAssert.Contains(beginBody, "pendingItemJson = \"\";");
+            StringAssert.Contains(beginBody, "hostState.pendingItemJson = \"\";");
 
             var chunkBody = TestRepository.MethodBody(source, "appendItemChunk: function (chunk) {");
-            StringAssert.Contains(chunkBody, "pendingItemJson += chunk");
+            StringAssert.Contains(chunkBody, "hostState.pendingItemJson += chunk");
 
             var endBody = TestRepository.MethodBody(source, "endItem: function () {");
             StringAssert.Contains(endBody, "JSON.parse(json)");
@@ -1491,7 +1550,7 @@ namespace BiliBili.Tests
             // ① Display 与 $ 是同一个 ScriptDisplay（CommentScriptFactory.as:112-113）。
             StringAssert.Contains(source, "\"$\", \"Display\", \"Player\",");
             var scopeBody = ScriptScopeBody();
-            StringAssert.Contains(scopeBody, "M8Display,\n                    M8Display,");
+            StringAssert.Contains(scopeBody, "M8Display,\n        M8Display,");
 
             // ② AS2/AS3 的全局转换函数；int/uint 是 AVM1 的 32 位截断（不是 Math.trunc 直通）。
             StringAssert.Contains(source, "\"int\", \"uint\", \"Number\", \"Boolean\", \"isNaN\"];");

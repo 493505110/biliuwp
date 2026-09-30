@@ -4,7 +4,7 @@
 //
 // 为什么需要它：tests/BiliBili.Tests 里的 ScriptDanmakuHostContractTests 只能断言
 // 源码字符串，改注释、改写法都能让它误判，而真正的渲染行为（拖影、寿命、缓存失效、
-// seek 重建）完全没被覆盖。这里用 node:vm 把宿主 HTML 里的内联 <script> 加载进一个
+// seek 重建）完全没被覆盖。这里用 node:vm 把宿主 HTML 引用的模块加载进一个
 // 无头桩里跑起来，逐帧驱动 requestAnimationFrame，断言可观察的渲染行为。
 //
 // 零依赖：只用 node 内置模块，不 npm install。运行：
@@ -29,6 +29,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { ensureModuleSupport, evaluateHost } = require('./host-loader');
+
+ensureModuleSupport();
 
 const DEFAULT_HOST_PATH = path.join(
     __dirname, '..', '..', 'BiliBili.UWP', 'Assets', 'script-danmaku-host.html');
@@ -299,11 +302,7 @@ function pathBounds(path) {
 
 // ---- 宿主加载器 ----
 
-function loadHost(hostPath) {
-    const html = fs.readFileSync(hostPath || HOST_PATH, 'utf8');
-    const match = /<script>([\s\S]*?)<\/script>/.exec(html);
-    if (!match) throw new Error('宿主 HTML 里找不到内联 <script>：' + hostPath);
-
+async function loadHost(hostPath) {
     const messages = [];
     const frameErrors = [];
     const rafCallbacks = new Map();
@@ -371,7 +370,7 @@ function loadHost(hostPath) {
     sandbox.clearTimeout = function (id) { realTimers.delete(id); };
 
     vm.createContext(sandbox);
-    vm.runInContext(match[1], sandbox, { filename: hostPath || HOST_PATH });
+    await evaluateHost(hostPath || HOST_PATH, sandbox);
 
     const host = {
         sandbox: sandbox,
@@ -472,11 +471,11 @@ function test(name, fn) {
     cases.push({ name: name, fn: fn });
 }
 
-function run() {
+async function run() {
     let failed = 0;
     for (const item of cases) {
         try {
-            item.fn();
+            await item.fn();
             process.stdout.write('  ok   ' + item.name + '\n');
         } catch (error) {
             failed++;
@@ -504,8 +503,8 @@ function scriptItem(id, stime, duration, code) {
 // 不在用例之间手动清空 rAF 队列：宿主用 running 标志判断循环是否在跑，
 // 清空队列但 running 仍为 true 会让后续断言全部变成假结论。
 
-test('D1 移动元素跑 60 帧后不残留旧位置像素（无拖影）', () => {
-    const host = loadHost();
+test('D1 移动元素跑 60 帧后不残留旧位置像素（无拖影）', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([scriptItem('d1', 0, 10,
         'var box = $.createShape({ lifeTime: 10,'
@@ -536,8 +535,8 @@ test('D1 移动元素跑 60 帧后不残留旧位置像素（无拖影）', () =
         '画布残留像素横跨 ' + union.width + 'px，超出元素宽度（40px）→ 存在拖影');
 });
 
-test('D2 自定义缓动抛错后帧循环存活、其他条目继续渲染、命令仍有效', () => {
-    const host = loadHost();
+test('D2 自定义缓动抛错后帧循环存活、其他条目继续渲染、命令仍有效', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         // 缓动只在 t>0 时抛错：t=0 那一次（创建时立即套用的插值）不抛，
@@ -595,9 +594,9 @@ test('D2 自定义缓动抛错后帧循环存活、其他条目继续渲染、�
     assert.equal(host.pendingFrames(), 1, 'reset 后帧循环仍应存活');
 });
 
-test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () => {
-    function lifeTimeOf(stime, duration, code) {
-        const host = loadHost();
+test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', async () => {
+    async function lifeTimeOf(stime, duration, code) {
+        const host = await loadHost();
         host.reset(0, true, 1, true);
         host.append([scriptItem('d3', stime, duration, code)]);
         // 条目不在窗口内时 append 不会起循环，用 setState 推进到窗口内。
@@ -624,7 +623,7 @@ test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () =
         + 'window.__box = box;';
 
     // 声明 4s、窗口 10s：寿命 4000ms（声明生效，不被窗口吞掉）。
-    let host = lifeTimeOf(0, 10, motionShape(4));
+    let host = await lifeTimeOf(0, 10, motionShape(4));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 4000,
         '声明 lifeTime: 4、窗口 10s 时寿命应为 4000ms');
@@ -636,7 +635,7 @@ test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () =
     assert.equal(host.sandbox.__box.expired, true, '约 4s 后元素应被摘除');
 
     // 声明 2s、窗口 10s：寿命 2000ms（声明必须能**缩短**寿命，不能只延长）。
-    host = lifeTimeOf(0, 10, motionShape(2));
+    host = await lifeTimeOf(0, 10, motionShape(2));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 2000,
         '声明 lifeTime: 2、窗口 10s 时寿命应为 2000ms，而不是活到窗口结束');
@@ -648,26 +647,26 @@ test('D3 元素寿命 = min(声明的 lifeTime, 条目窗口剩余时间)', () =
     assert.equal(host.sandbox.__box.expired, true, '约 2s 后元素应被摘除');
 
     // 声明 8s、窗口 10s：寿命 8000ms（窗口不能反过来吞掉声明）。
-    host = lifeTimeOf(0, 10, motionShape(8));
+    host = await lifeTimeOf(0, 10, motionShape(8));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 8000,
         '声明 lifeTime: 8、窗口 10s 时寿命应为 8000ms');
 
     // 声明 8s、窗口 4s：寿命被窗口钳到 4000ms。
-    host = lifeTimeOf(0, 4, motionShape(8));
+    host = await lifeTimeOf(0, 4, motionShape(8));
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 4000,
         '声明 lifeTime: 8、窗口 4s 时寿命应被窗口钳到 4000ms');
 
     // 完全没有 tween 的元素：寿命 = 条目窗口剩余时间。
-    host = lifeTimeOf(2, 6, shape);
+    host = await lifeTimeOf(2, 6, shape);
     assert.equal(
         host.elementField(host.sandbox.__box, 'lifeTimeMs'), 6000,
         '未声明 tween 的元素寿命应等于条目窗口剩余时间');
 });
 
-test('D4 同屏有动画元素时，静止复合元素不重复重建整层', () => {
-    const host = loadHost();
+test('D4 同屏有动画元素时，静止复合元素不重复重建整层', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d4-composite', 0, 10,
@@ -705,8 +704,8 @@ test('D4 同屏有动画元素时，静止复合元素不重复重建整层', ()
         '重建后 needsCache 应被清掉，否则每帧都会被判为结构脏');
 });
 
-test('D5 fontsize 补间后缓存尺寸随之变化，静止元素不被过度失效', () => {
-    const host = loadHost();
+test('D5 fontsize 补间后缓存尺寸随之变化，静止元素不被过度失效', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d5-anim', 0, 10,
@@ -754,9 +753,9 @@ test('D5 fontsize 补间后缓存尺寸随之变化，静止元素不被过度�
     assert.equal(host.elementField(still, 'needsCache'), false);
 });
 
-test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、脚本不逐帧重跑', () => {
+test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、脚本不逐帧重跑', async () => {
     // D6a：条目窗口 [1s,5s]，播到 7.0s（窗口已结束）后向后 seek 回 2s。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([scriptItem('d6a', 1, 4,
         'window.__runs = (window.__runs || 0) + 1;'
@@ -809,7 +808,7 @@ test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、�
 
     // D6b：条目窗口 [1s,10s]，元素声明 lifeTime: 2 → 3s 就被摘除但条目仍在窗口内；
     // 此时向后 seek 回 2s 必须走「按进度重建元素」这条路径。
-    const late = loadHost();
+    const late = await loadHost();
     late.reset(0, true, 1, true);
     late.append([scriptItem('d6b', 1, 9,
         'window.__runs = (window.__runs || 0) + 1;'
@@ -841,7 +840,7 @@ test('D6 向后 seek 回窗口内：元素被重建、位置是插值结果、�
         + '，实际 ' + rebuilt.x.toFixed(1));
 });
 
-test('D7 内置示例（单条）声明式 motion 与 interval 并存，能渲染出画面且到点自然收尾', () => {
+test('D7 内置示例（单条）声明式 motion 与 interval 并存，能渲染出画面且到点自然收尾', async () => {
     // 示例代码必须与 ScriptDanmakuService.GetBuiltInDemo() 逐字一致。
     // 它在 C# 里是字符串拼接，这里改写成等价字面量；两边的"事实来源"
     // 仍是那份 C#，本用例只保证示例确实能跑、且不是每帧重算坐标的写法。
@@ -882,7 +881,7 @@ test('D7 内置示例（单条）声明式 motion 与 interval 并存，能渲�
         }
     ];
 
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append(demos);
     host.setState(0.5, true, 1);
@@ -918,10 +917,10 @@ test('D7 内置示例（单条）声明式 motion 与 interval 并存，能渲�
     assert.equal(host.errors().length, 0, '收尾阶段也不应产生错误');
 });
 
-test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素', () => {
+test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素', async () => {
     // 对应 ReplaceAsync 在弹幕可见时换脚本 / 倍速重推：宿主收到 reset(…, visible=true)
     // 时整批元素被丢弃，它们的像素不会再有擦除队列，必须靠 reset 自己清屏。
-    const host = loadHost();
+    const host = await loadHost();
     const painted = () => unionRect(host.mainCanvas().__marks);
 
     host.reset(0, true, 1, true);
@@ -947,10 +946,10 @@ test('D8 reset 整批作废时必须清画布，换一批弹幕不留旧像素',
     assert.ok(painted(), '第二批弹幕应能正常画出来');
 });
 
-test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、Player.time / Player.state 实时可读', () => {
+test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、Player.time / Player.state 实时可读', async () => {
     // duration 缺省（0）在 Parser 与宿主两侧都表示「不设时间窗」：
     // 原版 M8 没有条目窗口，元素寿命由脚本的 lifeTime 决定，宿主只留防呆上限。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('unbounded', 1, 0,
@@ -1001,10 +1000,10 @@ test('D9 无界窗口按兜底上限兜住、lifeTime: 0 常驻、Player.time / 
     assert.equal(host.errors().length, 0, '不应产生错误上报');
 });
 
-test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后重新拉起', () => {
+test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后重新拉起', async () => {
     // 旧判据是「窗口内有没有条目」，无界窗口下条目会长时间停在窗口内，
     // 暂停后帧循环就会一直空转；现在按「有没有待推进的补间/逐帧回调」自停。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('unbounded-static', 1, 0,
@@ -1024,12 +1023,12 @@ test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后�
     assert.ok(host.pendingFrames() > 0, '恢复播放后帧循环应重新拉起');
 });
 
-test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数都在脚本作用域里', () => {
+test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数都在脚本作用域里', async () => {
     // 这条用例的正文刻意用**原版 M8 的写法**写成（不出现 ctx、不出现宿主扩展），
     // 断言的也是 M8 文档里写明的行为：$ 是元件工厂、Player.time 实时读、
     // $G 跨条目共享、ScriptManager.clearTimer 停当前条目的定时器、
     // timer/interval/clearTimer/foreach/clone/Utils/trace 都在脚本作用域里可用。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d11-a', 0, 10,
@@ -1128,10 +1127,10 @@ test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数
         'interval(…, 0) 是无限次，条目未回收前应继续触发');
 });
 
-test('D12 定时器登记在条目上：条目回收 / reset / seek 越窗后一律不再跑', () => {
+test('D12 定时器登记在条目上：条目回收 / reset / seek 越窗后一律不再跑', async () => {
     // M8 用 ScriptManager.clearTimer() 解决的问题：脚本忘了清定时器时，
     // 定时器不能在条目销毁后继续跑。宿主把它做成兜底——登记表随条目一起清。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d12', 1, 2,
@@ -1171,8 +1170,8 @@ test('D12 定时器登记在条目上：条目回收 / reset / seek 越窗后一
     assert.equal(host.errors().length, 0, '定时器生命周期不应产生错误上报');
 });
 
-test('D13 Tween.* 句柄与组合子：play/stop/stopOnComplete、delay/serial/reverse/repeat', () => {
-    const host = loadHost();
+test('D13 Tween.* 句柄与组合子：play/stop/stopOnComplete、delay/serial/reverse/repeat', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d13-to', 0, 10,
@@ -1269,8 +1268,8 @@ test('D13 Tween.* 句柄与组合子：play/stop/stopOnComplete、delay/serial/r
         'tween 在 1 秒后应接近终点 200：实际 ' + host.sandbox.__a.x);
 });
 
-test('D14 Player 的动作请求走 action 通道：play / pause / seek / jump', () => {
-    const host = loadHost();
+test('D14 Player 的动作请求走 action 通道：play / pause / seek / jump', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d14', 0, 10,
@@ -1307,8 +1306,8 @@ test('D14 Player 的动作请求走 action 通道：play / pause / seek / jump',
     assert.equal(host.errors().length, 0, '动作请求不应产生错误上报');
 });
 
-test('D15 Player.commentList 是推入的快照，字段形状与 M8 的 CommentData 一致', () => {
-    const host = loadHost();
+test('D15 Player.commentList 是推入的快照，字段形状与 M8 的 CommentData 一致', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     // C# 侧推快照：resetComments 清空 + appendComments 追加（真实链路是分批推的）。
     host.api.resetComments();
@@ -1364,8 +1363,8 @@ test('D15 Player.commentList 是推入的快照，字段形状与 M8 的 Comment
     assert.equal(host.errors().length, 0, '数据链不应产生错误上报');
 });
 
-test('D16 commentTrigger / keyTrigger：只在收到桥消息时触发，条目回收后不再触发', () => {
-    const host = loadHost();
+test('D16 commentTrigger / keyTrigger：只在收到桥消息时触发，条目回收后不再触发', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d16', 1, 3,
@@ -1420,8 +1419,8 @@ test('D16 commentTrigger / keyTrigger：只在收到桥消息时触发，条目�
     assert.equal(host.errors().length, 0, '触发器不应产生错误上报');
 });
 
-test('D17 Player.setMask 把画面裁到遮罩形状里（合成期裁剪，不动元素缓存）', () => {
-    const host = loadHost();
+test('D17 Player.setMask 把画面裁到遮罩形状里（合成期裁剪，不动元素缓存）', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d17', 0, 10,
@@ -1478,8 +1477,8 @@ test('D17 Player.setMask 把画面裁到遮罩形状里（合成期裁剪，不�
     assert.equal(host.errors().length, 0, '取消遮罩不应产生错误上报');
 });
 
-test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读写、距离矩阵可用', () => {
-    const host = loadHost();
+test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读写、距离矩阵可用', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d18', 0, 10,
@@ -1535,8 +1534,8 @@ test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读
     assert.equal(host.sandbox.__perspective, 'number', 'perspectiveProjection 应是可读的默认值对象');
 });
 
-test('D19 显示列表：numChildren/getChildAt 等按 Flash 语义，且元素属性不可枚举', () => {
-    const host = loadHost();
+test('D19 显示列表：numChildren/getChildAt 等按 Flash 语义，且元素属性不可枚举', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d19', 0, 10,
@@ -1591,8 +1590,8 @@ test('D19 显示列表：numChildren/getChildAt 等按 Flash 语义，且元素�
     assert.equal(host.sandbox.__afterAdd, '3,true', 'addChildAt 应插回指定位置');
 });
 
-test('D20 blendMode 映射到 globalCompositeOperation，未知值退回 normal', () => {
-    const host = loadHost();
+test('D20 blendMode 映射到 globalCompositeOperation，未知值退回 normal', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d20', 0, 10,
@@ -1638,8 +1637,8 @@ test('D20 blendMode 映射到 globalCompositeOperation，未知值退回 normal'
     assert.equal(byX.unknown, 'source-over', '未知 blendMode 应退回 normal（source-over）');
 });
 
-test('D21 元素级 mask 只裁被遮罩元素，且遮罩元件自己不绘制', () => {
-    const host = loadHost();
+test('D21 元素级 mask 只裁被遮罩元素，且遮罩元件自己不绘制', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     // 用数组 join 拼脚本，避免长串拼接里少一个 + 或引号而看不出问题。
     const code = [
@@ -1694,8 +1693,8 @@ test('D21 元素级 mask 只裁被遮罩元素，且遮罩元件自己不绘制'
     assert.ok(neighbor.length > 0, '未被遮罩的元素应正常绘制：' + JSON.stringify(marks));
 });
 
-test('D22 popEl 摘离渲染树（原版语义）；Event.ENTER_FRAME 每帧派发', () => {
-    const host = loadHost();
+test('D22 popEl 摘离渲染树（原版语义）；Event.ENTER_FRAME 每帧派发', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d22', 0, 10,
@@ -1731,8 +1730,8 @@ test('D22 popEl 摘离渲染树（原版语义）；Event.ENTER_FRAME 每帧派�
     assert.equal(host.sandbox.__lastType, 'enterFrame', '派发的事件对象应带 type');
 });
 
-test('D23 嵌套元件被摘除后，主画布上它占过的像素要被擦掉', () => {
-    const host = loadHost();
+test('D23 嵌套元件被摘除后，主画布上它占过的像素要被擦掉', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d23', 0, 10,
@@ -1771,8 +1770,8 @@ test('D23 嵌套元件被摘除后，主画布上它占过的像素要被擦掉'
         '擦除必须发生在本帧重新合成父层之前');
 });
 
-test('D24 移动嵌套元件不该擦掉祖先的主画布矩形', () => {
-    const host = loadHost();
+test('D24 移动嵌套元件不该擦掉祖先的主画布矩形', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d24', 0, 10,
@@ -1809,8 +1808,8 @@ test('D24 移动嵌套元件不该擦掉祖先的主画布矩形', () => {
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
-test('D25 条目窗口结束后，嵌套元件不能在画布上留下最后一帧', () => {
-    const host = loadHost();
+test('D25 条目窗口结束后，嵌套元件不能在画布上留下最后一帧', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d25', 0, 1,
@@ -1840,8 +1839,8 @@ test('D25 条目窗口结束后，嵌套元件不能在画布上留下最后一�
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
-test('D26 最后一个条目离开窗口后，画布要整幅清空', () => {
-    const host = loadHost();
+test('D26 最后一个条目离开窗口后，画布要整幅清空', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d26', 0, 1,
@@ -1872,8 +1871,8 @@ test('D26 最后一个条目离开窗口后，画布要整幅清空', () => {
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
-test('D27 隐藏嵌套元件（visible=false）必须擦掉它在主画布上的旧像素', () => {
-    const host = loadHost();
+test('D27 隐藏嵌套元件（visible=false）必须擦掉它在主画布上的旧像素', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d27', 0, 10,
@@ -1906,8 +1905,8 @@ test('D27 隐藏嵌套元件（visible=false）必须擦掉它在主画布上的
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
-test('D28 alpha 归零的嵌套元件必须擦掉它在主画布上的旧像素', () => {
-    const host = loadHost();
+test('D28 alpha 归零的嵌套元件必须擦掉它在主画布上的旧像素', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d28', 0, 10,
@@ -1940,13 +1939,13 @@ test('D28 alpha 归零的嵌套元件必须擦掉它在主画布上的旧像素'
         + JSON.stringify(ops.map((op) => op.type + '@' + JSON.stringify(op.rect))));
 });
 
-test('D29 补画被擦区域时不得整元件重贴（重贴范围必须限制在擦除矩形内）', () => {
+test('D29 补画被擦区域时不得整元件重贴（重贴范围必须限制在擦除矩形内）', async () => {
     // 复现路径：元件的旧位置矩形入队擦除后会盖住别的（静止的）元件，
     // 那些元素必须补画回来——但**不能整元件重贴**。Akari 的图层是整视口
     // 1280x720 的离屏 canvas，一个几十像素的擦除矩形碰到它就让整层重新
     // drawImage 一次；几十层叠加下每帧重贴几百万像素，实测把 headless
     // 直接打到 tab crashed。正确做法是按擦除矩形裁剪后重贴。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d29', 0, 10,
@@ -1991,8 +1990,8 @@ test('D29 补画被擦区域时不得整元件重贴（重贴范围必须限制�
         + '全量重画，帧成本失控；ops=' + dump);
 });
 
-test('D30 时钟分源：timer()/Utils.delay 走真实时间，interval() 随播放暂停', () => {
-    const host = loadHost();
+test('D30 时钟分源：timer()/Utils.delay 走真实时间，interval() 随播放暂停', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d30', 0, 10,
@@ -2024,8 +2023,8 @@ test('D30 时钟分源：timer()/Utils.delay 走真实时间，interval() 随播
         '暂停期间 timer() 应照常到点：' + ticks());
 });
 
-test('D31 Player.createSound：按名字在线拉音效库、onLoad 即开始加载时回调、play/remove 走 audio', () => {
-    const host = loadHost();
+test('D31 Player.createSound：按名字在线拉音效库、onLoad 即开始加载时回调、play/remove 走 audio', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d31', 0, 10,
@@ -2056,10 +2055,10 @@ test('D31 Player.createSound：按名字在线拉音效库、onLoad 即开始加
     assert.equal(audio.__paused, true, 'remove() 对应 AS3 的 Sound.close()');
 });
 
-test('D32 Bitmap 工厂：createBitmapData / createRectangle / createBitmap 照原版签名', () => {
+test('D32 Bitmap 工厂：createBitmapData / createRectangle / createBitmap 照原版签名', async () => {
     // 注意：createParticle 依赖 getImageData/putImageData，桩里没有像素 API，
     // 那条路径只能靠真机（WebView2）验证，这里不覆盖。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d32', 0, 10,
@@ -2084,8 +2083,8 @@ test('D32 Bitmap 工厂：createBitmapData / createRectangle / createBitmap 照�
     assert.ok(host.sandbox.__bitmapEl, 'createBitmap 应建出元件（宿主用自绘层承载位图）');
 });
 
-test('D33 motion 相对坐标：x/y 落在 (0,1) 时按父容器宽度换算（原版 MotionManager 语义）', () => {
-    const host = loadHost();
+test('D33 motion 相对坐标：x/y 落在 (0,1) 时按父容器宽度换算（原版 MotionManager 语义）', async () => {
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d33', 0, 10,
@@ -2103,10 +2102,10 @@ test('D33 motion 相对坐标：x/y 落在 (0,1) 时按父容器宽度换算（�
         'fromValue 0.5 应解释成父容器宽度的 50%（400 × 0.5 = 200）：实际 ' + child.props.x);
 });
 
-test('D34 新增全局名可用：Display / int / uint / Number / Boolean / isNaN', () => {
+test('D34 新增全局名可用：Display / int / uint / Number / Boolean / isNaN', async () => {
     // 原版的 globals 里 Display 与 $ 指向同一个 ScriptDisplay
     // （CommentScriptFactory.as:112-113）；int/uint 是 AVM1 的 32 位截断转换。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d34', 0, 10,
@@ -2139,10 +2138,10 @@ test('D34 新增全局名可用：Display / int / uint / Number / Boolean / isNa
     assert.equal(probe.booleanResult, false);
 });
 
-test('D35 $.createColorTransform 返回真对象（entry_08 的 Akari 色调映射在用）', () => {
+test('D35 $.createColorTransform 返回真对象（entry_08 的 Akari 色调映射在用）', async () => {
     // 原版 ScriptDisplay.as:284-287 直接 new ColorTransform(...)；此前宿主返回 null，
     // Akari.Utilities.Color.rgbToTransformTint/Add 会把 null 写进 transform.colorTransform。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d35', 0, 10,
@@ -2170,14 +2169,14 @@ test('D35 $.createColorTransform 返回真对象（entry_08 的 Akari 色调映�
     assert.equal(probe.stored, true, '元素 transform.colorTransform 应原样存住同一份对象');
 });
 
-test('D36 Player.state 的 stop 态：仅由 setStopped 置位，且会被后续状态更新清掉', () => {
+test('D36 Player.state 的 stop 态：仅由 setStopped 置位，且会被后续状态更新清掉', async () => {
     // 原版 ScriptPlayer 的 completeHandler 收到 MEDIA_COMPLETE 时把 _state 置 "stop"
     // （ScriptPlayer.as:212-215），之后任何一次播放器状态事件都会把它改回 playing/pause。
     //
     // 观测方式用 keyTrigger 而不是 interval：暂停 / 停止后帧循环自停，
     // 定时器不会推进（这与原版 Timer 在暂停时被 stop 一致），而消息驱动的
     // 触发器不受帧循环影响。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d36', 0, 10,
@@ -2222,11 +2221,11 @@ test('D36 Player.state 的 stop 态：仅由 setStopped 置位，且会被后续
     assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
 });
 
-test('D37 lifeTime: 0 是常驻、负数是立刻到期（原版把负数夹成 0.001 秒）', () => {
+test('D37 lifeTime: 0 是常驻、负数是立刻到期（原版把负数夹成 0.001 秒）', async () => {
     // 原版 ScriptDisplay.as:238-240：if(motionConfig.lifeTime < 0) lifeTime = 0.001。
     // 早先宿主把 <= 0 一起并进「常驻」，负数的语义正好反了。
     // duration 取 0（无界窗口）才能看出「常驻 = 吃满兜底上限」。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d37', 0, 0,
@@ -2247,9 +2246,9 @@ test('D37 lifeTime: 0 是常驻、负数是立刻到期（原版把负数夹成 
     assert.equal(doomed.expired, true, '负数 lifeTime 应立刻到期（原版夹成 0.001 秒）');
 });
 
-test('D38 Tween.from / Tween.apply：反向补间与立即套用', () => {
+test('D38 Tween.from / Tween.apply：反向补间与立即套用', async () => {
     // 原版 BetweenAS3 有静态 from / apply（BetweenAS3.as:156、:174）。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d38', 0, 10,
@@ -2280,11 +2279,11 @@ test('D38 Tween.from / Tween.apply：反向补间与立即套用', () => {
         'from() 终点应是元素的当前值 200：' + el.props.x);
 });
 
-test('D39 easing 传类名（"Sine" / "Cubic"）按原版的 easeInOut 解析', () => {
+test('D39 easing 传类名（"Sine" / "Cubic"）按原版的 easeInOut 解析', async () => {
     // 原版 MotionManager 的 switch 认的是**缓动类名**（MotionManager.as:205-239），
     // 命中后取该类的 easeInOut。此前宿主只认 "SineEaseInOut" 这类全名，
     // 写 "Sine" 会静默退化成线性。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d39', 0, 10,
@@ -2309,9 +2308,9 @@ test('D39 easing 传类名（"Sine" / "Cubic"）按原版的 easeInOut 解析', 
         'easing: "Cubic" 应走 Cubic.easeInOut（0.25s 时约 1.6），实际 ' + other);
 });
 
-test('D40 interval 句柄的 start / reset：stop 之后能重新挂回并再次触发', () => {
+test('D40 interval 句柄的 start / reset：stop 之后能重新挂回并再次触发', async () => {
     // 原版 Utils.interval 返回 flash.utils.Timer，脚本会直接调它的 start / reset。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d40', 0, 10,
@@ -2334,11 +2333,11 @@ test('D40 interval 句柄的 start / reset：stop 之后能重新挂回并再次
     assert.equal(host.errors().length, 0, '不应报错：' + JSON.stringify(host.errors()));
 });
 
-test('D41 Utils.clone / Utils.foreach 与文本的 align / htmlText', () => {
+test('D41 Utils.clone / Utils.foreach 与文本的 align / htmlText', async () => {
     // 原版 ScriptUtils 里 clone / foreach 是实例方法（ScriptUtils.as:121-139），
     // 注入的 Utils 就是这个类的实例；align / htmlText 在 CommentField 上
     // （CommentField.as:62-71、:117-125，htmlText 双向直通 text）。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d41', 0, 10,
@@ -2379,11 +2378,11 @@ test('D41 Utils.clone / Utils.foreach 与文本的 align / htmlText', () => {
     assert.equal(probe.alignBogus, 'left', '非法 align 退回左对齐');
 });
 
-test('D42 keyTrigger 的键值集合按原版 ScriptEventManager：收 27、不收 33', () => {
+test('D42 keyTrigger 的键值集合按原版 ScriptEventManager：收 27、不收 33', async () => {
     // 原版判定：code == 27 || code >= 96 && code <= 105 || code >= 34 && code <= 40
     //           || W || S || A || D（ScriptEventManager.as:33、:57）。
     // 33（PageUp）**不在**范围里——此前宿主误收。
-    const host = loadHost();
+    const host = await loadHost();
     host.reset(0, true, 1, true);
     host.append([
         scriptItem('d42', 0, 10,
@@ -2404,4 +2403,18 @@ test('D42 keyTrigger 的键值集合按原版 ScriptEventManager：收 27、不�
         '只投递原版允许的那组键：' + JSON.stringify(host.sandbox.__keys));
 });
 
-run();
+test('D43 模块初始化完成后才发 ready，内部状态不泄露到 window', async () => {
+    const host = await loadHost();
+    assert.equal(host.messages.filter(message => message.type === 'ready').length, 1);
+    assert.ok(host.mainCanvas(), 'ready 时主画布应已创建');
+    for (const name of ['hostState', 'state', 'createRetainedElement', 'M8Display', 'Tween', 'Global']) {
+        assert.equal(Object.hasOwn(host.sandbox, name), false, '模块内部名字不应挂到 window：' + name);
+    }
+    host.reset(0, true, 1, true);
+    host.append([scriptItem('d43', 0, 10,
+        'window.__globalAliasesReady = $.Global === Global && Global === $G;')]);
+    host.runFrames(1);
+    assert.equal(host.sandbox.__globalAliasesReady, true, '首条脚本运行前应完成 Global 别名绑定');
+});
+
+run().catch(error => { console.error(error); process.exitCode = 1; });

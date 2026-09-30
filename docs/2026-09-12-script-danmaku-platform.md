@@ -1,6 +1,7 @@
 # 脚本弹幕平台（mode8 风格）
 
 > **状态：阶段 1（核心渲染）已完成代码与构建验证，待页面级验证；阶段 2-5 未开始。** 见 §实施阶段。
+> **宿主拆分（2026-09-30）**：运行时已移到 `Assets/script-danmaku/` 下的十个 ES 模块，HTML 只保留舞台、样式与入口引用；模块职责及初始化约定见 §3。历史实施记录中的 HTML 行号不再对应当前源码，请按函数名定位。
 > **阶段 1 收尾（2026-09-26）**：宿主的「擦除 / 重合成」返工做到第三条路（按擦除矩形裁剪后重贴），
 > 中段 119s/121s 已超过基线（0.662/0.936 对 0.560/0.918），但尾部 123~142s 同时退化
 > （0.117 对 0.056，录屏 0.009），**按「不留残影也不打空洞」的判据仍未收敛**。
@@ -66,7 +67,10 @@
    PlayerPage（弹幕数据 / 屏蔽 / 发送 / 输入 / 播放操作）◄─┘
                               ▼
                    Assets/script-danmaku-host.html
-        （保留对象树 + tween 补间 + 脏元素重绘；脚本每条只执行一次；TS 转译待接入）
+                      │ module 入口
+                      ▼
+             Assets/script-danmaku/host.js
+        （十个职责模块：保留对象树 + tween 补间 + 脏元素重绘；TS 转译待接入）
 ```
 
 **关键决策：交互与拦截的"处理权"全在 PlayerPage，控件只转发。** 控件通过事件把脚本的请求抛给 PlayerPage；PlayerPage 用自己已有字段/方法处理，再调控件方法把结果推回。这样 `PlayerPage` 的 private 成员**无需改可见性**。
@@ -103,7 +107,22 @@ public sealed class ScriptDanmakuDocument
 
 ### 3. 宿主运行时（`Assets/script-danmaku-host.html`）
 
-> 单文件内联，不拆 `.js`——虚拟主机映射下同目录引用没有额外收益，且少一处 csproj 注册。
+> 宿主脚本已按职责拆为 `Assets/script-danmaku/` 下的十个原生 ES 模块，HTML 通过 `<script type="module" src="script-danmaku/host.js">` 加载入口。共享可变状态由 `core.js` 的 `hostState` 保存；跨模块的舞台根创建和 `$.Global` 别名绑定集中到 `host.js`，在依赖全部求值后执行。所有模块均作为 Content 注册到 UWP 工程，沿用现有 WebView2 虚拟主机映射，无需打包器或运行时源码拼接。
+
+| 文件 | 职责 |
+|---|---|
+| `core.js` | 共享状态、基础工具、消息桥 |
+| `easing.js` | 缓动函数与 TweenEasing |
+| `tween.js` | 声明式 motion、Tween 句柄及组合子 |
+| `display.js` | 保留元素、显示列表、工厂、2D/3D 变换 |
+| `renderer.js` | 绘制、缓存、遮罩、脏矩形合成 |
+| `lifecycle.js` | 编译、条目生命周期、播放同步、帧调度 |
+| `player.js` | Player API、音效、弹幕快照、触发器 |
+| `bitmap.js` | 位图与粒子 API |
+| `runtime.js` | Global、Utils、定时器、ScriptManager、脚本作用域 |
+| `host.js` | 初始化、对 C# 暴露的命令入口 |
+
+行为测试通过 Node 的原生 VM 模块链接并求值实际入口及依赖，覆盖循环依赖和初始化顺序；原有 `node tests/host/*.test.js` 命令自动启用 VM 模块支持，并仍支持指定旧版内联 HTML 进行对照。拆分时移除了原宿主中被后一个同名声明覆盖的早期 `paintDirtyElements` 实现，保留的是实际执行的脏矩形版本。下文实施记录中的 HTML 行号属于拆分前的历史位置，当前代码请按函数名到对应模块定位。
 
 - **渲染循环（保留模式）**：主 `<canvas>` + `requestAnimationFrame`。脚本**每条只执行一次**，执行期间通过 M8 的元件工厂 `$` 建出保留对象树（`$.createComment` / `$.createShape` / `$.createCanvas` / …），并把动画写成声明式 `motion` 或 `Tween` / `interval` 声明；之后每帧只做三件事——推进补间、更新元素属性、**仅重绘被标记为脏的元素**。**禁止每帧重跑脚本**（理由与真实数据见 §3.1）。**不用 DOM-per-danmaku**。不在播放且没有待推进的补间/定时器时自动停循环（恢复路径天然存在：播放态变化、seek、resize 都会走 `ensureRunning`）。
 - **脚本 API：直接暴露原版 M8 的 API 面，不再有自研的 `ctx`**（本版决策，见 §阶段 1 实施记录 13）。宿主用 `new Function("$", "Player", "$G", "Global", "Tween", "Utils", "ScriptManager", "timer", "interval", "clearTimer", "trace", "tracex", "stopExecution", "foreach", "clone", "getTimer", code)` 把这些全局名作为**参数**注入脚本作用域，脚本正文因而可以原样书写 `$.createComment(...)` / `Player.time` / `Tween.tween(...)`，不必改写成 `ctx.xxx`；用参数注入而不是给 `window` 挂属性，是为了让脚本对这些名字的赋值只影响自己那一次执行。
@@ -425,7 +444,7 @@ public Task<SendVerdict> InterceptSendAsync(string text, string color, int mode,
 
 测试：`tests/BiliBili.Tests/` 下三个文件——`ScriptDanmakuParserTests.cs`（解析/校验契约）、`ScriptDanmakuHostContractTests.cs`（宿主↔控件字符串契约：命令名、消息类型、**M8 注入名单与「不再注入 ctx」**、`Player` 的实时 getter 面、`$` 元件工厂与创建参数、**定时器登记在条目上**、dpr 缩放、可见性、自停位置、单脚本失败隔离、脏矩形擦除、缓存失效白名单、寿命 min 规则与摘除顺序、seek 重建入口唯一、不引入 BAS 资产、不为每条弹幕建 DOM、对照反编译的 API 面）、`ScriptDanmakuPlayerPageContractTests.cs`（PlayerPage 接入完整性：倍速重推、可见性重推、PositionChanged 两条分发路径、清理点对称、层叠顺序、菜单处理器、跳转白名单）。
 
-**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 把宿主 HTML 里的内联 `<script>` 加载进沙箱，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D42：
+**宿主行为测试（`tests/host/retained-mode.test.js`）**：源码契约测试只能证明「某段代码还在」，证明不了「行为对不对」。宿主的渲染正确性用这个纯 node、**零依赖**（不需要 `npm install`）的套件补：它用 `node:vm` 加载 HTML 引用的原生 ES 模块，桩掉 `document` / `canvas.getContext("2d")` / `requestAnimationFrame` / `performance.now`，按帧驱动并检查真实的画布操作序列。覆盖 D1~D43，其中 D43 验证 ready 前完成初始化、模块内部状态不泄露到 window，以及首条脚本可用的 Global 别名：
 
 | 用例 | 语义 | 修复前的表现 |
 |---|---|---|
