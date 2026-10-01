@@ -4,9 +4,11 @@ import {
 } from "./bitmap.js";
 import {
     currentItem,
+    currentPositionMs,
     hostState,
     post,
     reportRuntimeError,
+    stageFrameOffsetMs,
     state,
     toFiniteNumber
 } from "./core.js";
@@ -188,13 +190,23 @@ function scheduleItemTimeout(closure, delayMs) {
             return;
         }
 
+        // 异步回调已离开脚本正文；恢复所属条目，允许回调继续建元件、开定时器。
+        var previous = hostState.activeItem;
+        hostState.activeItem = item;
+        item.activeNow = currentPositionMs();
         try {
             closure();
         } catch (error) {
             if (!recoverItemFromCallbackError(item, error)) {
                 reportRuntimeError(error, item.model.id);
             }
+        } finally {
+            hostState.activeItem = previous;
+            item.createParent = null;
         }
+
+        hostState.dirty = true;
+        ensureRunning();
     }, Math.max(1, toFiniteNumber(delayMs, 1000)));
     item.realTimers.push(handle);
     return handle.id;
@@ -231,6 +243,7 @@ function scheduleItemTimer(closure, delayMs, oneShot, times) {
         // times: 0 表示无限次；oneShot（timer()）固定为 1 次。
         remaining: oneShot ? 1 : normalizeTimerTimes(times),
         elapsedMs: 0,
+        stageStartedAtMs: hostState.stagePlayingTimeMs + stageFrameOffsetMs(),
         running: true,
         ownerItem: item,
         stop: function () {
@@ -285,6 +298,7 @@ function restartItemTimer(timer, oneShot, times) {
     }
 
     timer.elapsedMs = 0;
+    timer.stageStartedAtMs = hostState.stagePlayingTimeMs + stageFrameOffsetMs();
     timer.remaining = oneShot ? 1 : normalizeTimerTimes(times);
     timer.running = true;
     if (item.scheduledTimers.indexOf(timer) < 0) {
@@ -297,7 +311,7 @@ function restartItemTimer(timer, oneShot, times) {
 
 var nextTimerId = 0;
 
-function runItemTimers(item, deltaMs) {
+function runItemTimers(item) {
     var timers = item.scheduledTimers;
     if (!timers || timers.length === 0) {
         return;
@@ -310,12 +324,16 @@ function runItemTimers(item, deltaMs) {
             continue;
         }
 
-        timer.elapsedMs += deltaMs;
-        if (timer.elapsedMs < timer.intervalMs) {
+        if (!state.playing) {
+            continue;
+        }
+        timer.elapsedMs = Math.max(0, hostState.stagePlayingTimeMs - timer.stageStartedAtMs);
+        if (timer.elapsedMs + 0.000001 < timer.intervalMs) {
             continue;
         }
 
         timer.elapsedMs = 0;
+        timer.stageStartedAtMs = hostState.stagePlayingTimeMs;
         timer.remaining--;
         try {
             timer.callback();

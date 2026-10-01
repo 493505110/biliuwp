@@ -115,6 +115,12 @@ hostState.stageMaskElement = null;
 hostState.visible = true;
 hostState.running = false;
 hostState.frameHandle = 0;
+// M8 舞台与显示器刷新分开：原版播放器的默认 stage.frameRate 为 30。
+hostState.stageFrameRate = 30;
+hostState.stageFrameUpdatedAt = performance.now();
+hostState.stageFrameElapsedMs = 0;
+// Timer 按未暂停的墙钟推进，不跟着视频倍速或 seek 跳变。
+hostState.stagePlayingTimeMs = 0;
 var compileErrorCount = 0;
 var runtimeErrorCount = 0;
 // 合成阶段的错误（补间缓动是脚本传入的函数，可能在任意一帧抛错）
@@ -219,6 +225,55 @@ function currentPositionMs() {
         + (performance.now() - state.updatedAt) * state.rate;
 }
 
+function stageFrameOffsetMs() {
+    if (!hostState.running || !state.playing) {
+        return 0;
+    }
+
+    var delta = performance.now() - hostState.stageFrameUpdatedAt;
+    return delta >= 0 && delta <= MAX_FRAME_DELTA_MS
+        ? hostState.stageFrameElapsedMs + delta : 0;
+}
+
+function resetStageClock(includePendingTime) {
+    if (includePendingTime) {
+        hostState.stagePlayingTimeMs += stageFrameOffsetMs();
+    }
+    hostState.stageFrameUpdatedAt = performance.now();
+    hostState.stageFrameElapsedMs = 0;
+}
+
+function setStageFrameRate(rate) {
+    if (rate > 0 && rate < 120 && rate !== hostState.stageFrameRate) {
+        resetStageClock(true);
+        hostState.stageFrameRate = rate;
+    }
+}
+
+function consumeStageFrame() {
+    var now = performance.now();
+    var delta = now - hostState.stageFrameUpdatedAt;
+    hostState.stageFrameUpdatedAt = now;
+    if (delta < 0 || delta > MAX_FRAME_DELTA_MS) {
+        hostState.stageFrameElapsedMs = 0;
+        return false;
+    }
+
+    var period = 1000 / hostState.stageFrameRate;
+    var elapsed = hostState.stageFrameElapsedMs + delta;
+    var frames = Math.floor((elapsed + 0.000001) / period);
+    hostState.stageFrameElapsedMs = Math.max(0, elapsed - frames * period);
+    if (frames === 0) {
+        return false;
+    }
+
+    if (state.playing) {
+        hostState.stagePlayingTimeMs += frames * period;
+    }
+    // 显示器来不及出帧时只派发一次，避免补派 enterFrame 或 Timer 风暴。
+    return true;
+}
+
 function requestPause() {
     post("action", { action: "pause" });
     return true;
@@ -315,6 +370,7 @@ export {
     RESERVED_WORDS,
     SCRIPT_GLOBAL_NAMES,
     container,
+    consumeStageFrame,
     currentCreateParent,
     currentItem,
     currentPositionMs,
@@ -328,6 +384,9 @@ export {
     requestPause,
     requestPlay,
     requestSeek,
+    resetStageClock,
+    setStageFrameRate,
+    stageFrameOffsetMs,
     state,
     toFiniteNumber
 };

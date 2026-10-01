@@ -10,12 +10,14 @@ import {
     MAX_ITEM_WINDOW_MS,
     RESERVED_WORDS,
     SCRIPT_GLOBAL_NAMES,
+    consumeStageFrame,
     currentPositionMs,
     hostState,
     post,
     reportCompileError,
     reportCompositeError,
     reportRuntimeError,
+    resetStageClock,
     state
 } from "./core.js";
 import {
@@ -269,10 +271,12 @@ function deactivateItem(item) {
     }
 }
 
-function advanceItem(item, now) {
+function advanceItem(item, now, logicalFrame) {
     var elapsed = now - item.startMs;
     // 粒子元件（Bitmap.createParticle）按帧重绘自己那块离屏画布。
-    advanceParticleElements(item);
+    if (logicalFrame) {
+        advanceParticleElements(item);
+    }
 
     // 本帧推进了多少「播放时间」：句柄自己的时间轴与元素寿命都按它走，
     // 这样暂停时两者都停（与 M8 的「暂停不推进效果」一致）。
@@ -288,7 +292,9 @@ function advanceItem(item, now) {
     hostState.activeItem = item;
     item.activeNow = now;
     try {
-        runItemTimers(item, delta);
+        if (logicalFrame) {
+            runItemTimers(item);
+        }
     } catch (error) {
         failItem(item, error);
     } finally {
@@ -297,7 +303,9 @@ function advanceItem(item, now) {
 
     // Flash 的 enterFrame 派发：Akari 的整幅画面更新挂在这里，
     // 必须早于下面「推进补间 / 重绘脏元素」，否则本帧画的是旧状态。
-    dispatchItemEnterFrame(item);
+    if (logicalFrame) {
+        dispatchItemEnterFrame(item);
+    }
 
     try {
         advanceItemHandles(item, delta);
@@ -331,7 +339,7 @@ function advanceItem(item, now) {
 
 }
 
-function updateItems(now) {
+function updateItems(now, logicalFrame) {
     var anyActive = false;
     for (var index = 0; index < hostState.items.length; index++) {
         var item = hostState.items[index];
@@ -344,7 +352,7 @@ function updateItems(now) {
             if (!item.activated) {
                 activateItem(item, now);
             } else {
-                advanceItem(item, now);
+                advanceItem(item, now, logicalFrame);
             }
         } else if (item.activated) {
             deactivateItem(item);
@@ -475,15 +483,17 @@ function clearAllItems() {
     hostState.rootElement.childList = [];
     hostState.rootElement.composite = null;
     hostState.elements = [];
+    resetStageClock(false);
+    hostState.stagePlayingTimeMs = 0;
 }
 
 // 返回「是否存在处于时间窗内的条目」。窗口内没有条目且未播放时自停。
-function tick(now) {
+function tick(now, logicalFrame) {
     if (!hostState.context2d) {
         return false;
     }
 
-    var anyActive = updateItems(now);
+    var anyActive = updateItems(now, logicalFrame);
 
     // 隐藏状态下合成步骤必须直接跳过并保持画布空白，
     // 否则关闭弹幕总开关后紧跟的 setState / resize 会把脏元素合成回屏幕。
@@ -517,6 +527,9 @@ function hasPendingAnimation(now) {
         // 还有在跑的定时器（interval(…, 0) 这类无界回调）就必须继续出帧，
         // 否则暂停后定时器会被自停判据「冻住」。
         if (item.scheduledTimers.length > 0) {
+            return true;
+        }
+        if (item.frameListeners.some(function (entry) { return !entry.element.expired; })) {
             return true;
         }
 
@@ -558,7 +571,7 @@ function frame() {
     // 实际已无排队回调，帧循环永久冻结且 ensureRunning 救不回来。
     try {
         var now = currentPositionMs();
-        tick(now);
+        tick(now, consumeStageFrame());
 
         // 自停判据不能只看「窗口内有没有条目」：无界窗口（duration
         // 缺省）下条目会长时间停在窗口内，暂停后帧循环会一直空转。
@@ -585,10 +598,12 @@ function ensureRunning() {
     }
 
     hostState.running = true;
+    resetStageClock(false);
     hostState.frameHandle = window.requestAnimationFrame(frame);
 }
 
 function stopRunning() {
+    resetStageClock(true);
     hostState.running = false;
     if (hostState.frameHandle) {
         window.cancelAnimationFrame(hostState.frameHandle);
@@ -600,6 +615,9 @@ function stopRunning() {
 }
 
 function setState(positionSeconds, playing, rate) {
+    if (!!playing !== state.playing) {
+        resetStageClock(true);
+    }
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = !!playing;
     state.stopped = false;
@@ -623,6 +641,7 @@ function setState(positionSeconds, playing, rate) {
 // 因此这里只保证 Player.state 读到 "stop"（对脚本可观测的那一面），
 // 画面收尾交给各条目自己的 lifeTime / 窗口。这是刻意记录的偏离。
 function setStopped(positionSeconds, rate) {
+    resetStageClock(true);
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = false;
     state.stopped = true;
@@ -632,6 +651,7 @@ function setStopped(positionSeconds, rate) {
 }
 
 function seekTo(positionSeconds, playing, rate) {
+    resetStageClock(true);
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = !!playing;
     state.stopped = false;

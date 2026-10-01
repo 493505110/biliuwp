@@ -2002,14 +2002,14 @@ test('D30 时钟分源：timer()/Utils.delay 走真实时间，interval() 随播
     // 沙箱里的数组是 vm realm 的 Array，deepEqual 会因原型不同而误判，统一 JSON 归一。
     const ticks = () => JSON.stringify(host.sandbox.__ticks);
 
-    // 播放推进 0.2s：interval() 走 Timer（登记在条目上、随播放推进），应到点两次。
-    host.runFrames(12);
+    // Timer 从脚本激活时开始计时，并在 30 fps 舞台帧上派发；留出激活和帧量化时间。
+    host.runFrames(14);
     assert.equal(
         ticks(), JSON.stringify(['interval', 'interval']),
         'interval() 应随播放推进：' + ticks());
 
     // 暂停：原版 ScriptManager 会把所有 Timer stop()，所以 interval 不再触发。
-    host.setState(0.2, false, 1);
+    host.setState(14 / 60, false, 1);
     host.runFrames(30);
     assert.equal(
         ticks(), JSON.stringify(['interval', 'interval']),
@@ -2317,7 +2317,7 @@ test('D40 interval 句柄的 start / reset：stop 之后能重新挂回并再次
             + 'var handle = interval(function () { window.__ticks++; }, 100, 0);'
             + 'window.__handle = handle;')
     ]);
-    host.runFrames(6);    // 0.1s → 触发一次
+    host.runFrames(8);    // 激活后经过 100ms，在随后一帧触发一次
     assert.equal(host.sandbox.__ticks, 1, '首次应触发一次：' + host.sandbox.__ticks);
 
     host.sandbox.__handle.stop();
@@ -2416,4 +2416,75 @@ test('D43 模块初始化完成后才发 ready，内部状态不泄露到 window
     assert.equal(host.sandbox.__globalAliasesReady, true, '首条脚本运行前应完成 Global 别名绑定');
 });
 
-run().catch(error => { console.error(error); process.exitCode = 1; });
+test('D44 延迟回调能启动循环动画（av2786505 的 timer → Utils.interval 链路）', async () => {
+    const host = await loadHost();
+    host.reset(0, true, 1, true);
+    host.append([scriptItem('d44', 0, 10,
+        'window.__utils = Utils;'
+        + 'var cat = $.createComment("cat", {alpha: 0, lifeTime: 10});'
+        + 'window.__cat = cat;'
+        + 'window.__ticks = 0;'
+        + 'timer(function () {'
+        + '  window.__animation = Utils.interval(function () {'
+        + '    cat.alpha = 1; cat.x += 10; window.__ticks++;'
+        + '  }, 42.5, 0);'
+        + '}, 7500);')]);
+    host.runFrames(1);
+    host.advanceRealTime(7500);
+    assert.equal(typeof host.sandbox.__animation, 'object', '延迟回调内应成功注册循环定时器');
+    host.runFrames(12);
+    assert.ok(host.sandbox.__ticks > 0, '延迟启动的动画应随播放推进');
+    assert.equal(host.sandbox.__cat.alpha, 1);
+    assert.equal(host.sandbox.__cat.x, host.sandbox.__ticks * 10);
+    assert.ok(host.mainCanvas().__marks.length > 0, '动画应实际出画面');
+    assert.equal(host.sandbox.__utils.interval(() => {}, 1), 0, '回调结束后不得泄露当前脚本上下文');
+
+    const ticks = host.sandbox.__ticks;
+    host.reset(0, true, 1, true);
+    host.runFrames(12);
+    assert.equal(host.sandbox.__ticks, ticks, 'reset 应清掉延迟回调启动的循环动画');
+    assert.equal(host.errors().length, 0);
+    assert.equal(host.frameErrors.length, 0);
+});
+
+test('D45 延迟回调创建的元素和嵌套 delay 归属原条目，抛错后恢复上下文', async () => {
+    const host = await loadHost();
+    host.reset(0, true, 1, true);
+    host.append(['a', 'b'].map(id => scriptItem('d45-' + id, 0, 10,
+        'window.__utils = Utils;'
+        + 'Utils.delay(function () {'
+        + '  window.__' + id + ' = $.createComment("' + id + '", {lifeTime: 10});'
+        + '  Utils.delay(function () { window.__nestedFired = true; }, 100);'
+        + (id === 'a' ? '  throw new TypeError("expected delayed error");' : '')
+        + '}, 100);')));
+    host.runFrames(1);
+    host.advanceRealTime(100);
+    for (const id of ['a', 'b']) {
+        const element = host.sandbox['__' + id];
+        assert.ok(element, '延迟回调应能创建显示元素');
+        assert.equal(host.elementField(element, 'ownerItem').model.id, 'd45-' + id);
+        assert.equal(host.sandbox.__utils.delay(() => {}, 1), 0, '正常或抛错的回调都必须恢复上下文');
+    }
+    assert.equal(host.pendingRealTimers(), 2, '两条脚本应各自注册嵌套 delay');
+    assert.equal(host.errors('runtime').length, 1, '只上报抛错的那条回调');
+    assert.equal(host.errors('runtime')[0].itemId, 'd45-a');
+    host.runFrames(1);
+    assert.ok(host.mainCanvas().__marks.length > 0, '延迟创建的元素应能绘制');
+
+    host.reset(0, true, 1, true);
+    assert.equal(host.pendingRealTimers(), 0, 'reset 应清理两条脚本的嵌套 delay');
+    for (const id of ['a', 'b']) {
+        const owner = host.elementField(host.sandbox['__' + id], 'ownerItem');
+        assert.equal(owner.removed, true, 'reset 应回收延迟元素所属的条目');
+        assert.equal(owner.elements.length, 0, '延迟创建的元素必须进入条目清理表');
+    }
+    assert.equal(unionRect(host.mainCanvas().__marks), null, 'reset 应擦掉延迟创建的元素');
+    host.advanceRealTime(100);
+    assert.equal(host.sandbox.__nestedFired, undefined, '已回收条目的延迟回调不得再运行');
+    assert.equal(host.frameErrors.length, 0);
+});
+
+module.exports = { loadHost };
+if (require.main === module) {
+    run().catch(error => { console.error(error); process.exitCode = 1; });
+}

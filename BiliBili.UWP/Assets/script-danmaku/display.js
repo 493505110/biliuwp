@@ -10,6 +10,7 @@ import {
     hostState,
     normalizeColor,
     reportRuntimeError,
+    setStageFrameRate,
     toFiniteNumber
 } from "./core.js";
 import {
@@ -1967,21 +1968,15 @@ Object.defineProperty(M8Display, "stageHeight", {
 });
 
 // 原版 frameRate 读写 stage.frameRate（ScriptDisplay.as:339-350，
-// 写时钳到 (0, 120)）。宿主是 rAF，改不了帧率，但**要能读能写**：
-// 脚本写 `$.frameRate = 30` 时若抛错会整条停摆。存一个值、
-// 按原版的区间判定接受，不产生实际效果（与 Player.refreshRate 同一处理）。
-var displayFrameRate = 60;
+// 写时钳到 (0, 120)）。设置影响整个 M8 舞台的逻辑帧，不改变视频帧率。
 Object.defineProperty(M8Display, "frameRate", {
     configurable: true,
     enumerable: true,
     get: function () {
-        return displayFrameRate;
+        return hostState.stageFrameRate;
     },
     set: function (value) {
-        var rate = toFiniteNumber(value, displayFrameRate);
-        if (rate > 0 && rate < 120) {
-            displayFrameRate = rate;
-        }
+        setStageFrameRate(toFiniteNumber(value, hostState.stageFrameRate));
     }
 });
 

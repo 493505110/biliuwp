@@ -65,5 +65,8 @@ jobs:
         # 夹具就在 tests/host/fixtures/real/（约 808 KB），同样零依赖。
         run: node tests/host/real-m8-scripts.test.js
 
+      - name: Run M8 stage frame-rate tests
+        run: node tests/host/frame-rate.test.js
+
       - name: Run unit tests
         run: dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release --no-restore

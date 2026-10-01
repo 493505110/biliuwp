@@ -145,7 +145,7 @@ namespace BiliBili.Tests
         /// <summary>取 tick 的函数体，用于断言每帧流程与可见性拦截。</summary>
         private static string TickBody()
         {
-            return TestRepository.MethodBody(HostSource(), "function tick(now) {");
+            return TestRepository.MethodBody(HostSource(), "function tick(now, logicalFrame) {");
         }
 
         /// <summary>
@@ -538,7 +538,7 @@ namespace BiliBili.Tests
             var deactivateBody = TestRepository.MethodBody(source, "function deactivateItem(item) {");
             StringAssert.Contains(deactivateBody, "item.frameListeners = [];");
             // 派发必须早于补间推进 / 脏元素重绘，否则本帧画的是旧状态。
-            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now) {");
+            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now, logicalFrame) {");
             var dispatchIndex = advanceBody.IndexOf("dispatchItemEnterFrame(item);", System.StringComparison.Ordinal);
             var handlesIndex = advanceBody.IndexOf("advanceItemHandles(item, delta);", System.StringComparison.Ordinal);
             Assert.IsTrue(
@@ -654,11 +654,11 @@ namespace BiliBili.Tests
             StringAssert.Contains(activateBody, "item.runCount++;");
             StringAssert.Contains(activateBody, "hostState.totalRunCount++;");
 
-            var updateBody = TestRepository.MethodBody(source, "function updateItems(now) {");
+            var updateBody = TestRepository.MethodBody(source, "function updateItems(now, logicalFrame) {");
             StringAssert.Contains(updateBody, "activateItem(item, now);");
-            StringAssert.Contains(updateBody, "advanceItem(item, now);");
+            StringAssert.Contains(updateBody, "advanceItem(item, now, logicalFrame);");
 
-            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now) {");
+            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now, logicalFrame) {");
             Assert.IsFalse(
                 advanceBody.Contains("item.run("),
                 "逐帧路径 advanceItem 不得重跑脚本");
@@ -811,7 +811,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "function scheduleItemTimer(closure, delayMs, oneShot, times) {");
             StringAssert.Contains(source, "item.scheduledTimers.push(timer);");
             StringAssert.Contains(source, "function clearItemScheduledTimers(item) {");
-            StringAssert.Contains(source, "function runItemTimers(item, deltaMs) {");
+            StringAssert.Contains(source, "function runItemTimers(item) {");
 
             // 条目停用（窗口结束 / reset）必须清定时器。
             var deactivateBody = TestRepository.MethodBody(
@@ -1032,7 +1032,7 @@ namespace BiliBili.Tests
                 registerBody,
                 "element.lifeTimeMs = resolveElementLifeTimeMs(item, LIFE_TIME_UNBOUNDED);");
 
-            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now) {");
+            var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now, logicalFrame) {");
             StringAssert.Contains(advanceBody, "if (elapsed >= element.lifeTimeMs) {");
             StringAssert.Contains(advanceBody, "releaseItemElement(item, index);");
 
@@ -1157,13 +1157,13 @@ namespace BiliBili.Tests
                 "reset 必须清屏：整批条目作废后，被丢弃元素的像素不会再有擦除队列");
 
             var tickBody = TickBody();
-            var tickStart = source.IndexOf("function tick(now) {", System.StringComparison.Ordinal);
+            var tickStart = source.IndexOf("function tick(now, logicalFrame) {", System.StringComparison.Ordinal);
             var stopBody = TestRepository.MethodBody(source, "function stopRunning() {");
             var stopStart = source.IndexOf("function stopRunning() {", System.StringComparison.Ordinal);
             var maskBody = TestRepository.MethodBody(source, "function setStageMask(element) {");
             var maskStart = source.IndexOf("function setStageMask(element) {", System.StringComparison.Ordinal);
-            var itemsBody = TestRepository.MethodBody(source, "function updateItems(now) {");
-            var itemsStart = source.IndexOf("function updateItems(now) {", System.StringComparison.Ordinal);
+            var itemsBody = TestRepository.MethodBody(source, "function updateItems(now, logicalFrame) {");
+            var itemsStart = source.IndexOf("function updateItems(now, logicalFrame) {", System.StringComparison.Ordinal);
             Assert.IsTrue(itemsStart >= 0, "未找到 updateItems");
             foreach (var callSite in callSites)
             {
@@ -1198,7 +1198,7 @@ namespace BiliBili.Tests
             // 元素级失败也不能拖垮同帧其它元素：只标该元素失败并跳过。
             var advanceBody = TestRepository.MethodBody(
                 HostSource(),
-                "function advanceItem(item, now) {");
+                "function advanceItem(item, now, logicalFrame) {");
             StringAssert.Contains(advanceBody, "element.failed = true;");
             StringAssert.Contains(advanceBody, "failItem(item, error);");
         }
