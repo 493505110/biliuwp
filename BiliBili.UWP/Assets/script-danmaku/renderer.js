@@ -54,9 +54,15 @@ function resizeCanvas() {
     var width = container.offsetWidth || 1;
     var height = container.offsetHeight || 1;
     var ratio = window.devicePixelRatio || 1;
+    var viewportChanged = width !== hostState.viewportWidth || height !== hostState.viewportHeight;
     hostState.viewportWidth = width;
     hostState.viewportHeight = height;
     hostState.devicePixelRatioValue = ratio;
+    if (viewportChanged && hostState.rootElement) {
+        var projection = createPerspectiveProjection();
+        projection.projectionCenter = { x: width / 2, y: height / 2 };
+        hostState.rootElement.transform.perspectiveProjection = projection;
+    }
     hostState.canvas.width = Math.max(1, Math.round(width * ratio));
     hostState.canvas.height = Math.max(1, Math.round(height * ratio));
     hostState.context2d = hostState.canvas.getContext("2d");
@@ -486,6 +492,11 @@ function displayObjectBounds(element, parentSpace) {
         if (bounds) rectangles.push(bounds);
     }
     var result = unionRects(rectangles);
+    var scroll = element.props.scrollRect;
+    if (scroll && result) result = {
+        x: Math.floor(toFiniteNumber(scroll.x, 0)), y: Math.floor(toFiniteNumber(scroll.y, 0)),
+        width: Math.max(0, toFiniteNumber(scroll.width, 0)), height: Math.max(0, toFiniteNumber(scroll.height, 0))
+    };
     return result && parentSpace ? transformedBounds(result, localMatrix(element)) : result;
 }
 
@@ -531,6 +542,24 @@ function applyElementTransform(target, element) {
     target.globalAlpha = Math.max(0, Math.min(1, element.props.alpha));
 }
 
+function clipScrollRect(target, element, projected) {
+    var rect = element.props.scrollRect;
+    if (!rect) return;
+    var x = Math.floor(toFiniteNumber(rect.x, 0)), y = Math.floor(toFiniteNumber(rect.y, 0));
+    var width = Math.max(0, toFiniteNumber(rect.width, 0)), height = Math.max(0, toFiniteNumber(rect.height, 0));
+    target.beginPath();
+    if (projected) {
+        flushProjectedBatch(target);
+        var matrix = worldMatrix(element), projection = projectionFor(element);
+        [[x, y], [x + width, y], [x + width, y + height], [x, y + height]].forEach(function (corner, index) {
+            var p = projectPoint(transformPoint(matrix, corner[0], corner[1], 0), projection);
+            if (index === 0) target.moveTo(p.x, p.y); else target.lineTo(p.x, p.y);
+        });
+        target.closePath();
+    } else target.rect(x, y, width, height);
+    target.clip();
+}
+
 function paintElementContent(target, element) {
     if (element.kind === "shape") drawShapeElement(target, element, 0, 0);
     else if (element.kind === "text") drawTextElement(target, element, 0, 0);
@@ -551,6 +580,33 @@ function rasterRatio(element, bounds) {
     var ratio = (window.devicePixelRatio || 1) * bucket;
     if (bounds) ratio = Math.min(ratio, 4096 / Math.max(1, bounds.width), 4096 / Math.max(1, bounds.height));
     return ratio;
+}
+
+// 位移映射的原点不能包含 shape/text 为抗锯齿预留的缓存边缘。
+// 容器输入包含可见子节点已经绘制的滤镜范围，但不包含自己的滤镜扩边。
+function effectSourceBounds(element) {
+    var own = element.kind === "shape" ? computeShapeBounds(element, 0) : elementLocalBounds(element);
+    if (element.kind === "text") {
+        var metrics = measureTextElement(element);
+        own = { x: 0, y: 0, width: Math.max(1, metrics.width), height: metrics.height };
+    }
+    var rectangles = own ? [own] : [];
+    for (var i = 0; i < element.childList.length; i++) {
+        var child = element.childList[i];
+        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        var bounds = effectSourceBounds(child);
+        if (!bounds) continue;
+        var pad = filterPadding(child.props.filters);
+        bounds = { x: bounds.x - pad.x, y: bounds.y - pad.y, width: bounds.width + pad.x * 2, height: bounds.height + pad.y * 2 };
+        rectangles.push(compositeChildBounds(child, bounds));
+    }
+    return unionRects(rectangles);
+}
+
+function filterContentRect(element, bounds, padding) {
+    var displaced = (element.props.filters || []).some(function (f) { return (f.kind || f.type) === "DisplacementMapFilter"; });
+    var content = displaced && effectSourceBounds(element) || bounds;
+    return { x: content.x - bounds.x + padding.x, y: content.y - bounds.y + padding.y, width: content.width, height: content.height };
 }
 
 // 叶子元素的内容缓存。只有 needsCache 置位时才会走到这里——
@@ -588,6 +644,7 @@ function rebuildElementCache(element) {
     target.translate(padding.x - bounds.x, padding.y - bounds.y);
     target.globalAlpha = 1;
     paintElementContent(target, element);
+    element.cacheCanvas.__m8FilterContent = filterContentRect(element, bounds, padding);
     if (!element.childList.length) applyEffects(element.cacheCanvas, element, ratio);
     element.cacheCanvas.__m8RasterVersion = ++rasterVersion;
 
@@ -637,6 +694,7 @@ function rebuildComposite(element) {
     // (padding, padding)，blit 时再按 bounds 的偏移取用，
     // 这样父元件自己移动/缩放/旋转时子树不必重绘（见 D4）。
     var padding = filterPadding(element.props.filters);
+    var filterContent = filterContentRect(element, bounds, padding);
     bounds = { x: bounds.x - padding.x, y: bounds.y - padding.y,
         width: bounds.width + padding.x * 2, height: bounds.height + padding.y * 2 };
     var ratio = rasterRatio(element, bounds);
@@ -662,6 +720,7 @@ function rebuildComposite(element) {
     for (var index = 0; index < element.childList.length; index++) {
         blitElement(target, element.childList[index]);
     }
+    element.composite.__m8FilterContent = filterContent;
     applyEffects(element.composite, element, ratio);
     element.composite.__m8RasterVersion = ++rasterVersion;
 
@@ -678,8 +737,8 @@ function blitElement(target, element) {
     if (element.projectedComposite) {
         target.save();
         applyElementBlendMode(target, element);
-        var projected = element.compositeBounds;
-        if (projected && element.composite) target.drawImage(element.composite, projected.x, projected.y, projected.width, projected.height);
+        var projected = element.projectedBounds;
+        if (projected && element.projectedCanvas) target.drawImage(element.projectedCanvas, projected.x, projected.y, projected.width, projected.height);
         target.restore(); return;
     }
     // 被当作遮罩的元件自己不参与渲染（Flash 语义：遮罩对象不绘制）。
@@ -699,6 +758,7 @@ function blitElement(target, element) {
         target.save();
         applyElementMaskClip(target, element);
         applyElementTransform(target, element);
+        clipScrollRect(target, element, false);
         applyElementBlendMode(target, element);
         var compositeBoundsValue = element.compositeBounds || {
             x: 0,
@@ -716,10 +776,11 @@ function blitElement(target, element) {
         return;
     }
 
-    if (element.kind === "layer") {
+    if (element.kind === "layer" && !element.props.colorTransform && !(element.props.filters && element.props.filters.length)) {
         target.save();
         applyElementMaskClip(target, element);
         applyElementTransform(target, element);
+        clipScrollRect(target, element, false);
         applyElementBlendMode(target, element);
         target.drawImage(element.layerCanvas, 0, 0, element.layerWidth, element.layerHeight);
         target.restore();
@@ -737,6 +798,7 @@ function blitElement(target, element) {
     target.save();
     applyElementMaskClip(target, element);
     applyElementTransform(target, element);
+    clipScrollRect(target, element, false);
     applyElementBlendMode(target, element);
     target.drawImage(
         element.cacheCanvas,
@@ -795,8 +857,8 @@ function computeElementCanvasRect(element) {
 
     var bounds;
     if (element.projectedComposite) {
-        if (!element.composite || !element.compositeBounds) return null;
-        bounds = element.compositeBounds;
+        if (!element.projectedCanvas || !element.projectedBounds) return null;
+        bounds = element.projectedBounds;
     } else if (element.childList.length > 0) {
         if (!element.composite || !element.compositeBounds) {
             return null;
@@ -805,7 +867,8 @@ function computeElementCanvasRect(element) {
         // 复合层的本地原点就是它自己的 compositeBounds 原点。
         bounds = element.compositeBounds;
     } else if (element.kind === "layer") {
-        bounds = { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
+        bounds = element.cacheBounds && (element.props.colorTransform || (element.props.filters && element.props.filters.length))
+            ? element.cacheBounds : { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
     } else if (element.cacheBounds) {
         bounds = element.cacheBounds;
     } else {
@@ -1153,19 +1216,47 @@ function traceShapeItemClipPath(target, item, mapper) {
 }
 
 // 元素的 transform 命名空间（Flash DisplayObject.transform）。
+function markProjectionDirty(element) {
+    if (element.expired) return;
+    markPropertyDirty(element, "matrix3D");
+    for (var i = 0; i < element.childList.length; i++) markProjectionDirty(element.childList[i]);
+    hostState.dirty = true;
+    ensureRunning();
+}
+
 function createElementTransform(element) {
+    var projection = element === hostState.rootElement ? createPerspectiveProjection(element) : null;
+    if (projection) projection.projectionCenter = { x: hostState.viewportWidth / 2, y: hostState.viewportHeight / 2 };
     var transform = {
-        perspectiveProjection: element === hostState.rootElement ? createPerspectiveProjection() : null,
         getRelativeMatrix3D: function (target) {
             var data = relativeMatrix3DData(element, target);
             return data ? createMatrix3D(data) : null;
         }
     };
+    Object.defineProperty(transform, "perspectiveProjection", {
+        enumerable: true,
+        get: function () { return projection; },
+        set: function (value) {
+            if (value === projection) return;
+            if (value) {
+                var center = value.projectionCenter;
+                if (projection && projection.fieldOfView === value.fieldOfView) {
+                    var previousCenter = projection.projectionCenter;
+                    if (previousCenter.x === center.x && previousCenter.y === center.y) return;
+                }
+                var bound = createPerspectiveProjection(element);
+                bound.fieldOfView = value.fieldOfView;
+                bound.projectionCenter = center;
+                projection = bound;
+            } else projection = null;
+            markProjectionDirty(element);
+        }
+    });
     Object.defineProperty(transform, "matrix", {
         configurable: true, enumerable: true,
         get: function () {
             if (!element.props.matrix) {
-                var m = localMatrix(element);
+                var m = localMatrix(element, false);
                 element.props.matrix = createPlaceholderMatrix();
                 element.props.matrix.a = m[0]; element.props.matrix.b = m[1];
                 element.props.matrix.c = m[4]; element.props.matrix.d = m[5];
@@ -1182,7 +1273,7 @@ function createElementTransform(element) {
         configurable: true, enumerable: true,
         get: function () {
             if (!element.props.matrix3D && (element.props.z || element.props.rotationX || element.props.rotationY)) {
-                element.props.matrix3D = createMatrix3D(localMatrix(element));
+                element.props.matrix3D = createMatrix3D(localMatrix(element, false));
             }
             return element.props.matrix3D;
         },
@@ -1297,6 +1388,7 @@ function overlappingRects(rects, rect) {
 }
 
 function paintDirtyElements() {
+    hostState.rasterFrame++;
     var topLevel = hostState.rootElement.childList;
     var damage = hostState.pendingEraseRects;
     hostState.pendingEraseRects = [];
@@ -1357,9 +1449,12 @@ function prepareProjected(element) {
     // 避免把几百个静止字形逐个上传纹理，也保留容器滤镜的本地坐标语义。
     var planar = element.childList.length > 0 && !element.childList.some(subtree3D);
     if (planar) {
-        if (element.compositeBounds && rasterRatio(element, element.compositeBounds) !== element.compositeDpr) dirty = true;
-        for (var i = 0; i < element.childList.length; i++) if (prepareElement(element.childList[i])) dirty = true;
-        if (dirty || !element.projectedPlanar) rebuildComposite(element);
+        // 容器自身的位置/旋转只改变投影，不改变平面内容。
+        var contentDirty = !element.painted || element.needsCache || element.compositeDirty || !element.projectedPlanar;
+        if (element.compositeBounds && rasterRatio(element, element.compositeBounds) !== element.compositeDpr) contentDirty = true;
+        for (var i = 0; i < element.childList.length; i++) if (prepareElement(element.childList[i])) contentDirty = true;
+        if (contentDirty) rebuildComposite(element);
+        dirty = dirty || contentDirty;
         element.projectedPlanar = true;
         element.propertyDirty = {}; element.needsCache = false; element.compositeDirty = false;
         element.painted = true;
@@ -1419,6 +1514,13 @@ function screenSurface(element, bounds, field) {
 }
 
 function drawProjectedNode(target, element, alpha, skipEffects) {
+    var scroll = element.props.scrollRect;
+    if (scroll) { target.save(); clipScrollRect(target, element, true); }
+    try { drawProjectedContent(target, element, alpha, skipEffects); }
+    finally { if (scroll) { flushProjectedBatch(target); target.restore(); } }
+}
+
+function drawProjectedContent(target, element, alpha, skipEffects) {
     if (element.expired || element.props.visible === false || element.props.alpha <= 0 || isUsedAsMask(element)) return;
     var groupEffects = !element.projectedPlanar && element.childList.length && (element.props.colorTransform || (element.props.filters && element.props.filters.length));
     if (groupEffects && !skipEffects) {
@@ -1459,14 +1561,14 @@ function drawProjectedNode(target, element, alpha, skipEffects) {
 
 function rebuildProjectedComposite(element) {
     var bounds = projectedSubtreeBounds(element);
-    var surface = bounds && screenSurface(element, bounds, "composite");
+    var surface = bounds && screenSurface(element, bounds, "projectedCanvas");
     element.projectedComposite = true;
-    element.compositeBounds = surface ? surface.bounds : null;
+    element.projectedBounds = surface ? surface.bounds : null;
     if (surface) {
         beginProjectedBatch(surface.context);
         try { drawProjectedNode(surface.context, element, 1, false); } finally { endProjectedBatch(surface.context); }
     }
-    else element.composite = null;
+    else element.projectedCanvas = null;
     element.painted = true; element.rebuiltThisFrame = true;
     hostState.paintCount++;
 }
@@ -1484,7 +1586,8 @@ function prepareElement(element) {
         return projectedDirty;
     }
     if (element.projectedComposite) {
-        element.projectedComposite = false; element.composite = null; element.needsCache = true;
+        element.projectedComposite = false; element.projectedCanvas = null; element.projectedBounds = null;
+        element.projectedPlanar = false; element.composite = null; element.compositeBounds = null; element.needsCache = true;
     }
     if (element.expired) {
         return false;
@@ -1519,6 +1622,7 @@ function prepareElement(element) {
 
     if (element.kind === "layer") {
         // 脚本自绘层每帧都要合成，没有可缓存的静态内容。
+        if (element.props.colorTransform || (element.props.filters && element.props.filters.length)) rebuildElementCache(element);
         return true;
     }
 
@@ -1532,6 +1636,7 @@ function prepareElement(element) {
 }
 
 export {
+    markProjectionDirty,
     clearSurface,
     createElementTransform,
     displayObjectBounds,

@@ -3,6 +3,7 @@ import {
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_FONT,
     DEFAULT_TEXT_FONTSIZE,
+    FLASH_PROJECTION_WIDTH,
     LIFE_TIME_UNBOUNDED,
     currentCreateParent,
     currentItem,
@@ -12,6 +13,7 @@ import {
     toFiniteNumber
 } from "./core.js";
 import {
+    ensureRunning,
     recoverItemFromCallbackError,
     registerItemElement
 } from "./lifecycle.js";
@@ -20,6 +22,7 @@ import {
     displayObjectBounds,
     enqueueElementErase,
     markElementMoved,
+    markProjectionDirty,
     retirePaintedAncestorRect,
     traceElementClipPath
 } from "./renderer.js";
@@ -38,6 +41,27 @@ import { localMatrix, transformPoint } from "./geometry.js";
 // ---- 保留元素 ----
 
 var nextElementId = 1;
+var filterSnapshots = new WeakMap();
+
+// Binder 每帧创建新的 Blur/Glow 对象；比较值而非数组身份。
+// 保存独立快照，才能识别原地修改后再次赋值。含位图/数组的其它滤镜
+// 仍按原有失效逻辑处理，避免漏掉 BitmapData 或卷积矩阵的变化。
+function simpleFilterSnapshot(filters) {
+    if (!Array.isArray(filters)) return null;
+    var snapshot = [];
+    for (var i = 0; i < filters.length; i++) {
+        var filter = filters[i];
+        if (!filter || !["BlurFilter", "GlowFilter"].includes(filter.kind || filter.type)) return null;
+        var keys = Object.keys(filter).sort();
+        snapshot.push(keys.length);
+        for (var k = 0; k < keys.length; k++) {
+            var value = filter[keys[k]];
+            if (value !== null && (typeof value === "object" || typeof value === "function")) return null;
+            snapshot.push(keys[k], value);
+        }
+    }
+    return snapshot;
+}
 
 function propertyDescriptor(name) {
     return {
@@ -47,9 +71,18 @@ function propertyDescriptor(name) {
             return this.props[name];
         },
         set: function (value) {
-            // 元素属性可写：直接赋值即标脏，下一帧只重绘该元素。
-            // 影响位图内容的属性（见 markPropertyDirty）还会让缓存失效。
-            setPropertyInternal(this, name, value, true);
+            if (name === "filters") {
+                var snapshot = simpleFilterSnapshot(value), previous = filterSnapshots.get(this);
+                filterSnapshots.set(this, snapshot);
+                if (snapshot && previous && snapshot.length === previous.length &&
+                    snapshot.every(function (part, index) { return part === previous[index]; })) {
+                    this.props.filters = value;
+                    return;
+                }
+            }
+            var changed = setPropertyInternal(this, name, value, true);
+            // 对象可原地修改，不能用相同引用判断其内容未变。
+            if (!changed && (value === null || typeof value !== "object")) return;
             markPropertyDirty(this, name);
             hostState.dirty = true;
         }
@@ -77,7 +110,7 @@ function createRetainedElement(kind) {
             // 以下四项是 Flash DisplayObject 的平移面属性：
             //  - scaleZ        ：3D 缩放
             //  - blendMode     ：混合模式，映射到 canvas 的 globalCompositeOperation
-            //  - scrollRect    ：滚动矩形（需要裁剪语义，当前只存储）
+            //  - scrollRect    ：本地滚动窗口，绘制时平移内容并裁剪
             //  - mask          ：元素级遮罩（真实现，见 applyElementMaskClip）
             scaleZ: 1,
             // Flash 的 DisplayObject.name（getChildByName 要用）。
@@ -119,6 +152,9 @@ function createRetainedElement(kind) {
         composite: null,
         compositeDpr: 1,
         projectedComposite: false,
+        // 屏幕合成与本地平面缓存分开，避免投影时清空自己的输入。
+        projectedCanvas: null,
+        projectedBounds: null,
         projectedPlanar: false,
         projectedEffectCanvas: null,
         compositeDirty: false,
@@ -1387,6 +1423,20 @@ function createLayerElement(width, height) {
     element.layerCanvas.width = element.layerWidth;
     element.layerCanvas.height = element.layerHeight;
     element.layer = element.layerCanvas.getContext("2d");
+    ["fill", "stroke", "fillRect", "strokeRect", "clearRect", "drawImage", "putImageData", "fillText", "strokeText"].forEach(function (name) {
+        var draw = element.layer[name];
+        if (typeof draw !== "function") return;
+        element.layer[name] = function () {
+            var result = draw.apply(this, arguments);
+            if (!element.expired) {
+                element.propertyDirty["*"] = true;
+                invalidateElementCache(element);
+                hostState.dirty = true;
+                ensureRunning();
+            }
+            return result;
+        };
+    });
     element.autoCached = false;
     return element;
 }
@@ -1505,6 +1555,8 @@ function releaseElementCaches(element) {
     element.cacheBounds = null;
     element.composite = null;
     element.projectedComposite = false;
+    element.projectedCanvas = null;
+    element.projectedBounds = null;
     element.projectedPlanar = false;
     element.projectedEffectCanvas = null;
     element.compositeBounds = null;
@@ -1709,7 +1761,7 @@ var M8Display = {
     },
     // M8 的 Global：`$.Global` 与 `$G` 指向同一个对象。
     Global: null,
-    // Flash 几何对象与滤镜工厂。未绘制的滤镜类型仍保留可读参数。
+    // Flash 几何对象与滤镜工厂，参数由渲染层应用到位图。
     // Flash 的 Vector（数值数组）。entry_08 里还把它当可增长的动态数组用
     // （`var vLocal=$.toNumberVector([]); vLocal.push(...)`），
     // 普通 Array 因此正合适。
@@ -1789,8 +1841,8 @@ var M8Display = {
         return toNumberArray(list, true);
     },
     // 原版另外五个滤镜工厂（ColorMatrix / Convolution / DisplacementMap /
-    // GradientBevel / GradientGlow）。宿主按既有占位约定返回可读对象，
-    // 元素 filters 目前绘制 GlowFilter / BlurFilter，其余类型只保留参数。
+    // GradientBevel / GradientGlow）。工厂按各自 Flash 构造器保存参数，
+    // effects.js 按滤镜种类实际处理位图，不共用 GlowFilter 的参数表。
     createColorMatrixFilter: function () {
         return createPlaceholderFilter("ColorMatrixFilter", arguments);
     },
@@ -2392,30 +2444,75 @@ function invertMatrix3D(data) {
     return inverse;
 }
 
-// Flash 的 PerspectiveProjection：纯数据对象（M8 的 clone() 明确不复制
-// 函数，脚本也是 clone 出来当数据用），默认值与 Flash 一致。
-function createPerspectiveProjection() {
+// 独立投影以 500×500 为默认尺寸；绑定投影使用原版实测的固定宽度基准，
+// 投影中心另随播放器尺寸更新。给 transform 赋值复制参数，不绑定输入对象。
+var perspectiveProjections = new WeakSet();
+
+function projectionChanged(projection, owner) {
+    if (owner && !owner.expired && owner.transformValue && owner.transformValue.perspectiveProjection === projection) {
+        markProjectionDirty(owner);
+    }
+}
+
+function createPerspectiveProjection(owner) {
     var fieldOfView = 55;
-    var width = hostState.viewportWidth || 500;
-    var projection = { projectionCenter: createVector3D(width / 2, (hostState.viewportHeight || 500) / 2, 0) };
+    function width() { return owner ? FLASH_PROJECTION_WIDTH : 500; }
+    var center = { x: 250, y: 250 }, centerX = 250, centerY = 250;
+    var projection = {};
+    perspectiveProjections.add(projection);
+    Object.defineProperty(projection, "projectionCenter", {
+        enumerable: true, get: function () { return { x: center.x, y: center.y }; },
+        set: function (value) {
+            var changed = centerX !== value.x || centerY !== value.y;
+            center = { x: value.x, y: value.y };
+            centerX = center.x; centerY = center.y;
+            if (changed) projectionChanged(projection, owner);
+        }
+    });
     Object.defineProperty(projection, "fieldOfView", {
         enumerable: true, get: function () { return fieldOfView; },
-        set: function (value) { fieldOfView = Math.max(0.00001, Math.min(179.99999, Number(value))); }
+        set: function (value) {
+            var next = Math.max(0.00001, Math.min(179.99999, Number(value)));
+            if (next !== fieldOfView) { fieldOfView = next; projectionChanged(projection, owner); }
+        }
     });
     Object.defineProperty(projection, "focalLength", {
-        enumerable: true, get: function () { return width / (2 * Math.tan(fieldOfView * Math.PI / 360)); },
-        set: function (value) { fieldOfView = 360 * Math.atan(width / (2 * Number(value))) / Math.PI; }
+        enumerable: true, get: function () { return width() / (2 * Math.tan(fieldOfView * Math.PI / 360)); },
+        set: function (value) { projection.fieldOfView = 360 * Math.atan(width() / (2 * Number(value))) / Math.PI; }
     });
     return projection;
+}
+
+// ScriptUtils.clone 通过 AMF 保留类；不能把投影的访问器复制成互不联动的数值。
+function clonePerspectiveProjection(object) {
+    if (!perspectiveProjections.has(object)) return null;
+    var copy = createPerspectiveProjection();
+    copy.fieldOfView = object.fieldOfView;
+    copy.focalLength = object.focalLength;
+    copy.projectionCenter = object.projectionCenter;
+    return copy;
 }
 
 // 原版工厂的参数顺序及默认值（ScriptDisplay.as）。
 function createPlaceholderFilter(kind, args) {
     var filter = { type: kind, kind: kind };
-    var names = kind === "BlurFilter" ? ["blurX", "blurY", "quality"]
-        : ["color", "alpha", "blurX", "blurY", "strength", "quality", "inner", "knockout"];
-    var defaults = kind === "BlurFilter" ? [0, 0, 1] : [16711680, 1, 6, 6, 2, 1, false, false];
-    for (var i = 0; i < names.length; i++) filter[names[i]] = args[i] === undefined ? defaults[i] : args[i];
+    var specifications = {
+        BlurFilter: [["blurX", "blurY", "quality"], [0, 0, 1]],
+        GlowFilter: [["color", "alpha", "blurX", "blurY", "strength", "quality", "inner", "knockout"], [16711680, 1, 6, 6, 2, 1, false, false]],
+        DropShadowFilter: [["distance", "angle", "color", "alpha", "blurX", "blurY", "strength", "quality", "inner", "knockout", "hideObject"], [4, 45, 0, 1, 4, 4, 1, 1, false, false, false]],
+        BevelFilter: [["distance", "angle", "highlightColor", "highlightAlpha", "shadowColor", "shadowAlpha", "blurX", "blurY", "strength", "quality", "type", "knockout"], [4, 45, 16777215, 1, 0, 1, 4, 4, 1, 1, "inner", false]],
+        ColorMatrixFilter: [["matrix"], [[1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]]],
+        ConvolutionFilter: [["matrixX", "matrixY", "matrix", "divisor", "bias", "preserveAlpha", "clamp", "color", "alpha"], [0, 0, null, 1, 0, true, true, 0, 0]],
+        DisplacementMapFilter: [["mapBitmap", "mapPoint", "componentX", "componentY", "scaleX", "scaleY", "mode", "color", "alpha"], [null, null, 0, 0, 0, 0, "wrap", 0, 0]],
+        GradientBevelFilter: [["distance", "angle", "colors", "alphas", "ratios", "blurX", "blurY", "strength", "quality", "type", "knockout"], [4, 45, null, null, null, 4, 4, 1, 1, "inner", false]],
+        GradientGlowFilter: [["distance", "angle", "colors", "alphas", "ratios", "blurX", "blurY", "strength", "quality", "type", "knockout"], [4, 45, null, null, null, 4, 4, 1, 1, "inner", false]]
+    };
+    var specification = specifications[kind], names = specification[0], defaults = specification[1];
+    for (var i = 0; i < names.length; i++) {
+        var value = args[i] === undefined || (names[i] === "matrix" && kind === "ColorMatrixFilter" && args[i] === null) ? defaults[i] : args[i];
+        filter[names[i]] = Array.isArray(value) ? value.slice() : value;
+    }
+    // type 在 Bevel/Gradient 滤镜中是 inner/outer/full，kind 始终保存类名。
     return filter;
 }
 
@@ -2463,6 +2560,7 @@ export {
     applyElementMaskClip,
     attachElement,
     createMatrix3D,
+    clonePerspectiveProjection,
     createPerspectiveProjection,
     createPlaceholderMatrix,
     createRetainedElement,

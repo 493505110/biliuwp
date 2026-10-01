@@ -12,6 +12,7 @@ import {
 } from "./core.js";
 import {
     M8Display,
+    clonePerspectiveProjection,
     defineHiddenValue
 } from "./display.js";
 import {
@@ -558,6 +559,9 @@ function clone(object) {
     if (object === null || typeof object !== "object") {
         return object;
     }
+
+    var projectionCopy = clonePerspectiveProjection(object);
+    if (projectionCopy) return projectionCopy;
 
     if (Array.isArray(object)) {
         var arrayCopy = [];

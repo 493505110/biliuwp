@@ -1,5 +1,5 @@
 // Flash 列主序变换；同一套矩阵用于绘制、包围盒与脚本的深度排序。
-import { hostState, toFiniteNumber } from "./core.js";
+import { FLASH_PROJECTION_WIDTH, hostState, toFiniteNumber } from "./core.js";
 
 var IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
@@ -14,12 +14,23 @@ function multiply(a, b) {
     return out;
 }
 
-function localMatrix(element) {
+function scrollMatrix(matrix, element, scrolled) {
+    var rect = scrolled !== false && element.props.scrollRect;
+    if (rect) {
+        var x = Math.floor(toFiniteNumber(rect.x, 0)), y = Math.floor(toFiniteNumber(rect.y, 0));
+        matrix[12] -= matrix[0] * x + matrix[4] * y;
+        matrix[13] -= matrix[1] * x + matrix[5] * y;
+        matrix[14] -= matrix[2] * x + matrix[6] * y;
+    }
+    return matrix;
+}
+
+function localMatrix(element, scrolled) {
     var p = element.props;
-    if (p.matrix3D) return p.matrix3D.rawData.slice();
+    if (p.matrix3D) return scrollMatrix(p.matrix3D.rawData.slice(), element, scrolled);
     if (p.matrix) {
         var m = p.matrix;
-        return [m.a, m.b, 0, 0, m.c, m.d, 0, 0, 0, 0, 1, 0, m.tx, m.ty, 0, 1];
+        return scrollMatrix([m.a, m.b, 0, 0, m.c, m.d, 0, 0, 0, 0, 1, 0, m.tx, m.ty, 0, 1], element, scrolled);
     }
     var x = toFiniteNumber(p.rotationX, 0) * Math.PI / 180;
     var y = toFiniteNumber(p.rotationY, 0) * Math.PI / 180;
@@ -27,10 +38,10 @@ function localMatrix(element) {
     var sx = Math.sin(x), cx = Math.cos(x), sy = Math.sin(y), cy = Math.cos(y);
     var sz = Math.sin(z), cz = Math.cos(z);
     var a = toFiniteNumber(p.scaleX, 1), b = toFiniteNumber(p.scaleY, 1), c = toFiniteNumber(p.scaleZ, 1);
-    return [cz * cy * a, sz * cy * a, -sy * a, 0,
+    return scrollMatrix([cz * cy * a, sz * cy * a, -sy * a, 0,
         (cz * sy * sx - sz * cx) * b, (sz * sy * sx + cz * cx) * b, cy * sx * b, 0,
         (cz * sy * cx + sz * sx) * c, (sz * sy * cx - cz * sx) * c, cy * cx * c, 0,
-        toFiniteNumber(p.x, 0), toFiniteNumber(p.y, 0), toFiniteNumber(p.z, 0), 1];
+        toFiniteNumber(p.x, 0), toFiniteNumber(p.y, 0), toFiniteNumber(p.z, 0), 1], element, scrolled);
 }
 
 function worldMatrix(element) {
@@ -93,7 +104,7 @@ function projectionFor(element) {
         }
     }
     var width = hostState.viewportWidth || 1;
-    return { focalLength: width / (2 * Math.tan(55 * Math.PI / 360)),
+    return { focalLength: FLASH_PROJECTION_WIDTH / (2 * Math.tan(55 * Math.PI / 360)),
         projectionCenter: { x: width / 2, y: hostState.viewportHeight / 2 } };
 }
 
@@ -122,7 +133,6 @@ function drawProjected(target, source, bounds, matrix, projection) {
     var perspective = Math.abs(matrix[2]) + Math.abs(matrix[6]) > 1e-8;
     var batching = projectionBatch && projectionBatch.target === target;
     if (batching && target.globalCompositeOperation !== "source-over") flushProjectedBatch(target);
-    if (batching && target.globalCompositeOperation === "source-over" && drawProjectedGPU(target, source, bounds, matrix, projection)) return;
     var divisions = perspective ? 8 : 1;
     function vertex(u, v) {
         var p = transformPoint(matrix, bounds.x + u * bounds.width, bounds.y + v * bounds.height, 0);
@@ -161,6 +171,9 @@ function drawProjected(target, source, bounds, matrix, projection) {
     if (!perspective) {
         var a = projectPoint(vertex(0, 0), projection), b = projectPoint(vertex(1, 0), projection), c = projectPoint(vertex(0, 1), projection);
         if (a.depth < 1) return;
+        // 深度恒定的平面投影仍是仿射变换，Canvas 可直接绘制。
+        // 先提交前面的透视图元，保证混合平面/透视子树的显示列表顺序。
+        if (batching) flushProjectedBatch(target);
         target.save();
         target.transform((b.x - a.x) / source.width, (b.y - a.y) / source.width,
             (c.x - a.x) / source.height, (c.y - a.y) / source.height, a.x, a.y);
@@ -176,6 +189,86 @@ function drawProjected(target, source, bounds, matrix, projection) {
 
 var gpuProjector;
 var projectionBatch = null;
+// 原作两张可见区裁剪后的纹理合计约 68 MiB；64 MiB 会逐帧互相淘汰。
+// 仍保留有界预算，给这一工作集及较小图元留出空间。
+var PROJECTED_TEXTURE_BUDGET = 128 * 1024 * 1024;
+var projectedCrops = new WeakMap();
+var projectedSourceActivity = new WeakMap();
+var cropRasterVersion = 0;
+
+// 在齐次空间裁剪，近裁剪面的交点仍保留正确的纹理坐标。
+// 不能直接用投影后四角的包围盒：平面穿过相机时坐标会翻转。
+function visibleTextureRegion(points, projection, left, top, right, bottom) {
+    var focal = projection.focalLength, center = projection.projectionCenter;
+    var polygon = points.map(function (p, index) {
+        var w = focal + p.z;
+        return { x: (p.x - center.x) * focal + center.x * w,
+            y: (p.y - center.y) * focal + center.y * w, w: w,
+            u: index === 1 || index === 2 ? 1 : 0, v: index >= 2 ? 1 : 0 };
+    });
+    var planes = [function (p) { return p.w - 1; },
+        function (p) { return p.x - left * p.w; }, function (p) { return right * p.w - p.x; },
+        function (p) { return p.y - top * p.w; }, function (p) { return bottom * p.w - p.y; }];
+    for (var i = 0; i < planes.length && polygon.length; i++) {
+        var clipped = [], distance = planes[i];
+        for (var j = 0; j < polygon.length; j++) {
+            var a = polygon[j], b = polygon[(j + 1) % polygon.length], da = distance(a), db = distance(b);
+            if (da >= 0) clipped.push(a);
+            if ((da >= 0) !== (db >= 0)) {
+                var t = da / (da - db), p = {};
+                ["x", "y", "w", "u", "v"].forEach(function (key) { p[key] = a[key] + (b[key] - a[key]) * t; });
+                clipped.push(p);
+            }
+        }
+        polygon = clipped;
+    }
+    if (!polygon.length) return null;
+    return { left: Math.min.apply(Math, polygon.map(function (p) { return p.u; })),
+        top: Math.min.apply(Math, polygon.map(function (p) { return p.v; })),
+        right: Math.max.apply(Math, polygon.map(function (p) { return p.u; })),
+        bottom: Math.max.apply(Math, polygon.map(function (p) { return p.v; })) };
+}
+
+function croppedProjectedSource(source, bounds, points, projection, left, top, right, bottom) {
+    // 小纹理无需 UV 多边形裁剪；动态位图直接交给 Canvas→WebGL 上传，
+    // 避免每帧多一次 Canvas 复制及跨上下文同步。
+    if (source.width * source.height < 1024 * 1024 || source.__m8RasterVersion === undefined) return { source: source, bounds: bounds };
+    var frame = hostState.rasterFrame, activity = projectedSourceActivity.get(source);
+    if (!activity) {
+        activity = { frame: frame, version: source.__m8RasterVersion, dynamic: false };
+        projectedSourceActivity.set(source, activity);
+    } else if (activity.frame !== frame || activity.version !== source.__m8RasterVersion) {
+        activity.dynamic = activity.version !== source.__m8RasterVersion;
+        activity.frame = frame; activity.version = source.__m8RasterVersion;
+    }
+    if (activity.dynamic) return { source: source, bounds: bounds };
+    var region = visibleTextureRegion(points, projection, left, top, right, bottom);
+    if (!region) return null;
+    if (![region.left, region.top, region.right, region.bottom].every(Number.isFinite)) return { source: source, bounds: bounds };
+    // 2 像素保留双线性采样边缘；64 像素分档避免小幅运动每帧复制裁剪位图。
+    var x = Math.max(0, Math.floor((region.left * source.width - 2) / 64) * 64);
+    var y = Math.max(0, Math.floor((region.top * source.height - 2) / 64) * 64);
+    var width = Math.min(source.width, Math.ceil((region.right * source.width + 2) / 64) * 64) - x;
+    var height = Math.min(source.height, Math.ceil((region.bottom * source.height + 2) / 64) * 64) - y;
+    if (width <= 0 || height <= 0) return null;
+    if (width * height >= source.width * source.height * 0.75) return { source: source, bounds: bounds };
+    var entry = projectedCrops.get(source);
+    if (!entry) { entry = { canvas: document.createElement("canvas") }; projectedCrops.set(source, entry); }
+    if (entry.x !== x || entry.y !== y || entry.canvas.width !== width || entry.canvas.height !== height ||
+        source.__m8RasterVersion === undefined || entry.version !== source.__m8RasterVersion) {
+        var canvas = entry.canvas;
+        if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+        var context = canvas.getContext("2d");
+        context.clearRect(0, 0, width, height);
+        context.drawImage(source, x, y, width, height, 0, 0, width, height);
+        canvas.__m8RasterVersion = ++cropRasterVersion;
+        entry.x = x; entry.y = y; entry.version = source.__m8RasterVersion;
+    }
+    return { source: entry.canvas, bounds: { x: bounds.x + bounds.width * x / source.width,
+        y: bounds.y + bounds.height * y / source.height,
+        width: bounds.width * width / source.width, height: bounds.height * height / source.height } };
+}
+
 function projectedTexture(renderer, source) {
     var gl = renderer.gl, entry = renderer.textures.get(source);
     if (!entry) {
@@ -197,7 +290,7 @@ function projectedTexture(renderer, source) {
         renderer.textureBytes += entry.bytes;
     }
     // 显存和条目数均有界；旧视频/seek 的缓存不会永久保留。
-    while (renderer.recentTextures.length > 1 && (renderer.textureBytes > 64 * 1024 * 1024 || renderer.recentTextures.length > 1024)) {
+    while (renderer.recentTextures.length > 1 && (renderer.textureBytes > PROJECTED_TEXTURE_BUDGET || renderer.recentTextures.length > 1024)) {
         var old = renderer.recentTextures.shift();
         renderer.textureBytes -= old.bytes; renderer.textures.delete(old.source); gl.deleteTexture(old.texture);
     }
@@ -245,9 +338,19 @@ function drawProjectedGPU(target, source, bounds, matrix, projection) {
         [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height]]
         .map(function (p) { return transformPoint(matrix, p[0], p[1], 0); });
     var projected = points.map(function (p) { return projectPoint(p, projection); });
+    if (projected.every(function (p) { return p.depth < 1; })) return true;
     var batch = projectionBatch && projectionBatch.target === target && target.globalCompositeOperation === "source-over" ? projectionBatch : null;
     var left = batch ? -256 : 0, top = batch ? -256 : 0;
     var right = hostState.viewportWidth + (batch ? 256 : 0), bottom = hostState.viewportHeight + (batch ? 256 : 0);
+    var cropped = croppedProjectedSource(source, bounds, points, projection, left, top, right, bottom);
+    if (!cropped) return true;
+    if (cropped.source !== source) {
+        source = cropped.source; bounds = cropped.bounds;
+        points = [[bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
+            [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height]]
+            .map(function (p) { return transformPoint(matrix, p[0], p[1], 0); });
+        projected = points.map(function (p) { return projectPoint(p, projection); });
+    }
     if (projected.every(function (p) { return p.depth >= 1; })) {
         left = Math.max(left, Math.floor(Math.min.apply(Math, projected.map(function (p) { return p.x; })) - 1));
         top = Math.max(top, Math.floor(Math.min.apply(Math, projected.map(function (p) { return p.y; })) - 1));

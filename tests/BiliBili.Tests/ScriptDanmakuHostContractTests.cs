@@ -58,7 +58,7 @@ namespace BiliBili.Tests
 
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AppendModuleSource("BiliBili.UWP/Assets/script-danmaku/host.js", visited, new StringBuilder());
-            Assert.AreEqual(12, visited.Count, "入口应加载全部十二个职责模块");
+            Assert.AreEqual(13, visited.Count, "入口应加载全部十三个职责模块（含 GPU 滤镜）");
 
             var project = XDocument.Load(TestRepository.GetPath("BiliBili.UWP/BiliBili.UWP.csproj"));
             XNamespace msbuild = "http://schemas.microsoft.com/developer/msbuild/2003";

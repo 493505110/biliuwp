@@ -14,6 +14,21 @@ import {
 import {
     writeTrace
 } from "./runtime.js";
+import { invalidateElementCache } from "./tween.js";
+import { ensureRunning } from "./lifecycle.js";
+
+// BitmapData 是位移滤镜的实时输入；通过公开 API 修改映射图后，引用它的缓存必须失效。
+function invalidateBitmapFilters(bitmap) {
+    var changed = false;
+    for (var i = 0; i < hostState.elements.length; i++) {
+        var element = hostState.elements[i], filters = element.props.filters || [];
+        if (!element.expired && filters.some(function (filter) { return filter.mapBitmap === bitmap; })) {
+            invalidateElementCache(element);
+            changed = true;
+        }
+    }
+    if (changed) { hostState.dirty = true; ensureRunning(); }
+}
 
 // ---- Bitmap：原版 ScriptBitmap（位图与粒子工厂）----
 //
@@ -54,6 +69,8 @@ function createScriptBitmapData(width, height, transparent, fillColor) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
     var context = canvas.getContext("2d");
+    // ScriptBitmap.as:29：BitmapData 的默认填充是 ARGB 白色。
+    if (fillColor === undefined) fillColor = 0xffffffff;
     if (fillColor !== undefined && fillColor !== null) {
         context.fillStyle = argbToCss(fillColor, transparent !== false);
         context.fillRect(0, 0, pixelWidth, pixelHeight);
@@ -66,17 +83,19 @@ function createScriptBitmapData(width, height, transparent, fillColor) {
         canvas: canvas,
         fillRect: function (rect, color) {
             var area = rect || {};
-            context.fillStyle = argbToCss(color, true);
-            context.fillRect(
-                toFiniteNumber(area.x, 0),
-                toFiniteNumber(area.y, 0),
-                toFiniteNumber(area.width, pixelWidth),
-                toFiniteNumber(area.height, pixelHeight));
+            var x = toFiniteNumber(area.x, 0), y = toFiniteNumber(area.y, 0);
+            var width = toFiniteNumber(area.width, pixelWidth), height = toFiniteNumber(area.height, pixelHeight);
+            // 写像素是替换，不是 source-over；否则 alpha 通道无法从不透明改为透明。
+            context.clearRect(x, y, width, height);
+            context.fillStyle = argbToCss(color, transparent !== false);
+            context.fillRect(x, y, width, height);
+            invalidateBitmapFilters(this);
         },
         draw: function (source) {
             var sourceCanvas = bitmapDataSourceCanvas(source);
             if (sourceCanvas) {
                 context.drawImage(sourceCanvas, 0, 0);
+                invalidateBitmapFilters(this);
             }
         },
         getPixel32: function (x, y) {
@@ -85,12 +104,17 @@ function createScriptBitmapData(width, height, transparent, fillColor) {
             return ((pixel[3] << 24) | (pixel[0] << 16) | (pixel[1] << 8) | pixel[2]) >>> 0;
         },
         setPixel32: function (x, y, color) {
-            context.fillStyle = argbToCss(color, true);
-            context.fillRect(Math.floor(toFiniteNumber(x, 0)), Math.floor(toFiniteNumber(y, 0)), 1, 1);
+            var px = Math.floor(toFiniteNumber(x, 0)), py = Math.floor(toFiniteNumber(y, 0));
+            var pixel = context.createImageData(1, 1), value = color >>> 0;
+            pixel.data.set([value >> 16 & 255, value >> 8 & 255, value & 255, transparent === false ? 255 : value >>> 24]);
+            context.putImageData(pixel, px, py);
+            invalidateBitmapFilters(this);
         },
         dispose: function () {
+            this.disposed = true;
             canvas.width = 1;
             canvas.height = 1;
+            invalidateBitmapFilters(this);
         }
     };
 }

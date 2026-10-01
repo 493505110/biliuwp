@@ -23,6 +23,9 @@ var MAX_RUNTIME_ERROR_REPORTS = 8;
 var DEFAULT_TEXT_COLOR = 16777215;
 var DEFAULT_TEXT_FONT = "黑体";
 var DEFAULT_TEXT_FONTSIZE = 25;
+// 原版本地 Flash 实测：窗口与全屏的绑定投影均以 300 为宽度基准，
+// 55° 时焦距约 288.147308；它不随 stageWidth 或播放器宽度改变。
+var FLASH_PROJECTION_WIDTH = 300;
 var GLOW_PADDING = 12;
 var DEFAULT_BOUNDS_PADDING = 2;
 // 脏矩形擦除的外扩量（CSS 像素）：吸收缩放/旋转后的取整误差，
@@ -129,6 +132,8 @@ hostState.devicePixelRatioValue = 1;
 hostState.dirty = false;
 // 绘制计数器：脏元素才会增加它，用于把「静态元素不重绘」做成可断言的契约。
 hostState.paintCount = 0;
+// 同一轮合成共享序号；动态纹理判断不能用帧内不断变化的墙钟。
+hostState.rasterFrame = 0;
 // 待擦除的主画布矩形（像素坐标）。元素移动 / 释放 / 隐藏时入队，
 // 下一帧合成之前统一擦掉——这就是保留模式下的「清屏」。
 hostState.pendingEraseRects = [];
@@ -299,6 +304,7 @@ export {
     DEFAULT_TEXT_FONTSIZE,
     DEFAULT_TRIGGER_TIMEOUT_MS,
     DIRTY_RECT_PADDING,
+    FLASH_PROJECTION_WIDTH,
     GLOW_PADDING,
     INJECTED_SCRIPT_NAMES,
     LIFE_TIME_UNBOUNDED,
