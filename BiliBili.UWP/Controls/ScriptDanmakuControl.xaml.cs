@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BiliBili.UWP.Helper;
 using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules;
 using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -28,9 +29,6 @@ namespace BiliBili.UWP.Controls
         private const string HostPage = "https://biliuwp.local/script-danmaku-host.html";
         private const int MaxAppendPayloadLength = 48 * 1024;
         private const int MaxChunkPayloadLength = 24 * 1024;
-        // appendComments 单次调用的外壳（不含具体条目），用于按字节预算切分。
-        private const string CommentBatchPrefix = "window.scriptDanmakuHost.appendComments([";
-        private const string CommentBatchSuffix = "]); ";
         private static readonly TimeSpan PageReadyTimeout = TimeSpan.FromSeconds(10);
 
         private readonly SemaphoreSlim commandGate = new SemaphoreSlim(1, 1);
@@ -45,8 +43,13 @@ namespace BiliBili.UWP.Controls
         private int pendingItemCount;
         // 最近一次推入的弹幕快照。保留它是为了在 reset（换视频 / 重新推脚本）之后
         // 重新投递：脚本可能是后于弹幕池加载的，那时第一次推送已被懒初始化闸门丢掉。
-        private readonly List<ScriptDanmakuComment> danmakuSnapshot =
-            new List<ScriptDanmakuComment>();
+        private IEnumerable<ScriptDanmakuComment> danmakuSnapshot =
+            new ScriptDanmakuComment[0];
+        private Task<IReadOnlyList<string>> snapshotPayloadTask;
+        private CancellationTokenSource snapshotPreparationCancellation;
+        private int snapshotVersion;
+        private int pushedSnapshotVersion = -1;
+        private int pushedSnapshotContentVersion = -1;
         // 上一次投递的列表实例与条数，用于跳过「池子没变」的重复投递。
         private IList<ScriptDanmakuComment> lastPushedComments;
         private int lastPushedCommentCount;
@@ -90,7 +93,10 @@ namespace BiliBili.UWP.Controls
 
                     // reset 会清空宿主侧的 commentList，这里把保留的快照补回去，
                     // 保证「先加载弹幕池、后加载脚本」的顺序下脚本仍读得到数据。
-                    await PushDanmakuSnapshotAsync(version);
+                    if (list.Count > 0)
+                    {
+                        await PushDanmakuSnapshotAsync(version);
+                    }
 
                     await AppendItemsAsync(list, version);
                     if (version != Volatile.Read(ref contentVersion))
@@ -204,10 +210,9 @@ namespace BiliBili.UWP.Controls
         /// </summary>
         public Task PushDanmakuBatchAsync(IEnumerable<ScriptDanmakuComment> comments)
         {
-            var list = comments as IList<ScriptDanmakuComment> ?? comments?.ToList();
+            var list = comments as IList<ScriptDanmakuComment>;
             // 分页加载弹幕会反复走 SetDanmakuPool，池子没变时不必再把整批推一遍。
-            // 用「同一列表实例 + 条数不变」判定：AppendDanmakuPool 是就地追加，
-            // 条数会变；换集 / 换视频则是新实例。
+            // 列表调用方可用「同一实例 + 条数不变」跳过；页面的惰性投影按版本合并。
             if (list != null && ReferenceEquals(list, lastPushedComments) && list.Count == lastPushedCommentCount)
             {
                 return Task.CompletedTask;
@@ -216,16 +221,32 @@ namespace BiliBili.UWP.Controls
             lastPushedComments = list;
             lastPushedCommentCount = list?.Count ?? 0;
 
-            danmakuSnapshot.Clear();
-            if (list != null)
+            // 页面传入的惰性投影引用独立池子；其他列表调用方则先做浅拷贝。
+            danmakuSnapshot = list != null
+                ? list.ToArray()
+                : comments ?? new ScriptDanmakuComment[0];
+            snapshotPreparationCancellation?.Cancel();
+            snapshotPreparationCancellation?.Dispose();
+            snapshotPreparationCancellation = null;
+            snapshotPayloadTask = null;
+            var revision = ++snapshotVersion;
+            // 即使宿主曾经初始化过，没有脚本时也只保留快照，不转换和传输整池弹幕。
+            if (Volatile.Read(ref pendingItemCount) == 0)
             {
-                danmakuSnapshot.AddRange(list.Where(item => item != null));
+                return Task.CompletedTask;
             }
 
             var version = Volatile.Read(ref contentVersion);
             return ExecuteCommandAsync(
                 version,
-                async () => await PushDanmakuSnapshotAsync(version));
+                async () =>
+                {
+                    // 同一内容版本里只投递最新快照，跳过命令队列中已经过期的整批推送。
+                    if (revision == snapshotVersion)
+                    {
+                        await PushDanmakuSnapshotAsync(version);
+                    }
+                });
         }
 
         /// <summary>
@@ -268,55 +289,54 @@ namespace BiliBili.UWP.Controls
         }
 
         /// <summary>
-        /// 把快照推给宿主：先 resetComments 清空，再按 <see cref="MaxChunkPayloadLength"/>
-        /// 的字节预算分批 appendComments（与 append / beginItem 的分块上限同一套口径）。
-        /// 按预算而不是按固定条数切分：单条弹幕的长度可以差一个量级，
-        /// 固定条数在长弹幕上会突破上限、在短弹幕上又切得过碎。
+        /// 在后台准备并缓存分批命令，在 UI 线程只执行 WebView2 调用。
+        /// 准备或投递期间快照更新时，取消旧准备并转而投递最新快照。
         /// </summary>
         private async Task PushDanmakuSnapshotAsync(int version)
         {
-            if (version != Volatile.Read(ref contentVersion))
+            while (version == Volatile.Read(ref contentVersion))
             {
-                return;
-            }
-
-            await ExecuteScriptAsync("window.scriptDanmakuHost.resetComments();");
-
-            var builder = new StringBuilder(MaxChunkPayloadLength + 64);
-            builder.Append(CommentBatchPrefix);
-            var batched = 0;
-            foreach (var comment in danmakuSnapshot)
-            {
-                var json = JsonConvert.SerializeObject(comment);
-                // 单条就超过预算时也照发：宁可一次大载荷，也不能丢弹幕。
-                if (batched > 0
-                    && builder.Length + json.Length + CommentBatchSuffix.Length > MaxChunkPayloadLength)
+                var revision = snapshotVersion;
+                if (pushedSnapshotVersion == revision && pushedSnapshotContentVersion == version)
                 {
-                    if (version != Volatile.Read(ref contentVersion))
-                    {
-                        return;
-                    }
-
-                    builder.Append(CommentBatchSuffix);
-                    await ExecuteScriptAsync(builder.ToString());
-                    builder.Clear();
-                    builder.Append(CommentBatchPrefix);
-                    batched = 0;
+                    return;
                 }
 
-                if (batched != 0)
+                if (snapshotPayloadTask == null)
                 {
-                    builder.Append(',');
+                    var snapshot = danmakuSnapshot;
+                    snapshotPreparationCancellation = new CancellationTokenSource();
+                    var token = snapshotPreparationCancellation.Token;
+                    snapshotPayloadTask = Task.Run(() => ScriptDanmakuCommentBatch.Build(snapshot, token), token);
                 }
 
-                builder.Append(json);
-                batched++;
-            }
+                IReadOnlyList<string> commands;
+                try
+                {
+                    commands = await snapshotPayloadTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    continue;
+                }
 
-            if (batched > 0)
-            {
-                builder.Append(CommentBatchSuffix);
-                await ExecuteScriptAsync(builder.ToString());
+                if (version != Volatile.Read(ref contentVersion)) return;
+                if (revision != snapshotVersion) continue;
+
+                await ExecuteScriptAsync("window.scriptDanmakuHost.resetComments();");
+                foreach (var command in commands)
+                {
+                    if (version != Volatile.Read(ref contentVersion)) return;
+                    if (revision != snapshotVersion) break;
+                    await ExecuteScriptAsync(command);
+                }
+
+                if (revision == snapshotVersion)
+                {
+                    pushedSnapshotVersion = revision;
+                    pushedSnapshotContentVersion = version;
+                    return;
+                }
             }
         }
 

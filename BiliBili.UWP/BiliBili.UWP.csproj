@@ -441,6 +441,7 @@
     <Compile Include="Models\BasDanmakuModel.cs" />
     <Compile Include="Models\ScriptDanmakuModel.cs" />
     <Compile Include="Modules\ScriptDanmakuParser.cs" />
+    <Compile Include="Modules\ScriptDanmakuCommentBatch.cs" />
     <Compile Include="Models\BanInfoModel.cs" />
     <Compile Include="Models\FaceModels.cs" />
     <Compile Include="Models\HomeModels.cs" />

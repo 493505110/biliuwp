@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\ScrollDanmakuPlacement.cs"
+             Link="Production\ScrollDanmakuPlacement.cs" />
+    <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\DanmakuRowHeightIndex.cs"
+             Link="Production\DanmakuRowHeightIndex.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\ArticleModels.cs"
              Link="Production\ArticleModels.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\ArticleContentParser.cs"
@@ -59,6 +63,8 @@
              Link="Production\PlaybackHistory.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\ScriptDanmakuParser.cs"
              Link="Production\ScriptDanmakuParser.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\ScriptDanmakuCommentBatch.cs"
+             Link="Production\ScriptDanmakuCommentBatch.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\ScriptDanmakuModel.cs"
              Link="Production\ScriptDanmakuModel.cs" />
     <Compile Include="..\..\BiliBili.Background\DynamicFeedParser.cs"

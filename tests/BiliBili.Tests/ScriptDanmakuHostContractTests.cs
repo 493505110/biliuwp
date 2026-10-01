@@ -1421,22 +1421,18 @@ namespace BiliBili.Tests
         {
             // C# → 宿主的弹幕数据链命令名必须与宿主逐一对应。
             var source = TestRepository.ReadFile(ControlPath);
+            var batches = TestRepository.ReadFile("BiliBili.UWP/Modules/ScriptDanmakuCommentBatch.cs");
             StringAssert.Contains(source, "public Task PushDanmakuBatchAsync(");
             StringAssert.Contains(source, "public Task PushSentCommentAsync(");
             StringAssert.Contains(source, "public Task PushKeyEventAsync(int keyCode, bool isKeyUp)");
 
             StringAssert.Contains(source, "window.scriptDanmakuHost.resetComments();");
-            StringAssert.Contains(source, "window.scriptDanmakuHost.appendComments([");
+            StringAssert.Contains(batches, "window.scriptDanmakuHost.appendComments([");
             StringAssert.Contains(source, "window.scriptDanmakuHost.pushComment(");
             StringAssert.Contains(source, "window.scriptDanmakuHost.pushKey(");
 
-            // 分块上限：按字节预算切分，单次载荷不能无限大（与 append 分块同一口径）。
-            // 不按固定条数切：单条弹幕长度可以差一个量级。
-            StringAssert.Contains(source, "private const string CommentBatchPrefix = \"window.scriptDanmakuHost.appendComments([\";");
-            StringAssert.Contains(source, "builder.Length + json.Length + CommentBatchSuffix.Length > MaxChunkPayloadLength");
-
             // 快照要保留并在 reset 之后补投：脚本可能是后于弹幕池加载的。
-            StringAssert.Contains(source, "private readonly List<ScriptDanmakuComment> danmakuSnapshot =");
+            StringAssert.Contains(source, "private IEnumerable<ScriptDanmakuComment> danmakuSnapshot =");
             StringAssert.Contains(source, "await PushDanmakuSnapshotAsync(version);");
 
             // 池子没变时跳过重复投递（分页加载会反复走 SetDanmakuPool）。

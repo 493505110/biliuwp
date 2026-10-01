@@ -170,7 +170,7 @@ namespace BiliBili.UWP.Helper
                 initial.UnsupportedDanmakuModes,
                 null);
 
-            var segmentResults = await LoadRemainingSegmentsAsync(plan, cancellationToken);
+            var segmentResults = await LoadRemainingSegmentsAsync(plan, cancellationToken).ConfigureAwait(false);
             foreach (var segmentResult in segmentResults)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -419,7 +419,9 @@ namespace BiliBili.UWP.Helper
 
         private static async Task<List<DanmakuModel>> LoadLegacyAsync(long cid)
         {
-            var result = await new NSDanmaku.Helper.DanmakuParse().ParseBiliBili(cid);
+            var parser = new NSDanmaku.Helper.DanmakuParse();
+            var xml = await parser.GetBiliBili(cid);
+            var result = await Task.Run(() => parser.ParseBiliBili(xml));
             return result ?? new List<DanmakuModel>();
         }
 
@@ -618,12 +620,15 @@ namespace BiliBili.UWP.Helper
                 var unsupportedDanmakuModes = new Dictionary<int, int>();
                 var basItems = new List<BasDanmakuModel>();
                 var scriptItems = new List<ScriptDanmakuModel>();
-                var items = ParseSegment(
+                var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();
+                var items = await Task.Run(() => ParseSegment(
                     segmentBytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
                     basItems,
-                    scriptItems);
+                    scriptItems,
+                    scriptDanmakuEnabled,
+                    cancellationToken), cancellationToken);
                 return new SegmentLoadResult(
                     segmentIndex,
                     false,
@@ -700,12 +705,15 @@ namespace BiliBili.UWP.Helper
                 var unsupportedDanmakuModes = new Dictionary<int, int>();
                 var basItems = new List<BasDanmakuModel>();
                 var scriptItems = new List<ScriptDanmakuModel>();
-                var items = ParseSegment(
+                var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();
+                var items = await Task.Run(() => ParseSegment(
                     response.Bytes,
                     ref unsupportedDanmakuCount,
                     unsupportedDanmakuModes,
                     basItems,
-                    scriptItems);
+                    scriptItems,
+                    scriptDanmakuEnabled,
+                    cancellationToken), cancellationToken);
                 return new SegmentLoadResult(
                     0,
                     true,
@@ -898,14 +906,15 @@ namespace BiliBili.UWP.Helper
             ref int unsupportedDanmakuCount,
             Dictionary<int, int> unsupportedDanmakuModes,
             List<BasDanmakuModel> basItems,
-            List<ScriptDanmakuModel> scriptItems)
+            List<ScriptDanmakuModel> scriptItems,
+            bool scriptDanmakuEnabled,
+            CancellationToken cancellationToken)
         {
-            // 开关在段级读一次：mode=8 是脚本弹幕，只有用户显式打开才收，
-            // 否则维持原来的「计为不支持」行为（宿主无沙箱，不默认执行陌生脚本）。
-            var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();
+            // 开关由调用方在进入后台解析前读一次，不在逐条解析时访问设置。
             var result = new List<DanmakuModel>();
             foreach (var field in ReadFields(bytes))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (field.Number != 1 || field.WireType != 2 || field.Bytes == null)
                 {
                     continue;

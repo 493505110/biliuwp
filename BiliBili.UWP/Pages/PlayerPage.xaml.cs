@@ -953,6 +953,7 @@ namespace BiliBili.UWP.Pages
         List<InteractiveDanmakuModel> interactiveDanmakuPool = new List<InteractiveDanmakuModel>();
         InteractiveDanmakuModel currentInteractiveDanmaku;
         PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel> danmakuTimeline;
+        int danmakuPoolVersion;
         int danmakuLimitSecond = -1;
         int danmakuLimitCount;
         int mergeDanmakuSecond = -1;
@@ -1719,19 +1720,44 @@ namespace BiliBili.UWP.Pages
             List<NSDanmaku.Model.DanmakuModel> pool,
             bool includeCurrentPosition = true)
         {
-            DanMuPool = pool ?? new List<NSDanmaku.Model.DanmakuModel>();
-            danmakuTimeline = new PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel>(
-                DanMuPool,
-                item => item.time);
-            ResetDanmakuTimeline(includeCurrentPosition);
+            // 独立快照供后台排序和脚本序列化读取，追加弹幕时不再就地修改。
+            DanMuPool = pool == null
+                ? new List<NSDanmaku.Model.DanmakuModel>()
+                : new List<NSDanmaku.Model.DanmakuModel>(pool);
+            var version = ++danmakuPoolVersion;
+            _ = PrepareDanmakuTimelineAsync(DanMuPool, version, includeCurrentPosition);
             SyncScriptDanmakuComments();
+        }
+
+        private async Task PrepareDanmakuTimelineAsync(
+            List<NSDanmaku.Model.DanmakuModel> pool,
+            int version,
+            bool includeCurrentPosition)
+        {
+            try
+            {
+                var timeline = await Task.Run(() =>
+                    new PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel>(pool, item => item.time));
+                if (version != danmakuPoolVersion)
+                {
+                    return;
+                }
+
+                danmakuTimeline = timeline;
+                // 以准备完成时的实际播放位置复位，避免补发准备期间已经过去的弹幕。
+                ResetDanmakuTimeline(includeCurrentPosition);
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("准备弹幕时间轴失败", LogType.ERROR, ex);
+            }
         }
 
         /// <summary>
         /// 把当前弹幕池推给脚本弹幕宿主（脚本侧 <c>Player.commentList</c>）。
         /// 未加载脚本时控件不创建 WebView2，这一路是零开销；快照由控件保留，
         /// 之后加载脚本时会在 reset 之后自动补投（见 ScriptDanmakuControl.PushDanmakuBatchAsync）。
-        /// 分页加载会多次走到这里，所以控件按「同一列表实例 + 条数不变」跳过重复投递。
+        /// 分页加载会多次走到这里，控件按快照版本合并过期投递。
         /// </summary>
         private void SyncScriptDanmakuComments()
         {
@@ -1741,12 +1767,8 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
-            var comments = new List<ScriptDanmakuComment>(pool.Count);
-            foreach (var item in pool)
-            {
-                comments.Add(ToScriptDanmakuComment(item));
-            }
-
+            // 保留惰性投影：无代码弹幕时只保留快照；需要投递时由控件在后台转换。
+            var comments = pool.Select(ToScriptDanmakuComment);
             _ = scriptDanmakuControl.PushDanmakuBatchAsync(comments);
         }
 
@@ -1817,7 +1839,9 @@ namespace BiliBili.UWP.Pages
 
         private void AppendDanmakuPool(IEnumerable<NSDanmaku.Model.DanmakuModel> additions)
         {
-            var pool = DanMuPool ?? new List<NSDanmaku.Model.DanmakuModel>();
+            var pool = DanMuPool == null
+                ? new List<NSDanmaku.Model.DanmakuModel>()
+                : new List<NSDanmaku.Model.DanmakuModel>(DanMuPool);
             if (additions != null)
             {
                 pool.AddRange(additions.Where(item => item != null));
@@ -1857,9 +1881,18 @@ namespace BiliBili.UWP.Pages
                         mediaPlayer.PlaybackSession.Position.TotalSeconds);
                     if (batch != null)
                     {
-                        foreach (var item in batch.Items)
+                        var renderer = danmu;
+                        renderer?.BeginDanmakuBatch();
+                        try
                         {
-                            ShowDanmaku(item);
+                            foreach (var item in batch.Items)
+                            {
+                                ShowDanmaku(item);
+                            }
+                        }
+                        finally
+                        {
+                            renderer?.EndDanmakuBatch();
                         }
                     }
                 }
@@ -2103,6 +2136,7 @@ namespace BiliBili.UWP.Pages
 
         private void CancelDanmakuLoading()
         {
+            ++danmakuPoolVersion;
             var source = danmakuLoadCancellation;
             danmakuLoadCancellation = null;
             if (source == null)

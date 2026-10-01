@@ -59,7 +59,9 @@ namespace BiliBili.Tests
             var settings = ReadFile("BiliBili.UWP/Helper/SettingHelper.cs");
 
             // 开关在段级读一次并下传（不是逐条读，避免每条弹幕都碰 LocalSettings）。
-            StringAssert.Contains(segmentParser, "var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();");
+            // 段级开关在进入后台解析前读取，解析器仍把它传给逐条解析。
+            StringAssert.Contains(service, "var scriptDanmakuEnabled = SettingHelper.Get_EnableScriptDanmaku();");
+            Assert.IsFalse(segmentParser.Contains("SettingHelper."));
             // 参数名断言写在整份源码上：MethodBody 取的是函数体，不含签名。
             StringAssert.Contains(service, "bool scriptDanmakuEnabled)");
 
@@ -163,9 +165,9 @@ namespace BiliBili.Tests
             StringAssert.Contains(winUiParser, "case \"6\":");
             StringAssert.Contains(control, "AddReverseScrollDanmu");
             StringAssert.Contains(control, "var fromX = GetScrollInitialX(reverse, viewportWidth, itemWidth);");
-            StringAssert.Contains(control, "private bool IsScrollPoolAvailable(");
-            StringAssert.Contains(control, "var itemX = viewportWidth;");
-            StringAssert.Contains(control, "GetScrollEnd(occupied, viewportWidth) > GetScrollMiddle(item, viewportWidth)");
+            StringAssert.Contains(scrollPoolSelection, "ScrollDanmakuPlacement.TryFindPosition(");
+            StringAssert.Contains(scrollPoolSelection, "EndTime = GetScrollEnd(occupied, viewportWidth)");
+            StringAssert.Contains(scrollPoolSelection, "GetScrollMiddle(item, viewportWidth)");
             StringAssert.Contains(winUiControl, "AddReverseScrollDanmu");
             StringAssert.Contains(winUiControl, "reverse ? -grid.ActualWidth : mainContainer.ActualWidth");
             StringAssert.Contains(winUiControl, "GetScrollAvailableRow(Grid item, bool reverse = false)");
@@ -176,12 +178,12 @@ namespace BiliBili.Tests
             StringAssert.Contains(winUiParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
             StringAssert.Contains(tantanParser, "location != DanmakuLocation.Position && danmakuText != null");
             StringAssert.Contains(tantanParser, "danmakuText = danmakuText.Replace(\"/n\", \"\\r\\n\");");
-            StringAssert.Contains(refreshRowHeights, "measuredRowHeights[grid] = MeasureDanmakuHeight(grid);");
+            StringAssert.Contains(refreshRowHeights, "var height = MeasureDanmakuHeight(grid);");
             StringAssert.Contains(setRowHeight, "var rowHeight = 0.0;");
-            StringAssert.Contains(ensureRowsForItem, "measuredRowHeights[item] = MeasureDanmakuHeight(item);");
+            StringAssert.Contains(ensureRowsForItem, "UpdateMeasuredRowHeight(container, item, MeasureDanmakuHeight(item));");
             StringAssert.Contains(addHorizontalScroll, "grid_Scroll.Children.Add(grid);");
             StringAssert.Contains(addHorizontalScroll, "SetRowHeight(grid_Scroll, 0);");
-            StringAssert.Contains(scrollPoolSelection, "logicalY = occupied.LogicalY + occupied.Height + PoolGap;");
+            StringAssert.Contains(scrollPoolSelection, "Y = occupied.LogicalY,");
         }
 
         [TestMethod]
