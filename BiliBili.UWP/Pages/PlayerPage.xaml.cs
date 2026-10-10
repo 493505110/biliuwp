@@ -122,7 +122,6 @@ namespace BiliBili.UWP.Pages
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
             MTC.DanmuLoaded += MTC_DanmuLoaded;
-            scriptDanmakuControl.ActionRequested += ScriptDanmakuControl_ActionRequested;
             playerSurface.AddHandler(
                 UIElement.TappedEvent,
                 new TappedEventHandler(PlayerSurface_Tapped),
@@ -686,7 +685,7 @@ namespace BiliBili.UWP.Pages
         /// </summary>
         private void PlayerPage_KeyUp(CoreWindow sender, KeyEventArgs args)
         {
-            _ = scriptDanmakuControl.PushKeyEventAsync((int)args.VirtualKey, true);
+            _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, true);
         }
 
         private void PlayerPage_KeyDown(CoreWindow sender, KeyEventArgs args)
@@ -695,7 +694,7 @@ namespace BiliBili.UWP.Pages
             args.Handled = true;
             // 转发给脚本的 Player.keyTrigger（宿主侧只投递 M8 允许的那组键）。
             // 只做监听、不消费：这里的 Handled 语义与脚本无关，保持原样。
-            _ = scriptDanmakuControl.PushKeyEventAsync((int)args.VirtualKey, false);
+            _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, false);
             if (sp_View.IsPaneOpen)
             {
                 return;
@@ -948,6 +947,8 @@ namespace BiliBili.UWP.Pages
         List<BasDanmakuModel> BasDanmuPool = new List<BasDanmakuModel>();
         /// <summary>BAS 弹幕控件。由 EnsureBasDanmakuControl 按需创建，开关关闭时整体释放</summary>
         BasDanmakuControl basDanmakuControl;
+        /// <summary>M8 弹幕控件。有脚本时创建，清除脚本或退出时整体释放</summary>
+        ScriptDanmakuControl scriptDanmakuControl;
         List<InteractiveDanmakuModel> interactiveDanmakuPool = new List<InteractiveDanmakuModel>();
         InteractiveDanmakuModel currentInteractiveDanmaku;
         PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel> danmakuTimeline;
@@ -1535,6 +1536,42 @@ namespace BiliBili.UWP.Pages
             ApplyScriptDanmakuPool();
         }
 
+        private bool EnsureScriptDanmakuControl()
+        {
+            if (_isExiting || scriptDanmakuHost == null)
+            {
+                return false;
+            }
+
+            if (scriptDanmakuControl != null)
+            {
+                return true;
+            }
+
+            var control = new ScriptDanmakuControl();
+            control.ActionRequested += ScriptDanmakuControl_ActionRequested;
+            scriptDanmakuControl = control;
+            scriptDanmakuHost.Children.Add(control);
+            // 新控件没有旧快照，先保留当前池子，ReplaceAsync 初始化后会自动补投。
+            SyncScriptDanmakuComments();
+            return true;
+        }
+
+        private void ReleaseScriptDanmakuControl()
+        {
+            var control = scriptDanmakuControl;
+            if (control == null)
+            {
+                return;
+            }
+
+            // 移出可视树也会触发 Unloaded，先清引用并解绑，再幂等释放。
+            scriptDanmakuControl = null;
+            control.ActionRequested -= ScriptDanmakuControl_ActionRequested;
+            scriptDanmakuHost?.Children.Remove(control);
+            control.Release();
+        }
+
         /// <summary>
         /// 注入当前视频下发的 mode=8 代码弹幕。为空时**不动**已有池子——
         /// 大部分视频没有代码弹幕，若照常推空池会把用户手动加载的脚本冲掉。
@@ -1586,15 +1623,18 @@ namespace BiliBili.UWP.Pages
             scriptDanmuPool = new List<ScriptDanmakuModel>();
             lastScriptDanmakuPosition = -1;
             lastScriptDanmakuPositionAt = DateTime.UtcNow;
-            if (scriptDanmakuControl != null)
-            {
-                _ = scriptDanmakuControl.ClearAsync();
-            }
+            ReleaseScriptDanmakuControl();
         }
 
         private void ReplaceScriptDanmakuWindow()
         {
-            if (scriptDanmakuControl == null)
+            if (scriptDanmuPool.Count == 0)
+            {
+                ReleaseScriptDanmakuControl();
+                return;
+            }
+
+            if (!EnsureScriptDanmakuControl())
             {
                 return;
             }
@@ -1726,7 +1766,7 @@ namespace BiliBili.UWP.Pages
 
             // 保留惰性投影：无代码弹幕时只保留快照；需要投递时由控件在后台转换。
             var comments = pool.Select(ToScriptDanmakuComment);
-            _ = scriptDanmakuControl.PushDanmakuBatchAsync(comments);
+            _ = scriptDanmakuControl?.PushDanmakuBatchAsync(comments);
         }
 
         /// <summary>"#RRGGBB" 形式的颜色串 → 0xRRGGBB。解析失败时回退到白色。</summary>
@@ -4629,7 +4669,7 @@ namespace BiliBili.UWP.Pages
             dialog.DanmakuSended += new EventHandler<SendDanmakuModel>((obj, item) =>
             {
                 // 转发给脚本的 Player.commentTrigger 回调（只通知，不改渲染）。
-                _ = scriptDanmakuControl.PushSentCommentAsync(new ScriptDanmakuComment
+                _ = scriptDanmakuControl?.PushSentCommentAsync(new ScriptDanmakuComment
                 {
                     txt = item.text ?? string.Empty,
                     time = mediaElement.MediaPlayer.PlaybackSession.Position.TotalSeconds,

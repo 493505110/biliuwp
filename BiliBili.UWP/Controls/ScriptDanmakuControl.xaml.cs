@@ -41,6 +41,7 @@ namespace BiliBili.UWP.Controls
         private int parsedItemCount;
         private bool hasRenderedItem;
         private int pendingItemCount;
+        private bool isReleased;
         // 最近一次推入的弹幕快照。保留它是为了在 reset（换视频 / 重新推脚本）之后
         // 重新投递：脚本可能是后于弹幕池加载的，那时第一次推送已被懒初始化闸门丢掉。
         private IEnumerable<ScriptDanmakuComment> danmakuSnapshot =
@@ -58,6 +59,49 @@ namespace BiliBili.UWP.Controls
         {
             InitializeComponent();
             SizeChanged += ScriptDanmakuControl_SizeChanged;
+            Unloaded += ScriptDanmakuControl_Unloaded;
+        }
+
+        private void ScriptDanmakuControl_Unloaded(object sender, RoutedEventArgs e)
+        {
+            Release();
+        }
+
+        /// <summary>释放 WebView2 和弹幕快照。幂等，释放后只能新建控件。</summary>
+        public void Release()
+        {
+            if (isReleased)
+            {
+                return;
+            }
+
+            isReleased = true;
+            isPageReady = false;
+            Interlocked.Increment(ref contentVersion);
+            Volatile.Write(ref pendingItemCount, 0);
+            snapshotPreparationCancellation?.Cancel();
+            snapshotPreparationCancellation?.Dispose();
+            snapshotPreparationCancellation = null;
+            snapshotPayloadTask = null;
+            danmakuSnapshot = new ScriptDanmakuComment[0];
+            lastPushedComments = null;
+            SizeChanged -= ScriptDanmakuControl_SizeChanged;
+            try
+            {
+                webView.NavigationCompleted -= WebView_NavigationCompleted;
+                webView.WebMessageReceived -= WebView_WebMessageReceived;
+                if (webView.CoreWebView2 != null)
+                {
+                    webView.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("释放脚本弹幕 WebView2 失败", LogType.ERROR, ex);
+            }
+
+            navigationCompletion?.TrySetResult(false);
+            pageReadyCompletion?.TrySetResult(false);
         }
 
         /// <summary>宿主侧脚本请求播放器执行动作（暂停 / 播放 / 定位 / 导航）。</summary>
@@ -70,6 +114,11 @@ namespace BiliBili.UWP.Controls
             bool visible,
             double playbackRate)
         {
+            if (isReleased)
+            {
+                return Task.CompletedTask;
+            }
+
             var list = ScriptDanmakuService.Normalize(items).ToList();
             var version = Interlocked.Increment(ref contentVersion);
             // 脚本集合本身是懒初始化的依据：清空后不再需要 WebView2。
@@ -210,6 +259,11 @@ namespace BiliBili.UWP.Controls
         /// </summary>
         public Task PushDanmakuBatchAsync(IEnumerable<ScriptDanmakuComment> comments)
         {
+            if (isReleased)
+            {
+                return Task.CompletedTask;
+            }
+
             var list = comments as IList<ScriptDanmakuComment>;
             // 分页加载弹幕会反复走 SetDanmakuPool，池子没变时不必再把整批推一遍。
             // 列表调用方可用「同一实例 + 条数不变」跳过；页面的惰性投影按版本合并。
@@ -345,7 +399,7 @@ namespace BiliBili.UWP.Controls
             await commandGate.WaitAsync();
             try
             {
-                if (version != Volatile.Read(ref contentVersion))
+                if (isReleased || version != Volatile.Read(ref contentVersion))
                 {
                     return;
                 }
@@ -356,6 +410,7 @@ namespace BiliBili.UWP.Controls
                 }
 
                 if (!await EnsureReadyAsync()
+                    || isReleased
                     || version != Volatile.Read(ref contentVersion))
                 {
                     return;
@@ -387,6 +442,11 @@ namespace BiliBili.UWP.Controls
 
         private async Task<bool> EnsureReadyAsync()
         {
+            if (isReleased)
+            {
+                return false;
+            }
+
             if (initializationTask == null)
             {
                 initializationTask = InitializeAsync();
@@ -400,6 +460,13 @@ namespace BiliBili.UWP.Controls
             try
             {
                 await webView.EnsureCoreWebView2Async();
+                // 初始化途中可能已卸载；Release 当时还看不到 CoreWebView2，需补关闭。
+                if (isReleased)
+                {
+                    webView.Close();
+                    return false;
+                }
+
                 var assetsPath = Path.Combine(
                     Package.Current.InstalledLocation.Path,
                     "Assets");
@@ -433,6 +500,11 @@ namespace BiliBili.UWP.Controls
                 {
                     LogHelper.WriteLog("脚本弹幕页面初始化失败", LogType.ERROR);
                     ShowRendererFailureOnce("脚本弹幕渲染器加载失败");
+                    return false;
+                }
+
+                if (isReleased)
+                {
                     return false;
                 }
 
@@ -635,7 +707,7 @@ namespace BiliBili.UWP.Controls
 
         private void ShowRendererFailureOnce(string message)
         {
-            if (rendererFailureNotified)
+            if (isReleased || rendererFailureNotified)
             {
                 return;
             }
