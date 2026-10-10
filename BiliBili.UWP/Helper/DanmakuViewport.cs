@@ -3,12 +3,8 @@ using System;
 namespace BiliBili.UWP.Helper
 {
     /// <summary>
-    /// 弹幕画布尺寸计算。
-    /// 脚本弹幕作品自带的 Akari 库用 maximizeInContainer 把作品舞台等比缩放进弹幕画布
-    /// （ratio = min(画布宽/作品宽, 画布高/作品高) 后居中），也就是说画布尺寸直接决定
-    /// 作品整体的缩放与位置。因此画布必须等于「视频实际渲染矩形」，而不是整个播放器区域：
-    /// 播放器用 Stretch=Uniform 渲染，非 16:9 的视频会在播放器里留有黑边，
-    /// 若画布铺满播放器区域，作品就会被整体缩放出错位。
+    /// 内容等比适配区域的尺寸计算。
+    /// M8 舞台铺满播放器区域，不使用这里的视频内容矩形限制画布。
     /// 这里只做纯计算，不依赖任何 UWP API，便于单元测试直接编译。
     /// </summary>
     public static class DanmakuViewport

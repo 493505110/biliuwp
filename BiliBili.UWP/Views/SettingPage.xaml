@@ -560,7 +560,7 @@
                             </Grid>
 
                             <Grid Margin="0 10 0 0">
-                                <TextBlock Foreground="Gray" VerticalAlignment="Center">接收视频代码弹幕</TextBlock>
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">启用M8代码弹幕(Beta)</TextBlock>
                                 <ToggleSwitch x:Name="sw_EnableScriptDanmaku" Toggled="sw_EnableScriptDanmaku_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
                             </Grid>
 

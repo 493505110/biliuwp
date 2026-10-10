@@ -359,7 +359,6 @@ namespace BiliBili.UWP.Pages
 
                 txt_VideoWidth.Text = sender.NaturalVideoWidth.ToString();
                 txt_VideoHeight.Text = sender.NaturalVideoHeight.ToString();
-                UpdateScriptDanmakuViewport();
             });
         }
 
@@ -385,7 +384,6 @@ namespace BiliBili.UWP.Pages
                         return;
                     }
 
-                    UpdateScriptDanmakuViewport();
                     SetSystemMediaTransportControl();
                     MTC_Video360Changed(this, MTC.Video360);
                     if (pendingPlaybackRestoreState != null && playbackRequestGate.IsCurrent(pendingPlaybackRequest))
@@ -1525,47 +1523,6 @@ namespace BiliBili.UWP.Pages
         {
             var rate = mediaPlayer?.PlaybackSession.PlaybackRate ?? slider_Rate?.Value ?? 1;
             return double.IsNaN(rate) || double.IsInfinity(rate) || rate <= 0 ? 1 : rate;
-        }
-
-        /// <summary>
-        /// 把脚本弹幕画布对齐到视频实际渲染矩形。
-        /// 作品自带的 Akari 库用 maximizeInContainer 把舞台等比缩放进弹幕画布并居中
-        /// （ratio = min(画布宽/舞台宽, 画布高/舞台高)），画布尺寸直接决定作品整体的缩放与位置。
-        /// 播放器以 Stretch=Uniform 渲染，非 16:9 的视频四周留黑边，弹幕画布必须等于视频画面本身；
-        /// 若像 BAS 那样铺满整个 playerSurface，作品会被整体缩放并错位。
-        /// 自然尺寸未知（媒体未打开、区域未布局）时保持控件现状，不清空以免闪断。
-        /// </summary>
-        private void UpdateScriptDanmakuViewport()
-        {
-            if (scriptDanmakuControl == null || playerSurface == null)
-            {
-                return;
-            }
-
-            // MediaPlayerElement 自身不暴露视频轨尺寸，取它内部 MediaPlayer 的 PlaybackSession；
-            // 可用区域取 playerSurface（mediaElement 与各弹幕控件同级铺满该 Grid，
-            // mediaElement 的 Stretch=Uniform 让它自己的渲染框就等于这里算出的等比矩形）。
-            var session = mediaElement?.MediaPlayer?.PlaybackSession;
-            double naturalWidth = session == null ? 0d : session.NaturalVideoWidth;
-            double naturalHeight = session == null ? 0d : session.NaturalVideoHeight;
-
-            double width;
-            double height;
-            if (!DanmakuViewport.TryFit(
-                naturalWidth,
-                naturalHeight,
-                playerSurface.ActualWidth,
-                playerSurface.ActualHeight,
-                out width,
-                out height))
-            {
-                return;
-            }
-
-            scriptDanmakuControl.HorizontalAlignment = HorizontalAlignment.Center;
-            scriptDanmakuControl.VerticalAlignment = VerticalAlignment.Center;
-            scriptDanmakuControl.Width = width;
-            scriptDanmakuControl.Height = height;
         }
 
         /// <summary>
@@ -3901,11 +3858,6 @@ namespace BiliBili.UWP.Pages
 
             return base.MeasureOverride(availableSize);
         }
-        private void UserControl_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            // 区域尺寸变了（窗口缩放 / 全屏进出）就要重算弹幕画布，视频渲染矩形随之变化。
-            UpdateScriptDanmakuViewport();
-        }
 
 
 
@@ -4947,7 +4899,6 @@ namespace BiliBili.UWP.Pages
                 }
 
                 SetScriptDanmakuPool(items);
-                UpdateScriptDanmakuViewport();
                 Utils.ShowMessageToast("已加载 " + items.Count + " 条代码弹幕", 3000);
             }
             catch (Exception ex)
@@ -4963,7 +4914,6 @@ namespace BiliBili.UWP.Pages
             {
                 var items = ScriptDanmakuService.GetBuiltInDemo();
                 SetScriptDanmakuPool(items);
-                UpdateScriptDanmakuViewport();
                 Utils.ShowMessageToast("已加载内置示例代码弹幕", 3000);
             }
             catch (Exception ex)
@@ -5166,7 +5116,6 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-                UpdateScriptDanmakuViewport();
                 SetSystemMediaTransportControl();
 
                 var record = SqlHelper.GetVideoWatchRecord(string.IsNullOrEmpty(playNow.episode_id) ? playNow.Mid : "ep" + playNow.episode_id);

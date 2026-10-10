@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Linq;
+using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BiliBili.Tests
@@ -197,42 +199,25 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void ScriptViewport_MatchesVideoRenderingRect()
+        public void ScriptViewport_FillsPlayerSurface()
         {
-            // 作品自带的 Akari 库按「弹幕画布尺寸」等比缩放整个舞台并居中，
-            // 所以画布必须等于视频实际渲染矩形，而不是整个播放器区域：
-            // 非 16:9 的视频四周有黑边，画布铺满播放器会让作品整体缩放错位。
+            // M8 舞台覆盖播放器（含黑边），不能再按视频比例内缩。
+            // 不设置固定宽高，由 Grid 布局跟随窗口缩放和全屏进出。
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var page = XDocument.Parse(TestRepository.ReadFile(PlayerPageXamlPath));
+            var control = page.Descendants().Single(
+                element => (string)element.Attribute(x + "Name") == "scriptDanmakuControl");
+
+            Assert.AreEqual("playerSurface", (string)control.Parent.Attribute(x + "Name"));
+            Assert.AreEqual("Stretch", (string)control.Attribute("HorizontalAlignment"));
+            Assert.AreEqual("Stretch", (string)control.Attribute("VerticalAlignment"));
+            Assert.IsNull(control.Attribute("Width"), "M8 舞台宽度应随播放器布局");
+            Assert.IsNull(control.Attribute("Height"), "M8 舞台高度应随播放器布局");
+
             var source = PlayerPageSource();
-            StringAssert.Contains(
-                source,
-                "private void UpdateScriptDanmakuViewport()",
-                "缺少弹幕画布尺寸计算入口");
-
-            // 每一处都可能改变视频渲染矩形：自然尺寸变化、媒体打开、区域尺寸变化、
-            // 以及两个加载脚本的入口（加载后立刻要算一次）。漏一处就是静默错位。
-            foreach (var signature in new[]
-            {
-                "private async void PlaybackSession_NaturalVideoSizeChanged(",
-                "private async void MediaPlayer_MediaOpened(",
-                "private void UserControl_SizeChanged(",
-                "private async void mediaElement_MediaOpened(",
-                "private async void menuitem_LoadScriptDanmaku_Click(",
-                "private void menuitem_LoadDemoScriptDanmaku_Click("
-            })
-            {
-                StringAssert.Contains(
-                    Body(signature),
-                    "UpdateScriptDanmakuViewport();",
-                    signature + " 未重算脚本弹幕画布");
-            }
-
-            var body = Body("private void UpdateScriptDanmakuViewport()");
-            StringAssert.Contains(body, "DanmakuViewport.TryFit(");
-            // 等比内缩后必须居中，否则黑边只落在单侧。
-            StringAssert.Contains(body, "scriptDanmakuControl.HorizontalAlignment = HorizontalAlignment.Center;");
-            StringAssert.Contains(body, "scriptDanmakuControl.VerticalAlignment = VerticalAlignment.Center;");
-            // 自然尺寸未知（TryFit 失败）时直接返回，保持控件现状而不是把画布清成 0。
-            StringAssert.Contains(body, "return;");
+            Assert.IsFalse(source.Contains("DanmakuViewport.TryFit("), "M8 舞台不应按视频比例内缩");
+            Assert.IsFalse(source.Contains("scriptDanmakuControl.Width ="), "页面不应覆盖舞台布局宽度");
+            Assert.IsFalse(source.Contains("scriptDanmakuControl.Height ="), "页面不应覆盖舞台布局高度");
         }
 
         [TestMethod]
