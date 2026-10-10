@@ -68,5 +68,8 @@ jobs:
       - name: Run M8 stage frame-rate tests
         run: node tests/host/frame-rate.test.js
 
+      - name: Run M8 ordinary danmaku bridge tests
+        run: node tests/host/ordinary-danmaku.test.js
+
       - name: Run unit tests
         run: dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release --no-restore

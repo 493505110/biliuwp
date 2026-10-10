@@ -4,11 +4,13 @@ import {
     post,
     reportCompileError,
     state,
+    syncOrdinaryDanmakuSuppression,
     toFiniteNumber
 } from "./core.js";
 import {
     M8Display,
-    createRetainedElement
+    createRetainedElement,
+    prepareOrdinaryDanmakuLayer
 } from "./display.js";
 import {
     addItem,
@@ -63,6 +65,16 @@ window.scriptDanmakuHost = {
     append: function (list) {
         appendItems(list);
     },
+    // 在 C# 的一次内容替换内配置；版本随消息返回，旧视频不能控制新视频。
+    setOrdinaryDanmakuBridge: function (version) {
+        hostState.ordinaryDanmakuBridgeVersion = version;
+        hostState.ordinaryDanmakuLayer = createRetainedElement("group");
+        hostState.ordinaryDanmakuLayer.name = "__biliuwpOrdinaryDanmaku";
+        hostState.ordinaryDanmakuOverlay = createRetainedElement("group");
+        hostState.ordinaryDanmakuOverlay.name = "__biliuwpOverlay";
+        prepareOrdinaryDanmakuLayer();
+        syncOrdinaryDanmakuSuppression(true);
+    },
     beginItem: function () {
         // 大 payload 分块：先清缓冲，后续 appendItemChunk 逐块追加。
         hostState.pendingItemJson = "";
@@ -102,6 +114,7 @@ window.scriptDanmakuHost = {
     },
     visible: function (shouldShow) {
         hostState.visible = shouldShow !== false;
+        syncOrdinaryDanmakuSuppression();
         if (hostState.visible) {
             hostState.dirty = true;
             ensureRunning();
@@ -136,7 +149,10 @@ window.scriptDanmakuHost = {
     // 用户发送了一条弹幕：投递给在窗口内条目的 commentTrigger。
     // M8 的 CommentData.time 是秒，C# 侧传的就是播放位置（秒）。
     pushComment: function (comment) {
-        deliverCommentTrigger(normalizeComment(comment));
+        var normalized = normalizeComment(comment);
+        // 早期游戏轮询 commentList.length 捕获新弹幕，同时保留 commentTrigger 通知。
+        hostState.commentSnapshot.push(normalized);
+        deliverCommentTrigger(normalized);
     },
     // 键盘事件：投递给在窗口内条目的 keyTrigger（up=true 的只收 keyUp）。
     pushKey: function (keyCode, up) {

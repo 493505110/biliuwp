@@ -58,7 +58,7 @@ namespace BiliBili.Tests
 
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AppendModuleSource("BiliBili.UWP/Assets/script-danmaku/host.js", visited, new StringBuilder());
-            Assert.AreEqual(13, visited.Count, "入口应加载全部十三个职责模块（含 GPU 滤镜）");
+            Assert.AreEqual(15, visited.Count, "入口应加载全部十五个职责模块（含 GPU 滤镜、旧 M8 兼容与 ByteArray）");
 
             var project = XDocument.Load(TestRepository.GetPath("BiliBili.UWP/BiliBili.UWP.csproj"));
             XNamespace msbuild = "http://schemas.microsoft.com/developer/msbuild/2003";
@@ -224,6 +224,49 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void OrdinaryDanmakuBridge_MessagesBelongToTheCurrentContentVersion()
+        {
+            var host = HostSource();
+            var control = TestRepository.ReadFile(ControlPath);
+            StringAssert.Contains(host, "post(\"ordinaryDanmaku\", { version: hostState.ordinaryDanmakuBridgeVersion, suppressed: suppressed });");
+            StringAssert.Contains(control, "case \"ordinaryDanmaku\":");
+            StringAssert.Contains(control, "version == Volatile.Read(ref contentVersion)");
+            StringAssert.Contains(control, "message[\"suppressed\"]?.Type == JTokenType.Boolean");
+            StringAssert.Contains(control, "hostVisible && message[\"suppressed\"].Value<bool>()");
+            var replace = TestRepository.MethodBody(control, "public Task ReplaceAsync(");
+            Assert.IsTrue(replace.IndexOf("setOrdinaryDanmakuBridge(", StringComparison.Ordinal)
+                < replace.IndexOf("await AppendItemsAsync(list, version)", StringComparison.Ordinal));
+            StringAssert.Contains(TestRepository.MethodBody(control, "public void Release()"),
+                "SetOrdinaryDanmakuSuppressed(false)");
+            StringAssert.Contains(TestRepository.MethodBody(control, "public Task SetVisibleAsync(bool visible)"),
+                "if (!visible) SetOrdinaryDanmakuSuppressed(false)");
+            StringAssert.Contains(TestRepository.MethodBody(control,
+                "private void WebView_ProcessFailed(object sender, CoreWebView2ProcessFailedEventArgs args)"),
+                "SetOrdinaryDanmakuSuppressed(false)");
+        }
+
+        [TestMethod]
+        public void OrdinaryDanmakuBridge_GatesRenderingAndPreservesTheCommentPool()
+        {
+            var page = TestRepository.ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
+            StringAssert.Contains(TestRepository.MethodBody(page,
+                "private void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)"),
+                "if (ordinaryDanmakuSuppressed) return;");
+            StringAssert.Contains(page, "if (!ordinaryDanmakuSuppressed && item.location == 1)");
+            StringAssert.Contains(page, "if (!ordinaryDanmakuSuppressed && item.location == 4)");
+            StringAssert.Contains(page, "if (!ordinaryDanmakuSuppressed && item.location == 5)");
+            var syncComments = TestRepository.MethodBody(page, "private void SyncScriptDanmakuComments()");
+            Assert.IsFalse(syncComments.Contains("ordinaryDanmakuSuppressed"));
+            StringAssert.Contains(syncComments, "pool.Select(ToScriptDanmakuComment)");
+            StringAssert.Contains(TestRepository.MethodBody(page,
+                "private void ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged(object sender, bool suppressed)"),
+                "if (!ReferenceEquals(sender, scriptDanmakuControl)) return;");
+            var visibility = TestRepository.MethodBody(page, "private void ApplyOrdinaryDanmakuSuppression()");
+            StringAssert.Contains(visibility, "danmu.Opacity = ordinaryDanmakuSuppressed ? 0 : 1");
+            Assert.IsFalse(visibility.Contains("SettingHelper."));
+        }
+
+        [TestMethod]
         public void Host_M8PlayerPlayPauseSeekJumpAllGoThroughTheActionBridge()
         {
             // 四个动作必须都走 action 通道，且 Player.* 的入参单位按 M8：
@@ -363,16 +406,12 @@ namespace BiliBili.Tests
         // ---- 保留模式：脚本只执行一次 ----
 
         [TestMethod]
-        public void Host_CompilesEachScriptExactlyOnceAtRegistration()
+        public void Host_CompilesScriptsOnlyAtRegistration()
         {
-            // 保留模式的根契约：整份宿主里只允许一处 new Function，
-            // 且它在 compileItem 里被调用，编译结果缓存到 item.run。
+            // 编译仅在注册时发生，结果缓存到 item.run；旧 M8 的多行字符串
+            // 允许在首次语法失败后兼容编译，但逐帧路径不得重新编译。
             var source = HostSource();
-
-            // 「只编译一次」的可观测落点：整份宿主只有一处构造脚本函数的地方，
-            // 且它在 compileItem 里执行、结果缓存到 item.run。
-            //
-            // 整份宿主只有一处 `new Function(`，且它在 compileItem 里。
+            var compileBody = TestRepository.MethodBody(source, "function compileItem(model) {");
             var occurrences = 0;
             var index = source.IndexOf("new Function(", System.StringComparison.Ordinal);
             while (index >= 0)
@@ -382,10 +421,13 @@ namespace BiliBili.Tests
             }
 
             Assert.AreEqual(
-                1,
+                Regex.Matches(compileBody, @"new Function\(").Count,
                 occurrences,
                 "宿主只应在 compileItem 里编译脚本，逐帧路径不得再出现 new Function");
+            Assert.IsTrue(occurrences > 0);
             StringAssert.Contains(source, "item.run = compileItem(model);");
+            StringAssert.Contains(compileBody, "if (!(error instanceof SyntaxError)) throw error;");
+            StringAssert.Contains(compileBody, "normalizeMultilineStrings(code)");
 
             // 注入名清单只有一张表（SCRIPT_GLOBAL_NAMES），compileItem 的形参与
             // createScriptScope 的实参都以它为准，避免两边顺序漂移。
@@ -399,9 +441,6 @@ namespace BiliBili.Tests
             // 形参由 SCRIPT_GLOBAL_NAMES 展开生成（此前形参表与实参表各自硬编码，
             // 只改一边就会整表错位），所以这里断言两件事：compileItem 用这张表展开，
             // 且表里确实列着全部注入名。
-            var compileBody = TestRepository.MethodBody(
-                source,
-                "function compileItem(model) {");
             StringAssert.Contains(
                 compileBody,
                 "new Function(...SCRIPT_GLOBAL_NAMES, code)",

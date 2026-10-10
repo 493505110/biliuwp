@@ -676,6 +676,7 @@ namespace BiliBili.UWP.Pages
             if (e != null)
             {
                 danmu = e;
+                ApplyOrdinaryDanmakuSuppression();
             }
         }
 
@@ -995,6 +996,7 @@ namespace BiliBili.UWP.Pages
                 return;
             }
             danmu = MTC.myDanmaku;
+            ApplyOrdinaryDanmakuSuppression();
 
             UpdateSetting();
             //if (timer == null)
@@ -1329,6 +1331,7 @@ namespace BiliBili.UWP.Pages
         bool mergeDanmu = false;
         // 弹幕位置类型掩码的本地副本：ShowDanmaku 每条弹幕都要判定，避免高频读 LocalSettings
         int danmakuLocationMask = -1;
+        bool ordinaryDanmakuSuppressed;
         List<string> sended = new List<string>();
 
         /// <summary>
@@ -1550,6 +1553,7 @@ namespace BiliBili.UWP.Pages
 
             var control = new ScriptDanmakuControl();
             control.ActionRequested += ScriptDanmakuControl_ActionRequested;
+            control.OrdinaryDanmakuSuppressionChanged += ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged;
             scriptDanmakuControl = control;
             scriptDanmakuHost.Children.Add(control);
             // 新控件没有旧快照，先保留当前池子，ReplaceAsync 初始化后会自动补投。
@@ -1568,6 +1572,9 @@ namespace BiliBili.UWP.Pages
             // 移出可视树也会触发 Unloaded，先清引用并解绑，再幂等释放。
             scriptDanmakuControl = null;
             control.ActionRequested -= ScriptDanmakuControl_ActionRequested;
+            control.OrdinaryDanmakuSuppressionChanged -= ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged;
+            ordinaryDanmakuSuppressed = false;
+            ApplyOrdinaryDanmakuSuppression();
             scriptDanmakuHost?.Children.Remove(control);
             control.Release();
         }
@@ -1905,6 +1912,9 @@ namespace BiliBili.UWP.Pages
 
         private void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)
         {
+            // 时间轴仍照常消费，解除接管后不补发游戏期间已过去的弹幕。
+            // DanMuPool 不变，M8 的 Player.commentList 继续提供完整数据。
+            if (ordinaryDanmakuSuppressed) return;
             if (item == null || DanDis_Dis(item.text))
             {
                 return;
@@ -4041,6 +4051,20 @@ namespace BiliBili.UWP.Pages
             }
         }
 
+        private void ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged(object sender, bool suppressed)
+        {
+            if (!ReferenceEquals(sender, scriptDanmakuControl)) return;
+            ordinaryDanmakuSuppressed = suppressed;
+            if (suppressed) danmu?.ClearAll();
+            ApplyOrdinaryDanmakuSuppression();
+        }
+
+        private void ApplyOrdinaryDanmakuSuppression()
+        {
+            // 独立于总开关和各位置类型的 Visibility，恢复时保留用户原来的设置。
+            if (danmu != null) danmu.Opacity = ordinaryDanmakuSuppressed ? 0 : 1;
+        }
+
         private void SeekFromScriptDanmaku(double positionSeconds)
         {
             var session = mediaPlayer?.PlaybackSession;
@@ -4681,15 +4705,15 @@ namespace BiliBili.UWP.Pages
                     fontSize = 25
                 });
 
-                if (item.location == 1)
+                if (!ordinaryDanmakuSuppressed && item.location == 1)
                 {
                     danmu.AddScrollDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
                 }
-                if (item.location == 4)
+                if (!ordinaryDanmakuSuppressed && item.location == 4)
                 {
                     danmu.AddBottomDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
                 }
-                if (item.location == 5)
+                if (!ordinaryDanmakuSuppressed && item.location == 5)
                 {
                     danmu.AddTopDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
                 }

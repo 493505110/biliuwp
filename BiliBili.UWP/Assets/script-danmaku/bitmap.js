@@ -1,4 +1,5 @@
 // BitmapData、位图与粒子 API。
+import { ScriptByteArray } from "./bytearray.js";
 import {
     currentPositionMs,
     hostState,
@@ -22,6 +23,11 @@ function invalidateBitmapFilters(bitmap) {
     var changed = false;
     for (var i = 0; i < hostState.elements.length; i++) {
         var element = hostState.elements[i], filters = element.props.filters || [];
+        if (!element.expired && element.bitmapData === bitmap) {
+            element.layer.clearRect(0, 0, element.layerWidth, element.layerHeight);
+            element.layer.drawImage(bitmap.canvas, 0, 0);
+            changed = true;
+        }
         if (!element.expired && filters.some(function (filter) { return filter.mapBitmap === bitmap; })) {
             invalidateElementCache(element);
             changed = true;
@@ -81,6 +87,63 @@ function createScriptBitmapData(width, height, transparent, fillColor) {
         width: pixelWidth,
         height: pixelHeight,
         canvas: canvas,
+        transparent: transparent !== false,
+        get rect() { return { x: 0, y: 0, width: pixelWidth, height: pixelHeight }; },
+        getPixels: function (rect) {
+            var area = clipPixelRect(rect, pixelWidth, pixelHeight);
+            var bytes = new ScriptByteArray();
+            if (!area.width || !area.height) return bytes;
+            var pixels = context.getImageData(area.x, area.y, area.width, area.height).data;
+            for (var i = 0; i < pixels.length; i += 4) {
+                // BitmapData 的 ByteArray 固定使用 ARGB 字节序。
+                bytes.writeByte(pixels[i + 3]); bytes.writeByte(pixels[i]);
+                bytes.writeByte(pixels[i + 1]); bytes.writeByte(pixels[i + 2]);
+            }
+            bytes.position = 0;
+            return bytes;
+        },
+        setPixels: function (rect, bytes) {
+            var area = clipPixelRect(rect, pixelWidth, pixelHeight);
+            if (!area.width || !area.height) return;
+            if (!bytes || bytes.bytesAvailable < area.width * area.height * 4) throw new RangeError("setPixels 像素数据不足");
+            var image = context.createImageData(area.width, area.height);
+            for (var i = 0; i < image.data.length; i += 4) {
+                var alpha = bytes.readUnsignedByte();
+                image.data[i] = bytes.readUnsignedByte(); image.data[i + 1] = bytes.readUnsignedByte();
+                image.data[i + 2] = bytes.readUnsignedByte(); image.data[i + 3] = this.transparent ? alpha : 255;
+            }
+            context.putImageData(image, area.x, area.y);
+            invalidateBitmapFilters(this);
+        },
+        copyPixels: function (source, sourceRect, destination, alphaSource, alphaPoint, mergeAlpha) {
+            if (!source || !source.__scriptBitmapData) throw new TypeError("copyPixels 需要 BitmapData");
+            var rect = sourceRect || source.rect, point = destination || {};
+            var sx = Math.floor(toFiniteNumber(rect.x, 0)), sy = Math.floor(toFiniteNumber(rect.y, 0));
+            var dx = Math.floor(toFiniteNumber(point.x, 0)), dy = Math.floor(toFiniteNumber(point.y, 0));
+            var left = Math.max(0, -sx, -dx), top = Math.max(0, -sy, -dy);
+            var width = Math.min(Math.floor(rect.width), source.width - sx, pixelWidth - dx) - left;
+            var height = Math.min(Math.floor(rect.height), source.height - sy, pixelHeight - dy) - top;
+            if (!(width > 0 && height > 0)) return;
+            // 先取快照，支持同一 BitmapData 内重叠复制；默认替换透明像素。
+            var image = source.canvas.getContext("2d").getImageData(sx + left, sy + top, width, height);
+            var mask = alphaSource && alphaSource.transparent && alphaSource.canvas.getContext("2d");
+            var ap = alphaPoint || { x: 0, y: 0 };
+            if (mask) {
+                var alpha = mask.getImageData(Math.floor(ap.x || 0) + left, Math.floor(ap.y || 0) + top, width, height).data;
+                for (var i = 3; i < image.data.length; i += 4) image.data[i] = Math.round(image.data[i] * alpha[i] / 255);
+            }
+            if (mergeAlpha) {
+                var target = context.getImageData(dx + left, dy + top, width, height);
+                for (var i = 0; i < image.data.length; i += 4) {
+                    var a = image.data[i + 3] / 255, b = target.data[i + 3] / 255, total = a + b * (1 - a);
+                    for (var c = 0; c < 3; c++) image.data[i + c] = total ? Math.round((image.data[i + c] * a + target.data[i + c] * b * (1 - a)) / total) : 0;
+                    image.data[i + 3] = Math.round(total * 255);
+                }
+            }
+            if (!this.transparent) for (var i = 3; i < image.data.length; i += 4) image.data[i] = 255;
+            context.putImageData(image, dx + left, dy + top);
+            invalidateBitmapFilters(this);
+        },
         fillRect: function (rect, color) {
             var area = rect || {};
             var x = toFiniteNumber(area.x, 0), y = toFiniteNumber(area.y, 0);
@@ -119,6 +182,15 @@ function createScriptBitmapData(width, height, transparent, fillColor) {
     };
 }
 
+function clipPixelRect(rect, width, height) {
+    var area = rect || { x: 0, y: 0, width: width, height: height };
+    var x = Math.floor(toFiniteNumber(area.x, 0)), y = Math.floor(toFiniteNumber(area.y, 0));
+    var right = Math.min(width, x + Math.max(0, Math.floor(toFiniteNumber(area.width, 0))));
+    var bottom = Math.min(height, y + Math.max(0, Math.floor(toFiniteNumber(area.height, 0))));
+    x = Math.max(0, x); y = Math.max(0, y);
+    return { x: x, y: y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
+}
+
 function createScriptBitmapElement(config) {
     var options = config || {};
     var bitmapData = options.bitmapData;
@@ -126,6 +198,7 @@ function createScriptBitmapElement(config) {
     var height = bitmapData ? bitmapData.height : hostState.viewportHeight;
     var element = M8Display.createLayer(width, height, options);
     if (element && bitmapData) {
+        Object.defineProperty(element, "bitmapData", { value: bitmapData });
         element.layer.drawImage(bitmapData.canvas, 0, 0);
     }
 

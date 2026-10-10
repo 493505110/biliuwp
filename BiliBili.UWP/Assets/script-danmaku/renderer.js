@@ -1623,6 +1623,8 @@ function prepareElement(element) {
     if (element.kind === "layer") {
         // 脚本自绘层每帧都要合成，没有可缓存的静态内容。
         if (element.props.colorTransform || (element.props.filters && element.props.filters.length)) rebuildElementCache(element);
+        // 没有滤镜的 2D 位图不走 rebuildElementCache，仍须进入损伤区域合成。
+        element.painted = true;
         return true;
     }
 

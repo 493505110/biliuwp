@@ -42,6 +42,11 @@ namespace BiliBili.UWP.Controls
         private bool hasRenderedItem;
         private int pendingItemCount;
         private bool isReleased;
+        private bool hostVisible = true;
+
+        /// <summary>脚本通过共享显示树接管普通弹幕；不修改用户的弹幕开关。</summary>
+        public bool OrdinaryDanmakuSuppressed { get; private set; }
+        public event EventHandler<bool> OrdinaryDanmakuSuppressionChanged;
         // 最近一次推入的弹幕快照。保留它是为了在 reset（换视频 / 重新推脚本）之后
         // 重新投递：脚本可能是后于弹幕池加载的，那时第一次推送已被懒初始化闸门丢掉。
         private IEnumerable<ScriptDanmakuComment> danmakuSnapshot =
@@ -76,6 +81,7 @@ namespace BiliBili.UWP.Controls
             }
 
             isReleased = true;
+            SetOrdinaryDanmakuSuppressed(false);
             isPageReady = false;
             Interlocked.Increment(ref contentVersion);
             Volatile.Write(ref pendingItemCount, 0);
@@ -92,6 +98,7 @@ namespace BiliBili.UWP.Controls
                 webView.WebMessageReceived -= WebView_WebMessageReceived;
                 if (webView.CoreWebView2 != null)
                 {
+                    webView.CoreWebView2.ProcessFailed -= WebView_ProcessFailed;
                     webView.Close();
                 }
             }
@@ -121,6 +128,8 @@ namespace BiliBili.UWP.Controls
 
             var list = ScriptDanmakuService.Normalize(items).ToList();
             var version = Interlocked.Increment(ref contentVersion);
+            hostVisible = visible;
+            SetOrdinaryDanmakuSuppressed(false);
             // 脚本集合本身是懒初始化的依据：清空后不再需要 WebView2。
             Volatile.Write(ref pendingItemCount, list.Count);
             return ExecuteCommandAsync(
@@ -144,6 +153,8 @@ namespace BiliBili.UWP.Controls
                     // 保证「先加载弹幕池、后加载脚本」的顺序下脚本仍读得到数据。
                     if (list.Count > 0)
                     {
+                        await ExecuteScriptAsync("window.scriptDanmakuHost.setOrdinaryDanmakuBridge("
+                            + JsonConvert.SerializeObject(version) + ");");
                         await PushDanmakuSnapshotAsync(version);
                     }
 
@@ -240,6 +251,8 @@ namespace BiliBili.UWP.Controls
 
         public Task SetVisibleAsync(bool visible)
         {
+            hostVisible = visible;
+            if (!visible) SetOrdinaryDanmakuSuppressed(false);
             var version = Volatile.Read(ref contentVersion);
             return ExecuteCommandAsync(
                 version,
@@ -421,6 +434,7 @@ namespace BiliBili.UWP.Controls
             catch (Exception ex)
             {
                 LogHelper.WriteLog("脚本弹幕渲染失败", LogType.ERROR, ex);
+                if (version == Volatile.Read(ref contentVersion)) SetOrdinaryDanmakuSuppressed(false);
                 ShowRendererFailureOnce("脚本弹幕渲染失败");
             }
             finally
@@ -466,6 +480,8 @@ namespace BiliBili.UWP.Controls
                     webView.Close();
                     return false;
                 }
+
+                webView.CoreWebView2.ProcessFailed += WebView_ProcessFailed;
 
                 var assetsPath = Path.Combine(
                     Package.Current.InstalledLocation.Path,
@@ -543,6 +559,7 @@ namespace BiliBili.UWP.Controls
             Microsoft.UI.Xaml.Controls.WebView2 sender,
             CoreWebView2WebMessageReceivedEventArgs args)
         {
+            if (isReleased) return;
             string raw;
             try
             {
@@ -576,6 +593,17 @@ namespace BiliBili.UWP.Controls
                     case "action":
                         HandleActionMessage(message);
                         break;
+                    case "ordinaryDanmaku":
+                    {
+                        int version;
+                        if (int.TryParse(message["version"]?.ToString(), out version)
+                            && version == Volatile.Read(ref contentVersion)
+                            && message["suppressed"]?.Type == JTokenType.Boolean)
+                        {
+                            SetOrdinaryDanmakuSuppressed(hostVisible && message["suppressed"].Value<bool>());
+                        }
+                        break;
+                    }
                     case "error":
                         HandleRendererError(message);
                         if (pageReadyCompletion != null
@@ -611,6 +639,19 @@ namespace BiliBili.UWP.Controls
             }
 
             parsedItemCount = Math.Max(parsedItemCount, count);
+        }
+
+        private void SetOrdinaryDanmakuSuppressed(bool suppressed)
+        {
+            if (OrdinaryDanmakuSuppressed == suppressed) return;
+            OrdinaryDanmakuSuppressed = suppressed;
+            OrdinaryDanmakuSuppressionChanged?.Invoke(this, suppressed);
+        }
+
+        private void WebView_ProcessFailed(object sender, CoreWebView2ProcessFailedEventArgs args)
+        {
+            SetOrdinaryDanmakuSuppressed(false);
+            ShowRendererFailureOnce("脚本弹幕渲染进程已停止");
         }
 
         private void HandleRenderedMessage()

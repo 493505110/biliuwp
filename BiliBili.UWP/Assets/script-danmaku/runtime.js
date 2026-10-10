@@ -15,7 +15,8 @@ import {
 import {
     M8Display,
     clonePerspectiveProjection,
-    defineHiddenValue
+    defineHiddenValue,
+    prepareOrdinaryDanmakuLayer
 } from "./display.js";
 import {
     TweenEasing
@@ -195,6 +196,7 @@ function scheduleItemTimeout(closure, delayMs) {
         hostState.activeItem = item;
         item.activeNow = currentPositionMs();
         try {
+            prepareOrdinaryDanmakuLayer();
             closure();
         } catch (error) {
             if (!recoverItemFromCallbackError(item, error)) {
@@ -336,6 +338,7 @@ function runItemTimers(item) {
         timer.stageStartedAtMs = hostState.stagePlayingTimeMs;
         timer.remaining--;
         try {
+            prepareOrdinaryDanmakuLayer();
             timer.callback();
         } catch (error) {
             // 回调抛错只停这一个定时器，不影响同条目其它定时器。

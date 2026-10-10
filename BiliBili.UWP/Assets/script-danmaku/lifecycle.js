@@ -1,4 +1,5 @@
 // 条目编译、生命周期、播放时钟同步与帧调度。
+import { normalizeMultilineStrings } from "./legacy.js";
 import {
     advanceParticleElements
 } from "./bitmap.js";
@@ -17,13 +18,16 @@ import {
     reportCompileError,
     reportCompositeError,
     reportRuntimeError,
+    releaseOrdinaryDanmaku,
     resetStageClock,
-    state
+    state,
+    syncOrdinaryDanmakuSuppression
 } from "./core.js";
 import {
     attachElement,
     detachElement,
     dispatchItemEnterFrame,
+    prepareOrdinaryDanmakuLayer,
     releaseElementCaches
 } from "./display.js";
 import {
@@ -71,6 +75,7 @@ function registerItemElement(item, element) {
 // 条目级内容重置：ScriptManager.clearEl / clearTimer / clearTrigger 用。
 // clearEl 只摘元素（元素的 tween 与定时器随之失效），不重置整个条目。
 function clearItemElements(item) {
+    releaseOrdinaryDanmaku(item);
     for (var index = item.elements.length - 1; index >= 0; index--) {
         // 被 ScriptManager.popEl() 标记过的元件不清（M8 语义：
         // popEl 就是「从自动清理表里弹出」）。
@@ -133,10 +138,12 @@ function runItemScriptWithAvm1Scope(item) {
         try {
             var scriptArgs = createScriptScope(item);
             hostState.activeItem = item;
+            prepareOrdinaryDanmakuLayer();
             item.run.apply(null, scriptArgs);
             return;
         } catch (error) {
             if (error === STOP_EXECUTION_SIGNAL) {
+                releaseOrdinaryDanmaku(item);
                 // 脚本自己调了 stopExecution()：正常终止，不计为错误。
                 item.removed = false;
                 return;
@@ -146,6 +153,7 @@ function runItemScriptWithAvm1Scope(item) {
                 // 不是「未声明变量」这类错误，或已经修不动了：按脚本自身
                 // 的失败处理（停用该条目，不影响同帧其它条目）。
                 item.failed = true;
+                releaseOrdinaryDanmaku(item);
                 reportRuntimeError(error, item.model.id);
                 return;
             }
@@ -195,6 +203,7 @@ function declareAvm1GlobalIfUndeclared(error) {
 // 补救方式只能是「补绑 → 重编译 → 整条脚本重跑」：闭包是在重跑时新建的，
 // 新闭包才会带上补绑的形参。返回 true 表示已经补救（调用方应停止处理该错误）。
 function recoverItemFromCallbackError(item, error) {
+    releaseOrdinaryDanmaku(item);
     if (!declareAvm1GlobalIfUndeclared(error)) {
         return false;
     }
@@ -226,6 +235,7 @@ function readUndeclaredIdentifier(error) {
 
 // 重跑前的清理：与 deactivateItem 同一条释放路径，但不改 activated 状态。
 function releaseItemForRerun(item) {
+    releaseOrdinaryDanmaku(item);
     clearItemTimers(item);
     clearItemTriggers(item);
     item.frameListeners = [];
@@ -243,6 +253,7 @@ function failItem(item, error) {
     }
 
     item.failed = true;
+    releaseOrdinaryDanmaku(item);
     reportCompositeError(error, item.model.id);
 }
 
@@ -259,6 +270,7 @@ function releaseItemElement(item, index) {
 }
 
 function deactivateItem(item) {
+    releaseOrdinaryDanmaku(item);
     item.activated = false;
     item.removed = true;
     item.frameListeners = [];
@@ -293,6 +305,7 @@ function advanceItem(item, now, logicalFrame) {
     item.activeNow = now;
     try {
         if (logicalFrame) {
+            prepareOrdinaryDanmakuLayer();
             runItemTimers(item);
         }
     } catch (error) {
@@ -459,6 +472,8 @@ function isItemWindowReentered(item, now) {
 }
 
 function clearAllItems() {
+    hostState.ordinaryDanmakuOwners.clear();
+    syncOrdinaryDanmakuSuppression();
     for (var index = 0; index < hostState.items.length; index++) {
         var item = hostState.items[index];
         item.activated = false;
@@ -481,6 +496,9 @@ function clearAllItems() {
     // 弹幕会被上一批的遮罩裁掉。
     hostState.stageMaskElement = null;
     hostState.rootElement.childList = [];
+    hostState.ordinaryDanmakuLayer = null;
+    hostState.ordinaryDanmakuOverlay = null;
+    hostState.ordinaryDanmakuBridgeVersion = null;
     hostState.rootElement.composite = null;
     hostState.elements = [];
     resetStageClock(false);
@@ -621,6 +639,7 @@ function setState(positionSeconds, playing, rate) {
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = !!playing;
     state.stopped = false;
+    syncOrdinaryDanmakuSuppression();
     state.rate = Number(rate) > 0 ? Number(rate) : 1;
     state.updatedAt = performance.now();
 
@@ -641,6 +660,8 @@ function setState(positionSeconds, playing, rate) {
 // 因此这里只保证 Player.state 读到 "stop"（对脚本可观测的那一面），
 // 画面收尾交给各条目自己的 lifeTime / 窗口。这是刻意记录的偏离。
 function setStopped(positionSeconds, rate) {
+    hostState.ordinaryDanmakuOwners.clear();
+    syncOrdinaryDanmakuSuppression();
     resetStageClock(true);
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = false;
@@ -689,7 +710,13 @@ function compileItem(model) {
     // 只往实参表加名字而漏了这里，整表就会错位——foreach 收到 trace、
     // getTimer 收到 stopExecution，真实脚本静默失败或中途被终止。
     // 现在形参一律从 SCRIPT_GLOBAL_NAMES 展开生成，全宿主只有这一处真源。
-    return new Function(...SCRIPT_GLOBAL_NAMES, code);
+    try {
+        return new Function(...SCRIPT_GLOBAL_NAMES, code);
+    } catch (error) {
+        // 早期 M8 允许引号内直接换行；合法 JS 保持原样，只在语法失败时兼容。
+        if (!(error instanceof SyntaxError)) throw error;
+        return new Function(...SCRIPT_GLOBAL_NAMES, normalizeMultilineStrings(code));
+    }
 }
 
 function addItem(model, itemGeneration) {

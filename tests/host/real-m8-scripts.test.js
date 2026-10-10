@@ -338,6 +338,7 @@ test('R4 字体数据脚本把字形表注册进 $G（不出画面但数据要�
 test('R5 全 11 条夹具一起跑：0 runtime error 且真的出画面', async () => {
     const host = await loadHost();
     host.api.reset(0, true, 1, true);
+    host.api.setOrdinaryDanmakuBridge(1);
     for (const item of ALL_FIXTURES) {
         host.api.append([item]);
     }

@@ -109,6 +109,13 @@ hostState.generation = 0;
 hostState.activeItem = null;
 // 弹幕快照（Player.commentList）。由 C# 侧推入，resetComments/appendComments 维护。
 hostState.commentSnapshot = [];
+// NSDanmaku 在 XAML 中绘制，显示树里用一个代理代表它的整层。
+// 接管归属于执行删除操作的条目，多个条目互不覆盖。
+hostState.ordinaryDanmakuBridgeVersion = null;
+hostState.ordinaryDanmakuLayer = null;
+hostState.ordinaryDanmakuOverlay = null;
+hostState.ordinaryDanmakuOwners = new Set();
+hostState.ordinaryDanmakuSuppressed = false;
 hostState.nextTriggerId = 0;
 // 舞台遮罩（M8 的 Player.setMask）：非空时整块画布裁剪到该元件的形状里。
 hostState.stageMaskElement = null;
@@ -165,6 +172,26 @@ function post(type, values) {
     } catch (error) {
         // 消息桥不可用时仍让渲染器继续工作。
     }
+}
+
+function syncOrdinaryDanmakuSuppression(force) {
+    var suppressed = hostState.visible && !state.stopped && hostState.ordinaryDanmakuOwners.size > 0;
+    if (!force && suppressed === hostState.ordinaryDanmakuSuppressed) return;
+    hostState.ordinaryDanmakuSuppressed = suppressed;
+    if (hostState.ordinaryDanmakuBridgeVersion !== null) {
+        post("ordinaryDanmaku", { version: hostState.ordinaryDanmakuBridgeVersion, suppressed: suppressed });
+    }
+}
+
+function claimOrdinaryDanmaku(item) {
+    if (!item || item.failed || item.removed) return;
+    hostState.ordinaryDanmakuOwners.add(item);
+    syncOrdinaryDanmakuSuppression();
+}
+
+function releaseOrdinaryDanmaku(item) {
+    hostState.ordinaryDanmakuOwners.delete(item);
+    syncOrdinaryDanmakuSuppression();
 }
 
 function getErrorMessage(error) {
@@ -370,6 +397,7 @@ export {
     RESERVED_WORDS,
     SCRIPT_GLOBAL_NAMES,
     container,
+    claimOrdinaryDanmaku,
     consumeStageFrame,
     currentCreateParent,
     currentItem,
@@ -380,6 +408,7 @@ export {
     reportCompileError,
     reportCompositeError,
     reportRuntimeError,
+    releaseOrdinaryDanmaku,
     requestNavigate,
     requestPause,
     requestPlay,
@@ -388,5 +417,6 @@ export {
     setStageFrameRate,
     stageFrameOffsetMs,
     state,
+    syncOrdinaryDanmakuSuppression,
     toFiniteNumber
 };

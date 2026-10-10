@@ -23,6 +23,7 @@ import {
 import {
     setStageMask
 } from "./renderer.js";
+import { prepareOrdinaryDanmakuLayer } from "./display.js";
 
 // ---- commentTrigger / keyTrigger ----
 //
@@ -122,6 +123,7 @@ function invokeTrigger(trigger, argument) {
     hostState.activeItem = item;
     item.activeNow = currentPositionMs();
     try {
+        prepareOrdinaryDanmakuLayer();
         trigger.callback(argument);
     } catch (error) {
         // 回调抛错只摘掉这一个触发器，不影响其它触发器与整帧。
@@ -181,7 +183,7 @@ function deliverKeyTrigger(keyCode, keyUp) {
 // fontSize），宿主只做缺省填充，不做重命名，脚本拿到的就是 M8 的形状。
 function normalizeComment(raw) {
     var source = raw && typeof raw === "object" ? raw : {};
-    return {
+    var comment = {
         txt: source.txt === undefined || source.txt === null ? "" : String(source.txt),
         // M8 的 CommentData.time 是**秒**（Player.time 才是毫秒）。
         time: toFiniteNumber(source.time, 0),
@@ -190,6 +192,12 @@ function normalizeComment(raw) {
         mode: Math.trunc(toFiniteNumber(source.mode, 1)),
         fontSize: toFiniteNumber(source.fontSize, DEFAULT_TEXT_FONTSIZE)
     };
+    // 2014 年的作品使用 text/stime；与后来 txt/time 共用同一份值（秒）。
+    Object.defineProperties(comment, {
+        text: { get: function () { return this.txt; }, set: function (value) { this.txt = String(value); } },
+        stime: { get: function () { return this.time; }, set: function (value) { this.time = toFiniteNumber(value, 0); } }
+    });
+    return comment;
 }
 
 // ---- Player：实时读宿主的外推时钟与播放状态 ----

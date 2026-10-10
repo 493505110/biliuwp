@@ -5,11 +5,13 @@ import {
     DEFAULT_TEXT_FONTSIZE,
     FLASH_PROJECTION_WIDTH,
     LIFE_TIME_UNBOUNDED,
+    claimOrdinaryDanmaku,
     currentCreateParent,
     currentItem,
     hostState,
     normalizeColor,
     reportRuntimeError,
+    releaseOrdinaryDanmaku,
     setStageFrameRate,
     toFiniteNumber
 } from "./core.js";
@@ -37,7 +39,7 @@ import {
     resolveDeclaredLifeTimeMs
 } from "./tween.js";
 
-import { localMatrix, transformPoint } from "./geometry.js";
+import { localMatrix, transformPoint, worldMatrix, transformedBounds } from "./geometry.js";
 
 // ---- 保留元素 ----
 
@@ -218,6 +220,11 @@ function createRetainedElement(kind) {
             configurable: true, enumerable: false,
             get: function () { var bounds = displayObjectBounds(this, true); return bounds ? bounds[name] : 0; },
             set: function (value) {
+                if (this.kind === "text" && name === "width" && this.wordWrap) {
+                    defineHiddenValue(this, "textFieldWidth", Math.max(1, toFiniteNumber(value, 1)));
+                    scheduleElementCache(this);
+                    return;
+                }
                 var current = this[name];
                 if (current > 0) this[name === "width" ? "scaleX" : "scaleY"] *= Math.max(0, toFiniteNumber(value, 0)) / current;
             }
@@ -450,6 +457,16 @@ function normalizeStyle(style) {
 // `oTxt.length`、`$.createCanvas({parent: box})`），必须挂在元素本身上，
 // 而不是宿主内部的另一个包装对象上。
 function attachElementApi(element) {
+    // Flash 用舞台坐标中的包围盒检测碰撞，visible=false 的碰撞框仍有效。
+    element.hitTestObject = function (other) {
+        if (!other || !other.props) return false;
+        var a = displayObjectBounds(element, false), b = displayObjectBounds(other, false);
+        if (!a || !b) return false;
+        a = transformedBounds(a, worldMatrix(element)); b = transformedBounds(b, worldMatrix(other));
+        return a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0
+            && a.x < b.x + b.width && b.x < a.x + a.width
+            && a.y < b.y + b.height && b.y < a.y + a.height;
+    };
     // 从渲染中摘除（M8 的 remove）：等价于宿主内部的 detachElement，
     // 但元素仍在条目登记表里，条目结束时不会被重复释放。
     element.remove = function () {
@@ -502,8 +519,8 @@ function attachElementApi(element) {
 // 元素的内容/样式类可写属性：直接赋值即让位图缓存失效。
 // M8 脚本大量使用 `el.text = ...`、`el.fontsize = ...`、`el.color = ...`，
 // 这些属性此前只能通过 setStyle 改，脚本原样移植会静默不生效。
-var CONTENT_PROPERTY_NAMES = ["text", "font", "fontsize", "color", "bold",
-    "border", "borderColor", "url"];
+var CONTENT_PROPERTY_NAMES = ["text", "font", "fontsize", "color", "bold", "italic",
+    "border", "borderColor", "background", "backgroundColor", "wordWrap", "multiline", "url"];
 
 function contentPropertyDescriptor(name) {
     return {
@@ -520,10 +537,11 @@ function contentPropertyDescriptor(name) {
             var target = this;
             if (name === "text" || name === "url") {
                 setElementMember(target, name, value);
+                if (name === "text" && target.defaultFormatValue) target.setTextFormat(target.defaultFormatValue);
             } else if (target.style) {
-                if (name === "color" || name === "borderColor") {
+                if (name === "color" || name === "borderColor" || name === "backgroundColor") {
                     target.style[name] = normalizeColor(value);
-                } else if (name === "bold" || name === "border") {
+                } else if (["bold", "italic", "border", "background", "wordWrap", "multiline"].includes(name)) {
                     target.style[name] = !!value;
                 } else if (name === "fontsize") {
                     target.style.fontsize = toFiniteNumber(value, target.style.fontsize);
@@ -674,6 +692,7 @@ function dispatchItemEnterFrame(item) {
         var previous = hostState.activeItem;
         hostState.activeItem = item;
         try {
+            prepareOrdinaryDanmakuLayer();
             entry.listener.call(entry.element, { type: "enterFrame" });
         } catch (error) {
             listeners.splice(index, 1);
@@ -992,6 +1011,20 @@ function defineTreeProperties(element) {
 
 // 文本元素的 length（M8 里是文本字段的字符数）。
 function defineTextProperties(element) {
+    element.setTextFormat = function (format) {
+        if (!format) return;
+        ["font", "size", "color", "bold", "italic", "align"].forEach(function (key) {
+            if (format[key] !== undefined && format[key] !== null) element[key === "size" ? "fontsize" : key] = format[key];
+        });
+    };
+    Object.defineProperty(element, "defaultTextFormat", {
+        configurable: true,
+        get: function () { return Object.assign({}, element.defaultFormatValue || {}); },
+        set: function (format) { defineHiddenValue(element, "defaultFormatValue", Object.assign({}, format)); }
+    });
+    Object.defineProperty(element, "textColor", {
+        configurable: true, get: function () { return element.color; }, set: function (value) { element.color = value; }
+    });
     Object.defineProperty(element, "length", {
         configurable: true,
         enumerable: true,
@@ -1059,6 +1092,11 @@ function createTextStyle(style) {
             : DEFAULT_TEXT_FONT,
         fontsize: toFiniteNumber(source.fontsize, DEFAULT_TEXT_FONTSIZE),
         bold: !!source.bold,
+        italic: !!source.italic,
+        background: !!source.background,
+        backgroundColor: normalizeColor(source.backgroundColor === undefined ? 0xffffff : source.backgroundColor),
+        multiline: source.multiline !== false,
+        wordWrap: !!source.wordWrap,
         border: !!source.border,
         borderColor: normalizeColor(source.borderColor === undefined
             || source.borderColor === null
@@ -1077,10 +1115,24 @@ function measureTextElement(element) {
     var text = element.textValue === undefined || element.textValue === null
         ? ""
         : String(element.textValue);
+    var lines = style.multiline ? text.split(/\r\n|[\r\n]/) : [text.replace(/[\r\n]/g, " ")];
+    if (style.wordWrap && element.textFieldWidth) {
+        var wrapped = [];
+        lines.forEach(function (line) {
+            var current = "";
+            Array.from(line).forEach(function (character) {
+                if (current && metrics.measureText(current + character).width > element.textFieldWidth) { wrapped.push(current); current = ""; }
+                current += character;
+            });
+            wrapped.push(current);
+        });
+        lines = wrapped;
+    }
     return {
         text: text,
-        width: metrics.measureText(text).width,
-        height: style.fontsize * 1.2
+        lines: lines,
+        width: style.wordWrap && element.textFieldWidth || Math.max.apply(null, lines.map(function (line) { return metrics.measureText(line).width; })),
+        height: style.fontsize * 1.2 * lines.length
     };
 }
 
@@ -1096,7 +1148,7 @@ function ensureMeasureContext() {
 }
 
 function textFontCss(style) {
-    return (style.bold ? "bold " : "") + style.fontsize + "px " + style.font;
+    return (style.italic ? "italic " : "") + (style.bold ? "bold " : "") + style.fontsize + "px " + style.font;
 }
 
 function drawTextElement(target, element, offsetX, offsetY) {
@@ -1105,14 +1157,21 @@ function drawTextElement(target, element, offsetX, offsetY) {
     target.font = textFontCss(style);
     target.textBaseline = "middle";
     target.textAlign = "left";
-    if (style.border) {
-        target.lineWidth = Math.max(1, style.fontsize / 12);
-        target.strokeStyle = rgbCss(style.borderColor);
-        target.strokeText(metrics.text, offsetX, offsetY + metrics.height / 2);
+    if (style.background) {
+        target.fillStyle = rgbCss(style.backgroundColor);
+        target.fillRect(offsetX, offsetY, metrics.width, metrics.height);
     }
+    for (var i = 0; i < metrics.lines.length; i++) {
+        var y = offsetY + style.fontsize * 1.2 * (i + 0.5);
+        if (style.border) {
+            target.lineWidth = Math.max(1, style.fontsize / 12);
+            target.strokeStyle = rgbCss(style.borderColor);
+            target.strokeText(metrics.lines[i], offsetX, y);
+        }
 
-    target.fillStyle = rgbCss(style.color);
-    target.fillText(metrics.text, offsetX, offsetY + metrics.height / 2);
+        target.fillStyle = rgbCss(style.color);
+        target.fillText(metrics.lines[i], offsetX, y);
+    }
 }
 
 function rgbCss(color) {
@@ -1121,8 +1180,17 @@ function rgbCss(color) {
         + (color & 0xFF) + ")";
 }
 
+var graphicsElements = new WeakMap();
+
 function createGraphics(element) {
     var graphics = {
+        copyFrom: function (source) {
+            var owner = graphicsElements.get(source);
+            if (!owner) throw new TypeError("copyFrom 需要 Graphics");
+            element.shapeItems = JSON.parse(JSON.stringify(owner.shapeItems || []));
+            graphics.__path = null;
+            scheduleElementCache(element);
+        },
         clear: function () {
             element.shapeItems = [];
             element.painted = false;
@@ -1300,6 +1368,7 @@ function createGraphics(element) {
             throw new Error("drawGraphicsData 尚未支持");
         }
     };
+    graphicsElements.set(graphics, element);
     return graphics;
 }
 
@@ -1444,6 +1513,20 @@ function createLayerElement(width, height) {
 
 // ---- 元素树 ----
 
+// Flash 的 $.root 是共享弹幕显示层。XAML 普通弹幕在这里聚合为代理，
+// 顶部宿主容器保持最后一个子节点，兼容旧游戏保留首尾、删除中间弹幕的遍历。
+// 每次进入脚本回调前重新提供代理，使多个脚本都能独立声明接管。
+function prepareOrdinaryDanmakuLayer() {
+    var root = hostState.rootElement, layer = hostState.ordinaryDanmakuLayer, overlay = hostState.ordinaryDanmakuOverlay;
+    if (!root || !layer || !overlay) return;
+    if (overlay.treeParent !== root) attachElement(overlay, root);
+    if (layer.treeParent !== root) attachElement(layer, root);
+    var index = root.childList.indexOf(overlay);
+    if (index >= 0 && index !== root.childList.length - 1) {
+        root.childList.splice(index, 1); root.childList.push(overlay);
+    }
+}
+
 // 元素登记表：markAllDirty()（画布尺寸/DPI 变化）要遍历它把
 // 所有元素的内容缓存标为待重建，所以每个进入元素树的元素都要登记。
 function registerElement(element) {
@@ -1463,6 +1546,12 @@ function attachElement(element, parent) {
     var target = parent || hostState.rootElement;
     element.treeParent = target;
     target.childList.push(element);
+    // 新脚本元素排在宿主顶部容器之前，普通弹幕代理也遵守同一顺序。
+    var overlay = hostState.ordinaryDanmakuOverlay;
+    if (target === hostState.rootElement && overlay && overlay !== element) {
+        var overlayIndex = target.childList.indexOf(overlay);
+        if (overlayIndex >= 0) { target.childList.splice(overlayIndex, 1); target.childList.push(overlay); }
+    }
     registerElement(element);
     // 挂到复合元素下的新子节点要先烘进父元素的复合层。
     // 注意这里**不能**清 target.composite：复合层是父元件自己的
@@ -1486,8 +1575,12 @@ function addChildToParent(element, parent) {
         return element;
     }
 
+    if (element === hostState.ordinaryDanmakuLayer) {
+        // 脚本主动加回普通弹幕层时释放自己的接管；内部补代理不走此入口。
+        releaseOrdinaryDanmaku(currentItem());
+    }
     if (element.treeParent) {
-        removeChildFromParent(element);
+        removeChildFromParent(element, true);
     }
 
     attachElement(element, parent);
@@ -1516,12 +1609,15 @@ function removeElementFromItem(element) {
     return element;
 }
 
-function removeChildFromParent(element) {
+function removeChildFromParent(element, reparenting) {
     if (!element || !element.treeParent) {
         return element;
     }
 
     var parent = element.treeParent;
+    if (!reparenting && element === hostState.ordinaryDanmakuLayer && parent === hostState.rootElement) {
+        claimOrdinaryDanmaku(currentItem());
+    }
     // 从复合层里摘出来的子元素，旧像素还在父层的复合缓存里：
     // 擦除它的主画布矩形并让父层重烘。
     // 嵌套元件自己在主画布上没有矩形（像素画在祖先的复合层里），
@@ -2562,6 +2658,7 @@ export {
     defineHiddenValue,
     detachElement,
     dispatchItemEnterFrame,
+    prepareOrdinaryDanmakuLayer,
     drawTextElement,
     isElementDirty,
     isElementVisible,
