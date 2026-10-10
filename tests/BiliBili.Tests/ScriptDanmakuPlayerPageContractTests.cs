@@ -100,15 +100,15 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
-        public void ScriptControlSitsAboveBasAndBelowInteractive()
+        public void ScriptHostSitsAboveBasAndBelowInteractive()
         {
             var xaml = TestRepository.ReadFile(PlayerPageXamlPath);
             var bas = xaml.IndexOf("x:Name=\"basDanmakuHost\"", StringComparison.Ordinal);
-            var script = xaml.IndexOf("x:Name=\"scriptDanmakuControl\"", StringComparison.Ordinal);
+            var script = xaml.IndexOf("x:Name=\"scriptDanmakuHost\"", StringComparison.Ordinal);
             var interactive = xaml.IndexOf("x:Name=\"interactiveDanmakuControl\"", StringComparison.Ordinal);
 
             Assert.IsTrue(bas >= 0, "未找到 basDanmakuHost");
-            Assert.IsTrue(script >= 0, "未找到 scriptDanmakuControl");
+            Assert.IsTrue(script >= 0, "未找到 scriptDanmakuHost");
             Assert.IsTrue(interactive >= 0, "未找到 interactiveDanmakuControl");
             Assert.IsTrue(bas < script, "脚本弹幕应叠在 BAS 之上");
             Assert.IsTrue(script < interactive, "脚本弹幕应位于互动弹幕之下");
@@ -150,7 +150,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(body, "SyncScriptDanmakuComments();");
 
             var syncBody = Body("private void SyncScriptDanmakuComments()");
-            StringAssert.Contains(syncBody, "scriptDanmakuControl.PushDanmakuBatchAsync(comments);");
+            StringAssert.Contains(syncBody, "scriptDanmakuControl?.PushDanmakuBatchAsync(comments);");
+            // 控件按需重建时也要补当前快照，不能只依赖弹幕池更新的推送。
+            var createBody = Body("private bool EnsureScriptDanmakuControl()");
+            StringAssert.Contains(createBody, "SyncScriptDanmakuComments();");
 
             // CommentData.mode 用的是 B 站的 mode 编号，不能直接拿 DanmakuLocation 的枚举序号。
             var modeBody = Body("private static int ToDanmakuMode(");
@@ -166,7 +169,7 @@ namespace BiliBili.Tests
             // 发送成功回调里把这条弹幕转发给脚本的 Player.commentTrigger。
             var body = Body("private async void MTC_SendDanmakued(");
 
-            StringAssert.Contains(body, "scriptDanmakuControl.PushSentCommentAsync(");
+            StringAssert.Contains(body, "scriptDanmakuControl?.PushSentCommentAsync(");
             // mode 直接用 SendDanmakuModel.location（它本身就是 1/4/5 这套编号）。
             StringAssert.Contains(body, "mode = item.location,");
         }
@@ -205,14 +208,19 @@ namespace BiliBili.Tests
             // 不设置固定宽高，由 Grid 布局跟随窗口缩放和全屏进出。
             XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
             var page = XDocument.Parse(TestRepository.ReadFile(PlayerPageXamlPath));
-            var control = page.Descendants().Single(
-                element => (string)element.Attribute(x + "Name") == "scriptDanmakuControl");
+            var host = page.Descendants().Single(
+                element => (string)element.Attribute(x + "Name") == "scriptDanmakuHost");
 
-            Assert.AreEqual("playerSurface", (string)control.Parent.Attribute(x + "Name"));
-            Assert.AreEqual("Stretch", (string)control.Attribute("HorizontalAlignment"));
-            Assert.AreEqual("Stretch", (string)control.Attribute("VerticalAlignment"));
-            Assert.IsNull(control.Attribute("Width"), "M8 舞台宽度应随播放器布局");
-            Assert.IsNull(control.Attribute("Height"), "M8 舞台高度应随播放器布局");
+            Assert.AreEqual("Grid", host.Name.LocalName);
+            Assert.AreEqual("playerSurface", (string)host.Parent.Attribute(x + "Name"));
+            // Grid 未显式指定对齐时默认 Stretch，同样应允许铺满播放器。
+            Assert.AreEqual("Stretch", (string)host.Attribute("HorizontalAlignment") ?? "Stretch");
+            Assert.AreEqual("Stretch", (string)host.Attribute("VerticalAlignment") ?? "Stretch");
+            Assert.IsNull(host.Attribute("Width"), "M8 舞台宽度应随播放器布局");
+            Assert.IsNull(host.Attribute("Height"), "M8 舞台高度应随播放器布局");
+
+            var createBody = Body("private bool EnsureScriptDanmakuControl()");
+            StringAssert.Contains(createBody, "scriptDanmakuHost.Children.Add(control);");
 
             var source = PlayerPageSource();
             Assert.IsFalse(source.Contains("DanmakuViewport.TryFit("), "M8 舞台不应按视频比例内缩");
