@@ -133,6 +133,130 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void VideoInfo_ContainsAnInitiallyHiddenM8Section()
+        {
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var page = XDocument.Parse(TestRepository.ReadFile(PlayerPageXamlPath));
+            var panel = page.Descendants().Single(
+                element => (string)element.Attribute(x + "Name") == "panel_ScriptDanmakuInfo");
+
+            Assert.AreEqual("Collapsed", (string)panel.Attribute("Visibility"));
+            Assert.IsTrue(panel.Ancestors().Any(
+                element => (string)element.Attribute(x + "Name") == "grid_Info"));
+            foreach (var name in new[] { "txt_ScriptDanmakuCount", "txt_ScriptDanmakuStatus" })
+                Assert.IsTrue(panel.Descendants().Any(
+                    element => (string)element.Attribute(x + "Name") == name));
+
+            var refresh = Body("private void RefreshScriptDanmakuInfo(");
+            StringAssert.Contains(refresh, "videoScriptDanmakuCount > 0");
+            StringAssert.Contains(refresh, "Visibility.Collapsed");
+            StringAssert.Contains(refresh, "SettingHelper.Get_EnableScriptDanmaku()");
+            StringAssert.Contains(Body("private void menuitem_Info_Click("), "RefreshScriptDanmakuInfo();");
+        }
+
+        [TestMethod]
+        public void VideoInfo_RefreshesOnEveryVideoDanmakuLoadIncludingDisabledM8()
+        {
+            // 四条视频加载路径都要更新信息；仅更新渲染池会漏掉被开关过滤的 M8。
+            var update = Body("private void UpdateScriptDanmakuInfo(");
+            StringAssert.Contains(update, "UnsupportedDanmakuModes?.TryGetValue(8, out disabledCount)");
+            StringAssert.Contains(update, "(load?.ScriptItems?.Count ?? 0) + disabledCount");
+            StringAssert.Contains(update, "RefreshScriptDanmakuInfo();");
+            Assert.IsFalse(update.Contains("manualScriptDanmakuPool"));
+
+            foreach (var method in new[]
+            {
+                "private void ApplyInitialDanmaku(",
+                "private async Task ApplyDanmakuSupplementWhenReadyAsync(",
+                "private async void menuitem_UpdateDanmu_Click(",
+                "public async void ChangeNode("
+            })
+                StringAssert.Contains(Body(method), "UpdateScriptDanmakuInfo(", method);
+
+            // 导入文件和加载示例不能把当前视频误报为包含 M8。
+            Assert.IsFalse(Body("private void SetScriptDanmakuPool(").Contains("UpdateScriptDanmakuInfo("));
+        }
+
+        [TestMethod]
+        public void VideoInfo_ResetsOnContentChangeButSurvivesManualScriptClear()
+        {
+            var source = PlayerPageSource();
+            StringAssert.Contains(source, "private void ClearScriptDanmaku(bool clearVideoInfo = true)");
+            var clear = Body("private void ClearScriptDanmaku(");
+            StringAssert.Contains(clear, "if (clearVideoInfo)");
+            StringAssert.Contains(clear, "videoScriptDanmakuCount = 0;");
+            StringAssert.Contains(clear, "RefreshScriptDanmakuInfo();");
+            StringAssert.Contains(Body("private async Task OpenVideoAsync("), "ClearScriptDanmaku();");
+            StringAssert.Contains(Body("public async void ChangeNode("), "ClearScriptDanmaku();");
+            StringAssert.Contains(Body("private void menuitem_ClearScriptDanmaku_Click("),
+                "ClearScriptDanmaku(clearVideoInfo: false);");
+        }
+
+        [TestMethod]
+        public void VideoInfo_ReceivesErrorsOnlyFromTheCurrentHostAndResetsWithContent()
+        {
+            StringAssert.Contains(Body("private bool EnsureScriptDanmakuControl("),
+                "control.ErrorReported += ScriptDanmakuControl_ErrorReported;");
+            var release = Body("private void ReleaseScriptDanmakuControl(");
+            StringAssert.Contains(release, "control.ErrorReported -= ScriptDanmakuControl_ErrorReported;");
+            Assert.IsFalse(release.Contains("scriptDanmakuDiagnostics.Clear()"),
+                "控件重建不能丢失当前视频的报错摘要");
+
+            var report = Body("private void ScriptDanmakuControl_ErrorReported(");
+            StringAssert.Contains(report, "if (_isExiting || !ReferenceEquals(sender, scriptDanmakuControl)) return;");
+            StringAssert.Contains(report, "scriptDanmakuDiagnostics.Record(e);");
+            StringAssert.Contains(report, "RefreshScriptDanmakuInfo();");
+
+            var clear = Body("private void ClearScriptDanmaku(");
+            var reset = TestRepository.MethodBody(clear, "if (clearVideoInfo)");
+            StringAssert.Contains(reset, "scriptDanmakuDiagnostics.Clear();");
+            Assert.IsFalse(Body("private void UpdateScriptDanmakuInfo(").Contains("scriptDanmakuDiagnostics.Clear()"),
+                "后台补齐不能清空已有报错");
+        }
+
+        [TestMethod]
+        public void VideoInfo_ErrorDetailsAreSelectableAndVisibleEvenForManualScripts()
+        {
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var page = XDocument.Parse(TestRepository.ReadFile(PlayerPageXamlPath));
+            var details = page.Descendants().Single(
+                element => (string)element.Attribute(x + "Name") == "txt_ScriptDanmakuLatestError");
+            Assert.AreEqual("True", (string)details.Attribute("IsTextSelectionEnabled"));
+            Assert.AreEqual("Wrap", (string)details.Attribute("TextWrapping"));
+            Assert.IsTrue(details.Ancestors().Any(
+                element => (string)element.Attribute(x + "Name") == "panel_ScriptDanmakuInfo"));
+
+            var refresh = Body("private void RefreshScriptDanmakuInfo(");
+            StringAssert.Contains(refresh, "videoScriptDanmakuCount > 0 || scriptDanmakuDiagnostics.Count > 0");
+            StringAssert.Contains(refresh, "txt_ScriptDanmakuErrorCount.Text = scriptDanmakuDiagnostics.Count.ToString();");
+            StringAssert.Contains(refresh, "scriptDanmakuDiagnostics.LatestError?.Description ?? string.Empty");
+        }
+
+        [TestMethod]
+        public void VideoInfo_LogsSubscribeWithHostLifetimeAndRefreshOnlyWhenOpen()
+        {
+            StringAssert.Contains(Body("private bool EnsureScriptDanmakuControl("),
+                "control.LogReported += ScriptDanmakuControl_LogReported;");
+            StringAssert.Contains(Body("private void ReleaseScriptDanmakuControl("),
+                "control.LogReported -= ScriptDanmakuControl_LogReported;");
+            var report = Body("private void ScriptDanmakuControl_LogReported(");
+            StringAssert.Contains(report, "!ReferenceEquals(sender, scriptDanmakuControl)");
+            StringAssert.Contains(report, "scriptDanmakuDiagnostics.RecordLogs(e);");
+            StringAssert.Contains(report, "sp_View.IsPaneOpen && grid_Info.Visibility == Visibility.Visible");
+            var refresh = Body("private void RefreshScriptDanmakuInfo(");
+            StringAssert.Contains(refresh, "scriptDanmakuDiagnostics.LogCount > 0");
+            StringAssert.Contains(refresh, "txt_ScriptDanmakuLogs.Text = scriptDanmakuDiagnostics.LogText;");
+
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var page = XDocument.Parse(TestRepository.ReadFile(PlayerPageXamlPath));
+            var logs = page.Descendants().Single(
+                element => (string)element.Attribute(x + "Name") == "txt_ScriptDanmakuLogs");
+            Assert.AreEqual("True", (string)logs.Attribute("IsTextSelectionEnabled"));
+            Assert.AreEqual("Wrap", (string)logs.Attribute("TextWrapping"));
+            Assert.AreEqual("240", (string)logs.Parent.Attribute("MaxHeight"));
+        }
+
+        [TestMethod]
         public void BuiltInDemo_StartsAtCurrentPlaybackPosition()
         {
             var body = Body("private void menuitem_LoadDemoScriptDanmaku_Click(");

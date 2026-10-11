@@ -100,6 +100,8 @@ namespace BiliBili.UWP.Pages
         // ② 换集 / 清除时要能分辨清哪个来源。
         List<ScriptDanmakuModel> manualScriptDanmakuPool = new List<ScriptDanmakuModel>();
         List<ScriptDanmakuModel> scriptDanmakuPoolFromVideo = new List<ScriptDanmakuModel>();
+        int videoScriptDanmakuCount;
+        readonly ScriptDanmakuDiagnostics scriptDanmakuDiagnostics = new ScriptDanmakuDiagnostics();
         List<BiliJumpAdSegment> biliJumpAds = new List<BiliJumpAdSegment>();
         BiliJumpAdSegment biliJumpCurrentAd;
         string biliJumpLastNotifiedKey;
@@ -1569,6 +1571,8 @@ namespace BiliBili.UWP.Pages
 
             var control = new ScriptDanmakuControl();
             control.ActionRequested += ScriptDanmakuControl_ActionRequested;
+            control.ErrorReported += ScriptDanmakuControl_ErrorReported;
+            control.LogReported += ScriptDanmakuControl_LogReported;
             control.OrdinaryDanmakuSuppressionChanged += ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged;
             scriptDanmakuControl = control;
             scriptDanmakuHost.Children.Add(control);
@@ -1588,6 +1592,8 @@ namespace BiliBili.UWP.Pages
             // 移出可视树也会触发 Unloaded，先清引用并解绑，再幂等释放。
             scriptDanmakuControl = null;
             control.ActionRequested -= ScriptDanmakuControl_ActionRequested;
+            control.ErrorReported -= ScriptDanmakuControl_ErrorReported;
+            control.LogReported -= ScriptDanmakuControl_LogReported;
             control.OrdinaryDanmakuSuppressionChanged -= ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged;
             ordinaryDanmakuSuppressed = false;
             ApplyOrdinaryDanmakuSuppression();
@@ -1640,8 +1646,14 @@ namespace BiliBili.UWP.Pages
         /// 换集 / 换播放源时清空全部代码弹幕（含用户手动加载的那份）——
         /// 脚本是按某个视频的时间轴写的，跟着换集保留只会错位。
         /// </summary>
-        private void ClearScriptDanmaku()
+        private void ClearScriptDanmaku(bool clearVideoInfo = true)
         {
+            if (clearVideoInfo)
+            {
+                videoScriptDanmakuCount = 0;
+                scriptDanmakuDiagnostics.Clear();
+                RefreshScriptDanmakuInfo();
+            }
             manualScriptDanmakuPool = new List<ScriptDanmakuModel>();
             scriptDanmakuPoolFromVideo = new List<ScriptDanmakuModel>();
             scriptDanmuPool = new List<ScriptDanmakuModel>();
@@ -2322,6 +2334,7 @@ namespace BiliBili.UWP.Pages
             SetDanmakuPool(initial);
             SetBasDanmakuPool(load?.BasItems);
             SetVideoScriptDanmakuPool(load?.ScriptItems);
+            UpdateScriptDanmakuInfo(load);
             if (load?.IsDanmakuClosed == true)
             {
                 AddLog("当前视频已关闭弹幕");
@@ -2363,6 +2376,7 @@ namespace BiliBili.UWP.Pages
                     SetDanmakuPool(completed.Items, false);
                     SetBasDanmakuPool(completed.BasItems);
                     SetVideoScriptDanmakuPool(completed.ScriptItems);
+                    UpdateScriptDanmakuInfo(completed);
                     //AddLog("后台补齐弹幕完成，共 " + completed.Items.Count + " 条");
                     if (completed.UnsupportedDanmakuCount > 0)
                     {
@@ -3812,9 +3826,58 @@ namespace BiliBili.UWP.Pages
 
         }
 
+        private void UpdateScriptDanmakuInfo(BiliDanmakuLoadResult load)
+        {
+            // 开关关闭时 mode=8 记在未支持统计中，仍应提示视频包含代码弹幕。
+            // 只统计视频加载结果，手动导入和内置示例不计入。
+            var disabledCount = 0;
+            load?.UnsupportedDanmakuModes?.TryGetValue(8, out disabledCount);
+            videoScriptDanmakuCount = (load?.ScriptItems?.Count ?? 0) + disabledCount;
+            RefreshScriptDanmakuInfo();
+        }
+
+        private void ScriptDanmakuControl_ErrorReported(object sender, ScriptDanmakuErrorEventArgs e)
+        {
+            if (_isExiting || !ReferenceEquals(sender, scriptDanmakuControl)) return;
+
+            scriptDanmakuDiagnostics.Record(e);
+            RefreshScriptDanmakuInfo();
+        }
+
+        private void ScriptDanmakuControl_LogReported(object sender, ScriptDanmakuLogEventArgs e)
+        {
+            if (_isExiting || !ReferenceEquals(sender, scriptDanmakuControl)) return;
+
+            scriptDanmakuDiagnostics.RecordLogs(e);
+            // 面板关闭时只记日志，打开「视频信息」时再生成显示文本。
+            if (sp_View.IsPaneOpen && grid_Info.Visibility == Visibility.Visible)
+                RefreshScriptDanmakuInfo();
+        }
+
+        private void RefreshScriptDanmakuInfo()
+        {
+            panel_ScriptDanmakuInfo.Visibility = videoScriptDanmakuCount > 0 || scriptDanmakuDiagnostics.Count > 0
+                || scriptDanmakuDiagnostics.LogCount > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            txt_ScriptDanmakuCount.Text = videoScriptDanmakuCount.ToString();
+            txt_ScriptDanmakuStatus.Text = SettingHelper.Get_EnableScriptDanmaku()
+                ? "代码弹幕功能：已开启"
+                : "代码弹幕功能：未开启，可在设置中开启「启用M8代码弹幕(Beta)」";
+            panel_ScriptDanmakuErrors.Visibility = scriptDanmakuDiagnostics.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            txt_ScriptDanmakuErrorCount.Text = scriptDanmakuDiagnostics.Count.ToString();
+            txt_ScriptDanmakuLatestError.Text = scriptDanmakuDiagnostics.LatestError?.Description ?? string.Empty;
+            panel_ScriptDanmakuLogs.Visibility = scriptDanmakuDiagnostics.LogCount > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            txt_ScriptDanmakuLogs.Text = scriptDanmakuDiagnostics.LogText;
+        }
+
         private void menuitem_Info_Click(object sender, RoutedEventArgs e)
         {
-
+            RefreshScriptDanmakuInfo();
             sp_View.IsPaneOpen = true;
             if (playNow != null && DanMuPool != null)
             {
@@ -4068,6 +4131,7 @@ namespace BiliBili.UWP.Pages
                 SetDanmakuPool(danmakuResult.Items);
                 SetBasDanmakuPool(danmakuResult.BasItems);
                 SetVideoScriptDanmakuPool(danmakuResult.ScriptItems);
+                UpdateScriptDanmakuInfo(danmakuResult);
                 await LoadInteractiveDanmakuAsync(item, requestId);
                 if (!cancellationToken.IsCancellationRequested
                     && IsPlaybackRequestCurrent(requestId, item))
@@ -5157,7 +5221,7 @@ namespace BiliBili.UWP.Pages
 
         private void menuitem_ClearScriptDanmaku_Click(object sender, RoutedEventArgs e)
         {
-            ClearScriptDanmaku();
+            ClearScriptDanmaku(clearVideoInfo: false);
         }
 
         private void TantanDialog_ReturnDanmakus(object sender, List<NSDanmaku.Model.DanmakuModel> e)
@@ -5204,6 +5268,7 @@ namespace BiliBili.UWP.Pages
             SetDanmakuPool(danmakuResult.Items);
             SetBasDanmakuPool(danmakuResult.BasItems);
             SetVideoScriptDanmakuPool(danmakuResult.ScriptItems);
+            UpdateScriptDanmakuInfo(danmakuResult);
             danmu.ClearAll();
             var item = playNow;
             var quality = (cb_Quity.SelectedItem as QualityModel)?.qn ?? 64;

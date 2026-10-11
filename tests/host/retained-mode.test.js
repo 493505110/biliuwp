@@ -2529,6 +2529,81 @@ test('D46 内置示例在视频中途及重复加载时完整显示文字和粒�
     assert.equal(host.errors().length, 0);
 });
 
+test('M8 日志合并 trace/tracex 并保留播放时间与脚本 ID', async () => {
+    const host = await loadHost();
+    host.reset(12.5, true, 1, true);
+    host.api.setOrdinaryDanmakuBridge(7);
+    host.append([scriptItem('trace-batch', 12.5, 10,
+        'window.__traceResult = trace("hello", {x: 1}, null, undefined);'
+        + 'tracex("repeat"); timer(function () { trace("later"); }, 50);')]);
+    host.runFrames(1);
+    host.advanceRealTime(50);
+    assert.equal(host.messages.filter(message => message.type === 'log').length, 0);
+    host.advanceRealTime(200);
+    const batches = host.messages.filter(message => message.type === 'log');
+    assert.equal(batches.length, 1);
+    assert.equal(batches[0].version, 7);
+    assert.deepEqual(batches[0].entries.map(entry => entry.message),
+        ['hello {"x":1} null undefined', 'repeat', 'later']);
+    assert.ok(batches[0].entries.every(entry => entry.itemId === 'trace-batch'));
+    assert.ok(batches[0].entries.every(entry => entry.positionSeconds >= 12.5));
+    assert.equal(host.sandbox.__traceResult, 'hello {"x":1} null undefined');
+    assert.equal(host.errors().length, 0);
+});
+
+test('M8 高频日志只上报最近500条并限制单条长度', async () => {
+    const host = await loadHost();
+    host.reset(0, true, 1, true);
+    host.api.setOrdinaryDanmakuBridge(8);
+    host.append([scriptItem('trace-limit', 0, 10,
+        'for (var i = 0; i < 505; i++) trace("line" + i); trace(new Array(1201).join("x"));')]);
+    host.runFrames(1);
+    host.advanceRealTime(250);
+    const batches = host.messages.filter(message => message.type === 'log');
+    assert.equal(batches.length, 1);
+    assert.equal(batches[0].entries.length, 500);
+    assert.equal(batches[0].entries[0].message, 'line6');
+    assert.equal(batches[0].entries[499].message, 'x'.repeat(500));
+    assert.equal(host.errors().length, 0);
+});
+
+test('M8 clear 清空已排队的日志并允许后续输出', async () => {
+    const host = await loadHost();
+    host.reset(0, true, 1, true);
+    host.api.setOrdinaryDanmakuBridge(9);
+    host.append([scriptItem('trace-clear', 0, 10,
+        'trace("old"); timer(function () { clear(); trace("new"); }, 50);')]);
+    host.runFrames(1);
+    host.advanceRealTime(50);
+    const clears = host.messages.filter(message => message.type === 'clearLog');
+    assert.equal(clears.length, 1);
+    assert.equal(clears[0].version, 9);
+    host.advanceRealTime(250);
+    const logs = host.messages.filter(message => message.type === 'log');
+    assert.equal(logs.length, 1);
+    assert.deepEqual(logs[0].entries.map(entry => entry.message), ['new']);
+    assert.equal(host.errors().length, 0);
+});
+
+test('M8 reset 不把旧视频的待发送日志带入新内容', async () => {
+    const host = await loadHost();
+    host.reset(0, true, 1, true);
+    host.api.setOrdinaryDanmakuBridge(10);
+    host.append([scriptItem('trace-old', 0, 10, 'trace("old");')]);
+    host.runFrames(1);
+    host.reset(0, true, 1, true);
+    host.api.setOrdinaryDanmakuBridge(11);
+    host.advanceRealTime(250);
+    assert.equal(host.messages.filter(message => message.type === 'log').length, 0);
+    host.append([scriptItem('trace-new', 0, 10, 'trace("new");')]);
+    host.runFrames(1);
+    host.advanceRealTime(250);
+    const logs = host.messages.filter(message => message.type === 'log');
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].version, 11);
+    assert.equal(logs[0].entries[0].itemId, 'trace-new');
+});
+
 module.exports = { loadHost };
 if (require.main === module) {
     run().catch(error => { console.error(error); process.exitCode = 1; });

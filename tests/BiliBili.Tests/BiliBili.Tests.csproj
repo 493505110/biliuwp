@@ -68,6 +68,8 @@
              Link="Production\ScriptDanmakuParser.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\ScriptDanmakuCommentBatch.cs"
              Link="Production\ScriptDanmakuCommentBatch.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\ScriptDanmakuDiagnostics.cs"
+             Link="Production\ScriptDanmakuDiagnostics.cs" />
     <Compile Include="..\..\BiliBili.UWP\Models\ScriptDanmakuModel.cs"
              Link="Production\ScriptDanmakuModel.cs" />
     <Compile Include="..\..\BiliBili.Background\DynamicFeedParser.cs"

@@ -116,6 +116,10 @@ namespace BiliBili.UWP.Controls
         /// <summary>宿主侧脚本请求播放器执行动作（暂停 / 播放 / 定位 / 导航）。</summary>
         public event EventHandler<ScriptDanmakuActionEventArgs> ActionRequested;
 
+        /// <summary>脚本和宿主错误，供播放器的信息面板展示。</summary>
+        public event EventHandler<ScriptDanmakuErrorEventArgs> ErrorReported;
+        public event EventHandler<ScriptDanmakuLogEventArgs> LogReported;
+
         public Task ReplaceAsync(
             IEnumerable<ScriptDanmakuModel> items,
             double positionSeconds,
@@ -409,7 +413,7 @@ namespace BiliBili.UWP.Controls
             catch (Exception ex)
             {
                 LogHelper.WriteLog("转发脚本弹幕按键失败", LogType.ERROR, ex);
-                ShowRendererFailureOnce("脚本弹幕按键转发失败");
+                ShowRendererFailureOnce("脚本弹幕按键转发失败", ex);
             }
 
             return Task.CompletedTask;
@@ -439,6 +443,7 @@ namespace BiliBili.UWP.Controls
             catch (Exception ex)
             {
                 LogHelper.WriteLog("转发脚本弹幕鼠标失败", LogType.ERROR, ex);
+                ReportError("host", null, "转发脚本弹幕鼠标失败：" + ex.Message);
             }
         }
 
@@ -464,6 +469,8 @@ namespace BiliBili.UWP.Controls
             catch (Exception ex)
             {
                 LogHelper.WriteLog("处理脚本弹幕点击失败", LogType.ERROR, ex);
+                if (version == Volatile.Read(ref contentVersion))
+                    ReportError("host", null, "处理脚本弹幕点击失败：" + ex.Message);
                 return false;
             }
         }
@@ -547,8 +554,11 @@ namespace BiliBili.UWP.Controls
             catch (Exception ex)
             {
                 LogHelper.WriteLog("脚本弹幕渲染失败", LogType.ERROR, ex);
-                if (version == Volatile.Read(ref contentVersion)) SetOrdinaryDanmakuSuppressed(false);
-                ShowRendererFailureOnce("脚本弹幕渲染失败");
+                if (version == Volatile.Read(ref contentVersion))
+                {
+                    SetOrdinaryDanmakuSuppressed(false);
+                    ShowRendererFailureOnce("脚本弹幕渲染失败", ex);
+                }
             }
             finally
             {
@@ -643,7 +653,7 @@ namespace BiliBili.UWP.Controls
             catch (Exception ex)
             {
                 LogHelper.WriteLog("初始化脚本弹幕 WebView2 失败", LogType.ERROR, ex);
-                ShowRendererFailureOnce("脚本弹幕渲染器加载失败");
+                ShowRendererFailureOnce("脚本弹幕渲染器加载失败", ex);
                 return false;
             }
         }
@@ -706,6 +716,10 @@ namespace BiliBili.UWP.Controls
                     case "action":
                         HandleActionMessage(message);
                         break;
+                    case "log":
+                    case "clearLog":
+                        HandleLogMessage(message);
+                        break;
                     case "ordinaryDanmaku":
                     {
                         int version;
@@ -734,6 +748,32 @@ namespace BiliBili.UWP.Controls
                     LogType.ERROR,
                     ex);
             }
+        }
+
+        private void HandleLogMessage(JObject message)
+        {
+            int version;
+            if (isReleased || !int.TryParse(message["version"]?.ToString(), out version)
+                || version != Volatile.Read(ref contentVersion)) return;
+
+            if (message["type"]?.ToString() == "clearLog")
+            {
+                LogReported?.Invoke(this, new ScriptDanmakuLogEventArgs(null, isClear: true));
+                return;
+            }
+
+            var values = message["entries"] as JArray;
+            if (values == null) return;
+            var entries = new List<ScriptDanmakuLogEntry>();
+            foreach (var value in values.OfType<JObject>().Take(ScriptDanmakuDiagnostics.MaxLogEntries))
+            {
+                var position = value["positionSeconds"];
+                var seconds = position?.Type == JTokenType.Float || position?.Type == JTokenType.Integer
+                    ? position.Value<double>() : 0;
+                entries.Add(new ScriptDanmakuLogEntry(seconds,
+                    Truncate(value["itemId"]?.ToString()), Truncate(value["message"]?.ToString())));
+            }
+            if (entries.Count != 0) LogReported?.Invoke(this, new ScriptDanmakuLogEventArgs(entries));
         }
 
         private void HandleParsedMessage(JObject message)
@@ -790,6 +830,7 @@ namespace BiliBili.UWP.Controls
                 + (string.IsNullOrWhiteSpace(itemId) ? string.Empty : "，脚本 " + itemId)
                 + (string.IsNullOrWhiteSpace(detail) ? string.Empty : "：" + Truncate(detail));
             LogHelper.WriteLog(logMessage, LogType.ERROR);
+            ReportError(stage, itemId, detail);
 
             // 只有合成期出错才是宿主自身的问题，才值得报「渲染失败」。
             // compile / runtime 是**那条脚本**的问题：宿主只标它 failed、其余条目
@@ -799,7 +840,7 @@ namespace BiliBili.UWP.Controls
             // 用户没有做错任何事，却会看到一条全局失败提示。
             if (string.Equals(stage, "composite", StringComparison.OrdinalIgnoreCase))
             {
-                ShowRendererFailureOnce("脚本弹幕渲染失败");
+                ShowRendererFailureOnce("脚本弹幕渲染失败", reportError: false);
             }
         }
 
@@ -868,12 +909,26 @@ namespace BiliBili.UWP.Controls
             }
         }
 
-        private void ShowRendererFailureOnce(string message)
+        private void ReportError(string stage, string itemId, string message)
         {
-            if (isReleased || rendererFailureNotified)
+            if (isReleased) return;
+
+            ErrorReported?.Invoke(this, new ScriptDanmakuErrorEventArgs(
+                Truncate(stage), Truncate(itemId), Truncate(message)));
+        }
+
+        private void ShowRendererFailureOnce(string message, Exception exception = null, bool reportError = true)
+        {
+            if (isReleased) return;
+
+            // 弹出提示仍只显示一次，但后续不同错误也要进入信息面板。
+            if (reportError)
             {
-                return;
+                ReportError("host", null, message
+                    + (exception == null ? string.Empty : "：" + exception.Message));
             }
+
+            if (rendererFailureNotified) return;
 
             rendererFailureNotified = true;
             Utils.ShowMessageToast(message, 3000);

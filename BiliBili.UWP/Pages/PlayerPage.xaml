@@ -217,6 +217,22 @@
                                  <TextBlock Foreground="White"><Run>视频编码:</Run><Run x:Name="txt_VideoCodec"></Run></TextBlock>
                                  <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
                                  <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>
+                                 <StackPanel x:Name="panel_ScriptDanmakuInfo" Visibility="Collapsed">
+                                     <TextBlock Foreground="White" Margin="0 8 0 0">M8 代码弹幕</TextBlock>
+                                     <TextBlock Foreground="White"><Run>数量:</Run><Run x:Name="txt_ScriptDanmakuCount" /><Run> 条</Run></TextBlock>
+                                     <TextBlock x:Name="txt_ScriptDanmakuStatus" Foreground="White" TextWrapping="Wrap" />
+                                     <StackPanel x:Name="panel_ScriptDanmakuErrors" Visibility="Collapsed" Margin="0 4 0 0">
+                                         <TextBlock Foreground="White"><Run>错误数量（去重）:</Run><Run x:Name="txt_ScriptDanmakuErrorCount" /></TextBlock>
+                                         <TextBlock Foreground="White">最近错误:</TextBlock>
+                                         <TextBlock x:Name="txt_ScriptDanmakuLatestError" Foreground="White" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                     </StackPanel>
+                                     <StackPanel x:Name="panel_ScriptDanmakuLogs" Visibility="Collapsed" Margin="0 4 0 0">
+                                         <TextBlock Foreground="White">运行日志（最近500条）:</TextBlock>
+                                         <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                             <TextBlock x:Name="txt_ScriptDanmakuLogs" Foreground="White" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                         </ScrollViewer>
+                                     </StackPanel>
+                                 </StackPanel>
                                  <StackPanel x:Name="panel_BiliJumpInfo" Visibility="Collapsed">
                                      <TextBlock Foreground="White" Margin="0 8 0 0">AI广告识别</TextBlock>
                                      <TextBlock Foreground="White" TextWrapping="Wrap"><Run x:Name="txt_BiliJumpStatus">未识别</Run></TextBlock>

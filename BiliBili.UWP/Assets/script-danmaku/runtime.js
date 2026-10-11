@@ -485,8 +485,44 @@ var scriptClockOrigin = performance.now();
 // 派发 "clearLog" 清空 IDE 输出区，见 org/lala/event/EventBus.as:219-222）。
 var scriptTraceBuffer = [];
 var MAX_TRACE_BUFFER_ENTRIES = 500;
+var pendingTraceBatch = null;
+var traceFlushTimer = null;
 
-function writeTrace(values) {                var parts = [];
+function discardPendingTrace() {
+    if (traceFlushTimer !== null) window.clearTimeout(traceFlushTimer);
+    traceFlushTimer = null;
+    pendingTraceBatch = null;
+}
+
+function queueTrace(text) {
+    var version = hostState.ordinaryDanmakuBridgeVersion;
+    var generation = hostState.generation;
+    if (pendingTraceBatch && (pendingTraceBatch.version !== version
+        || pendingTraceBatch.generation !== generation)) discardPendingTrace();
+    if (!pendingTraceBatch) pendingTraceBatch = { version: version, generation: generation, entries: [] };
+
+    var item = currentItem();
+    pendingTraceBatch.entries.push({
+        itemId: item && item.model ? String(item.model.id || "").slice(0, 500) : "",
+        positionSeconds: Math.max(0, currentPositionMs() / 1000),
+        message: text.slice(0, 500)
+    });
+    if (pendingTraceBatch.entries.length > MAX_TRACE_BUFFER_ENTRIES) pendingTraceBatch.entries.shift();
+    if (traceFlushTimer !== null) return;
+
+    // 高频 trace 合并成每 250ms 一批，避免逐条跨 WebView2 消息桥刷新页面。
+    traceFlushTimer = window.setTimeout(function () {
+        traceFlushTimer = null;
+        var batch = pendingTraceBatch;
+        pendingTraceBatch = null;
+        if (!batch || batch.version !== hostState.ordinaryDanmakuBridgeVersion
+            || batch.generation !== hostState.generation) return;
+        post("log", { version: batch.version, entries: batch.entries });
+    }, 250);
+}
+
+function writeTrace(values) {
+    var parts = [];
     for (var index = 0; index < values.length; index++) {
         parts.push(stringifyTraceValue(values[index]));
     }
@@ -496,6 +532,7 @@ function writeTrace(values) {                var parts = [];
     if (scriptTraceBuffer.length > MAX_TRACE_BUFFER_ENTRIES) {
         scriptTraceBuffer.shift();
     }
+    queueTrace(text);
 
     try {
         if (window.console && typeof window.console.log === "function") {
@@ -641,11 +678,11 @@ function stopExecution() {
 var STOP_EXECUTION_SIGNAL = { stopExecution: true };
 
 // M8 的 clear()：清空脚本输出区。原版 EventBus.clear() 派发 "clearLog"
-// （org/lala/event/EventBus.as:219-222）；宿主没有 IDE 面板，因此清本地
-// trace 缓冲，并把消息透给 C# 侧按需消费。
+// （org/lala/event/EventBus.as:219-222）；同步清空本地缓冲和视频信息中的输出。
 function clear() {
     scriptTraceBuffer.length = 0;
-    post("clearLog", {});
+    discardPendingTrace();
+    post("clearLog", { version: hostState.ordinaryDanmakuBridgeVersion });
 }
 
 // M8 的 load(library, callback)：按需加载外部脚本库

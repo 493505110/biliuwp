@@ -1438,7 +1438,7 @@ namespace BiliBili.Tests
             var handler = TestRepository.MethodBody(source, "private void HandleRendererError(JObject message)");
 
             StringAssert.Contains(handler, "if (string.Equals(stage, \"composite\", StringComparison.OrdinalIgnoreCase))");
-            StringAssert.Contains(handler, "ShowRendererFailureOnce(\"脚本弹幕渲染失败\");");
+            StringAssert.Contains(handler, "ShowRendererFailureOnce(\"脚本弹幕渲染失败\", reportError: false);");
             // 日志仍然全量记录（含 stage 与脚本 id），只是不再弹全局提示。
             StringAssert.Contains(handler, "LogHelper.WriteLog(logMessage, LogType.ERROR);");
 
@@ -1446,7 +1446,42 @@ namespace BiliBili.Tests
             var initialize = TestRepository.MethodBody(source, "private async Task<bool> InitializeAsync()");
             StringAssert.Contains(initialize, "ShowRendererFailureOnce(\"脚本弹幕渲染器加载失败\");");
             var execute = TestRepository.MethodBody(source, "private async Task ExecuteCommandAsync(int version, Func<Task> command)");
-            StringAssert.Contains(execute, "ShowRendererFailureOnce(\"脚本弹幕渲染失败\");");
+            StringAssert.Contains(execute, "ShowRendererFailureOnce(\"脚本弹幕渲染失败\", ex);");
+        }
+
+        [TestMethod]
+        public void Control_ForwardsScriptAndHostErrorsWithoutDuplicatingCompositeFailures()
+        {
+            var source = TestRepository.ReadFile(ControlPath);
+            var handler = TestRepository.MethodBody(source, "private void HandleRendererError(");
+            StringAssert.Contains(handler, "ReportError(stage, itemId, detail);");
+            StringAssert.Contains(handler, "reportError: false");
+
+            var report = TestRepository.MethodBody(source, "private void ReportError(");
+            StringAssert.Contains(report, "if (isReleased) return;");
+            StringAssert.Contains(report, "ErrorReported?.Invoke(this, new ScriptDanmakuErrorEventArgs(");
+            StringAssert.Contains(report, "Truncate(stage), Truncate(itemId), Truncate(message)");
+
+            var failure = TestRepository.MethodBody(source, "private void ShowRendererFailureOnce(");
+            // 面板应收到每种宿主错误，弹出提示仍只出现一次。
+            Assert.IsTrue(failure.IndexOf("ReportError(", StringComparison.Ordinal)
+                < failure.IndexOf("if (rendererFailureNotified)", StringComparison.Ordinal));
+            StringAssert.Contains(failure, "exception.Message");
+        }
+
+        [TestMethod]
+        public void Control_ForwardsBoundedLogBatchesAndClearOnlyForCurrentContent()
+        {
+            var source = TestRepository.ReadFile(ControlPath);
+            var messages = TestRepository.MethodBody(source, "private void WebView_WebMessageReceived(");
+            StringAssert.Contains(messages, "case \"log\":");
+            StringAssert.Contains(messages, "case \"clearLog\":");
+            StringAssert.Contains(messages, "HandleLogMessage(message);");
+            var logs = TestRepository.MethodBody(source, "private void HandleLogMessage(");
+            StringAssert.Contains(logs, "version != Volatile.Read(ref contentVersion)");
+            StringAssert.Contains(logs, "Take(ScriptDanmakuDiagnostics.MaxLogEntries)");
+            StringAssert.Contains(logs, "isClear: true");
+            StringAssert.Contains(logs, "LogReported?.Invoke");
         }
 
         // ---- 桥协议：宿主 ↔ 控件的动作与数据链（本轮新增）----
