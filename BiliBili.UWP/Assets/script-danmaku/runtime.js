@@ -1,4 +1,5 @@
 // 跨条目变量、Utils、定时器、ScriptManager 与脚本作用域。
+import { ScriptByteArray } from "./bytearray.js";
 import {
     ScriptBitmap
 } from "./bitmap.js";
@@ -571,6 +572,13 @@ function foreach(loop, callback) {
 function clone(object) {
     if (object === null || typeof object !== "object") {
         return object;
+    }
+
+    if (object instanceof ScriptByteArray) {
+        var bytes = new ScriptByteArray(object.data);
+        bytes.position = object.position;
+        bytes.endian = object.endian;
+        return bytes;
     }
 
     var projectionCopy = clonePerspectiveProjection(object);

@@ -1,4 +1,4 @@
-// M8 位图资源使用同步的 ByteArray.inflate（RFC 1951 裸 DEFLATE）。
+// M8 位图和字体资源使用同步的 ByteArray.inflate / uncompress。
 // 浏览器的 DecompressionStream 是异步的，不能在脚本的 setPixels 调用前完成。
 const MAX_BYTES = 64 * 1024 * 1024;
 
@@ -101,8 +101,27 @@ function inflateRaw(input) {
 class ScriptByteArray {
     constructor(bytes) {
         this.data = Array.from(bytes || []);
+        if (this.data.length > MAX_BYTES) throw new RangeError("ByteArray 数据过大");
         this.position = 0;
         this.endian = "bigEndian";
+        // Flash ByteArray 的数字下标直接访问字节，不推进 position。
+        return new Proxy(this, {
+            get(target, key, receiver) {
+                return isByteIndex(key) ? target.data[Number(key)] : Reflect.get(target, key, receiver);
+            },
+            set(target, key, value, receiver) {
+                if (!isByteIndex(key)) return Reflect.set(target, key, value, receiver);
+                const index = Number(key);
+                if (index >= MAX_BYTES) throw new RangeError("ByteArray 数据过大");
+                if (index >= target.length) {
+                    const position = target.position;
+                    target.length = index + 1;
+                    target.position = position;
+                }
+                target.data[index] = Number(value) & 255;
+                return true;
+            }
+        });
     }
     get length() { return this.data.length; }
     set length(value) {
@@ -121,10 +140,32 @@ class ScriptByteArray {
         if (position > this.length) this.length = position;
         this.data[position] = value & 255; this.position = position + 1;
     }
+    writeUTFBytes(value) {
+        // 不写长度前缀；不成对的 UTF-16 代理项按 UTF-8 替换字符编码。
+        for (const character of String(value)) {
+            let code = character.codePointAt(0);
+            if (code >= 0xD800 && code <= 0xDFFF) code = 0xFFFD;
+            if (code < 0x80) this.writeByte(code);
+            else if (code < 0x800) {
+                this.writeByte(0xC0 | code >> 6); this.writeByte(0x80 | code & 63);
+            } else if (code < 0x10000) {
+                this.writeByte(0xE0 | code >> 12); this.writeByte(0x80 | code >> 6 & 63);
+                this.writeByte(0x80 | code & 63);
+            } else {
+                this.writeByte(0xF0 | code >> 18); this.writeByte(0x80 | code >> 12 & 63);
+                this.writeByte(0x80 | code >> 6 & 63); this.writeByte(0x80 | code & 63);
+            }
+        }
+    }
     readUnsignedByte() {
         if (this.bytesAvailable < 1) throw new RangeError("ByteArray 已到末尾");
         return this.data[this.position++];
     }
+    readBoolean() { return this.readUnsignedByte() !== 0; }
+    readByte() { const value = this.readUnsignedByte(); return value > 127 ? value - 256 : value; }
+    readUnsignedShort() { return readNumber(this, 2, "getUint16"); }
+    readShort() { return readNumber(this, 2, "getInt16"); }
+    readFloat() { return readNumber(this, 4, "getFloat32"); }
     readUnsignedInt() {
         if (this.bytesAvailable < 4) throw new RangeError("ByteArray 已到末尾");
         let value = 0;
@@ -141,6 +182,34 @@ class ScriptByteArray {
         const result = inflateRaw(Uint8Array.from(this.data));
         this.data = Array.from(result); this.position = 0;
     }
+    uncompress(algorithm = "zlib") {
+        if (algorithm === "deflate") { this.inflate(); return; }
+        if (algorithm !== "zlib") throw new Error("不支持的 ByteArray 压缩格式：" + algorithm);
+        const input = Uint8Array.from(this.data);
+        // zlib = CMF/FLG + DEFLATE + 大端 Adler-32；不能直接交给 inflateRaw。
+        if (input.length < 6 || (input[0] & 15) !== 8 || input[0] >> 4 > 7
+            || ((input[0] << 8) | input[1]) % 31 !== 0 || (input[1] & 32)) {
+            throw new Error("无效的 zlib 头或不支持的预设字典");
+        }
+        const output = inflateRaw(input.subarray(2, input.length - 4));
+        let a = 1, b = 0;
+        for (const value of output) { a = (a + value) % 65521; b = (b + a) % 65521; }
+        const checksum = new DataView(input.buffer, input.byteOffset, input.byteLength).getUint32(input.length - 4);
+        if (((b << 16 | a) >>> 0) !== checksum) throw new Error("zlib 校验失败");
+        this.data = Array.from(output); this.position = 0;
+    }
+}
+
+function isByteIndex(key) {
+    return typeof key === "string" && /^(0|[1-9][0-9]*)$/.test(key);
+}
+
+function readNumber(bytes, size, method) {
+    if (bytes.bytesAvailable < size) throw new RangeError("ByteArray 已到末尾");
+    const data = Uint8Array.from(bytes.data.slice(bytes.position, bytes.position + size));
+    const value = new DataView(data.buffer)[method](0, bytes.endian === "littleEndian");
+    bytes.position += size;
+    return value;
 }
 
 export { ScriptByteArray, inflateRaw };

@@ -83,5 +83,8 @@ jobs:
       - name: Run av734037 compatibility tests
         run: node tests/host/av734037-compat.test.js
 
+      - name: Run BPM compatibility tests
+        run: node tests/host/av2677148-compat.test.js
+
       - name: Run unit tests
         run: dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release --no-restore

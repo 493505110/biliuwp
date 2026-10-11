@@ -425,8 +425,8 @@ namespace BiliBili.Tests
                 Regex.Matches(compileBody + legacyBody, @"new Function\(").Count,
                 occurrences,
                 "编译只允许在条目注册与旧语法解析探测中发生，逐帧路径不得编译");
-            StringAssert.Contains(compileBody, "normalizeOrphanBreakStatements(normalizeMultilineStrings(code))");
-            Assert.AreEqual(1, Regex.Matches(source, @"normalizeOrphanBreakStatements\(normalizeMultilineStrings").Count);
+            StringAssert.Contains(compileBody, "normalizeOrphanBreakStatements(normalizeLegacySyntax(normalizeMultilineStrings(code)))");
+            Assert.AreEqual(1, Regex.Matches(source, @"normalizeOrphanBreakStatements\(normalizeLegacySyntax\(normalizeMultilineStrings").Count);
             StringAssert.Contains(legacyBody, "breaks.length > 256");
             Assert.IsTrue(occurrences > 0);
             StringAssert.Contains(source, "item.run = compileItem(model);");

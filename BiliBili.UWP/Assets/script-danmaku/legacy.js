@@ -31,13 +31,45 @@ function normalizeMultilineStrings(code, onWord) {
             let word = c;
             while (i + 1 < code.length && /[\w$]/.test(code[i + 1])) word += code[++i];
             if (onWord) onWord(word, start, i + 1);
-            result += word; expression = /^(return|throw|case|delete|void|typeof|new|in|instanceof)$/.test(word);
+            result += word; expression = /^(return|throw|case|delete|void|typeof|new|in|instanceof)$/i.test(word);
         } else {
             result += c;
             if (!/\s/.test(c)) expression = /[=(:,;!&|?{}\[+*%<>~-]/.test(c);
         }
     }
     return result;
+}
+
+// 仅用于原始 JS 编译失败后的旧 M8 回退。BPM 使用 If/Return/Else，
+// 同时把返回数组写在 return 的下一行；普通 JS 的 ASI 语义必须保留。
+function normalizeLegacySyntax(code) {
+    const words = [], replacements = [];
+    normalizeMultilineStrings(code, (word, start, end) => words.push({ word, start, end }));
+    for (const token of words) {
+        if (!/^(If|Return|Else)$/.test(token.word)
+            || /\.\s*$/.test(code.slice(0, token.start))
+            || /^\s*:/.test(code.slice(token.end))
+            || /\b(?:var|let|const|function|class)\s*$/.test(code.slice(0, token.start))) continue;
+        replacements.push({ start: token.start, end: token.end, text: token.word.toLowerCase() });
+    }
+    // 只有明确出现旧关键字的脚本才兼容 return 换行，避免改变其它
+    // 因多行字符串等原因进入回退的合法 JS 函数返回值。
+    if (!replacements.length) return code;
+    for (const token of words) {
+        if (token.word !== "return" && token.word !== "Return") continue;
+        if (/\.\s*$/.test(code.slice(0, token.start))) continue;
+        const gap = /^[ \t\r\n]+(?=\[)/.exec(code.slice(token.end));
+        if (gap && /[\r\n]/.test(gap[0])) {
+            replacements.push({ start: token.end, end: token.end + gap[0].length, text: " " });
+        }
+    }
+    replacements.sort((left, right) => left.start - right.start);
+    let result = "", offset = 0;
+    for (const entry of replacements) {
+        result += code.slice(offset, entry.start) + entry.text;
+        offset = entry.end;
+    }
+    return result + code.slice(offset);
 }
 
 // 部分旧作品在函数回调末尾写 break。只修复解析器确认不在循环或 switch
@@ -98,4 +130,4 @@ function sortOn(fields, options) {
 
 if (!Array.prototype.sortOn) Object.defineProperty(Array.prototype, "sortOn", { configurable: true, writable: true, value: sortOn });
 
-export { normalizeMultilineStrings, normalizeOrphanBreakStatements, sortOn };
+export { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements, sortOn };

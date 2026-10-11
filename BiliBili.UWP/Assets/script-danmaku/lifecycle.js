@@ -1,5 +1,5 @@
 // 条目编译、生命周期、播放时钟同步与帧调度。
-import { normalizeMultilineStrings, normalizeOrphanBreakStatements } from "./legacy.js";
+import { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements } from "./legacy.js";
 import { resetPointer } from "./input.js";
 import {
     advanceParticleElements
@@ -749,9 +749,10 @@ function compileItem(model) {
     try {
         return new Function(...SCRIPT_GLOBAL_NAMES, code);
     } catch (error) {
-        // 早期 M8 的多行字符串与回调末尾 break；合法 JS 保持原样。
+        // 早期 M8 的多行字符串、关键字及回调末尾 break；合法 JS 保持原样。
         if (!(error instanceof SyntaxError)) throw error;
-        return new Function(...SCRIPT_GLOBAL_NAMES, normalizeOrphanBreakStatements(normalizeMultilineStrings(code)));
+        return new Function(...SCRIPT_GLOBAL_NAMES,
+            normalizeOrphanBreakStatements(normalizeLegacySyntax(normalizeMultilineStrings(code))));
     }
 }
 
