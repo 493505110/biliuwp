@@ -3072,6 +3072,13 @@ namespace BiliBili.UWP.Pages
 
         private void UpdateBiliJumpInfo(string status, IEnumerable<BiliJumpAdSegment> segments)
         {
+            if (panel_BiliJumpInfo != null)
+            {
+                panel_BiliJumpInfo.Visibility = string.Equals(status, "未识别", StringComparison.Ordinal)
+                    ? Visibility.Collapsed
+                    : Visibility.Visible;
+            }
+
             if (txt_BiliJumpStatus != null)
             {
                 txt_BiliJumpStatus.Text = status ?? string.Empty;

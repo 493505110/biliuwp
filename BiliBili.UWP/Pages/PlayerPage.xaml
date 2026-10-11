@@ -223,15 +223,17 @@
                                  <TextBlock Foreground="White"><Run>视频编码:</Run><Run x:Name="txt_VideoCodec"></Run></TextBlock>
                                  <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
                                  <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>
-                                 <TextBlock Foreground="White" Margin="0 8 0 0">AI广告识别</TextBlock>
-                                 <TextBlock Foreground="White" TextWrapping="Wrap"><Run x:Name="txt_BiliJumpStatus">未识别</Run></TextBlock>
-                                 <ItemsControl x:Name="list_BiliJumpAds" Margin="0 2 0 0">
-                                     <ItemsControl.ItemTemplate>
-                                         <DataTemplate>
-                                             <TextBlock Foreground="White" TextWrapping="Wrap" Margin="0 2 0 0" Text="{Binding}" />
-                                         </DataTemplate>
-                                     </ItemsControl.ItemTemplate>
-                                 </ItemsControl>
+                                 <StackPanel x:Name="panel_BiliJumpInfo" Visibility="Collapsed">
+                                     <TextBlock Foreground="White" Margin="0 8 0 0">AI广告识别</TextBlock>
+                                     <TextBlock Foreground="White" TextWrapping="Wrap"><Run x:Name="txt_BiliJumpStatus">未识别</Run></TextBlock>
+                                     <ItemsControl x:Name="list_BiliJumpAds" Margin="0 2 0 0">
+                                         <ItemsControl.ItemTemplate>
+                                             <DataTemplate>
+                                                 <TextBlock Foreground="White" TextWrapping="Wrap" Margin="0 2 0 0" Text="{Binding}" />
+                                             </DataTemplate>
+                                         </ItemsControl.ItemTemplate>
+                                     </ItemsControl>
+                                 </StackPanel>
                              </StackPanel>
                          </ScrollViewer>
                     </Grid>
