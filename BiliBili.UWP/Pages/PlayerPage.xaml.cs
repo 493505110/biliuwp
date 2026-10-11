@@ -892,7 +892,8 @@ namespace BiliBili.UWP.Pages
                 var ls = obj[0] as List<PlayerModel>;
                 var index = (int)obj[1];
 
-                LoadPlayer(ls, index);
+                var startFromBeginning = obj.Length > 2 && obj[2] is bool fromBeginning && fromBeginning;
+                LoadPlayer(ls, index, startFromBeginning);
                 sp_View.Focus(FocusState.Pointer);
             }
 
@@ -990,7 +991,7 @@ namespace BiliBili.UWP.Pages
             }
         }
 
-        public async void LoadPlayer(List<PlayerModel> par, int index)
+        public async void LoadPlayer(List<PlayerModel> par, int index, bool startFromBeginning = false)
         {
 
 
@@ -1056,7 +1057,7 @@ namespace BiliBili.UWP.Pages
             mediaElement.AutoPlay = true;
 
             gv_play.ItemsSource = playList;
-            gv_play.SelectedIndex = index;
+            SelectVideo(playNow, startFromBeginning);
 
 
             //DisplayInformation.AutoRotationPreferences = (DisplayOrientations)5;
@@ -2142,9 +2143,9 @@ namespace BiliBili.UWP.Pages
         //}
 
         bool QuityLoading = false;
-        private async void OpenVideo()
+        private async void OpenVideo(bool startFromBeginning = false)
         {
-            await OpenVideoAsync(playNow);
+            await OpenVideoAsync(playNow, startFromBeginning);
         }
 
         private void ClearPlaybackSource()
@@ -2540,7 +2541,7 @@ namespace BiliBili.UWP.Pages
             }
         }
 
-        private async Task OpenVideoAsync(PlayerModel item)
+        private async Task OpenVideoAsync(PlayerModel item, bool startFromBeginning = false)
         {
             if (item == null)
             {
@@ -2549,7 +2550,8 @@ namespace BiliBili.UWP.Pages
 
             var requestId = playbackRequestGate.Begin();
             var danmakuCancellationToken = BeginDanmakuLoading();
-            pendingPlaybackRestoreState = null;
+            pendingPlaybackRequest = requestId;
+            pendingPlaybackRestoreState = startFromBeginning ? PlaybackRestoreState.ForContentChange() : null;
             DisposeAuxiliaryMediaPlayer();
             mediaPlayer?.Pause();
             ClearPlaybackSource();
@@ -2582,6 +2584,7 @@ namespace BiliBili.UWP.Pages
                 }
 
                 LastPost = 0;
+                btn_ViewPost.Visibility = Visibility.Collapsed;
                 ClearBiliJumpAds();
                 ClearSubTitle();
                 ClearInteractiveDanmaku();
@@ -3535,28 +3538,59 @@ namespace BiliBili.UWP.Pages
         }
         #endregion
 
+        private bool updatingPlaySelection;
+
         private void gv_play_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (gv_play.SelectedIndex != -1)
+            if (!updatingPlaySelection && gv_play.SelectedItem is PlayerModel selectedItem)
             {
-                var selectedItem = gv_play.SelectedItem as PlayerModel;
-                var previousItem = playNow;
-                if (previousItem != null && !ReferenceEquals(previousItem, selectedItem))
-                {
-                    var progressValue = mediaPlayer == null
-                        ? 0
-                        : Convert.ToInt32(mediaPlayer.PlaybackSession.Position.TotalSeconds);
-                    _ = ReportHistory(previousItem, progressValue);
-                }
-
-                playNow = selectedItem;
-
-                cb_Quity.ItemsSource = null;
-
-                // PlayerEvent(gv_play.SelectedIndex);
-                OpenVideo();
-
+                SelectVideo(selectedItem);
             }
+        }
+
+        private void gv_play_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        {
+            var source = e.OriginalSource as DependencyObject;
+            while (source != null && source != gv_play && !(source is ListViewItem))
+            {
+                source = VisualTreeHelper.GetParent(source);
+            }
+            if (source is ListViewItem container && container.Content is PlayerModel item)
+            {
+                e.Handled = true;
+                SelectVideo(item, true);
+            }
+        }
+
+        private void SelectVideo(PlayerModel item, bool startFromBeginning = false)
+        {
+            if (_isExiting || item == null)
+            {
+                return;
+            }
+
+            var previousItem = playNow;
+            if (previousItem != null && !ReferenceEquals(previousItem, item))
+            {
+                var progressValue = mediaPlayer == null
+                    ? 0
+                    : Convert.ToInt32(mediaPlayer.PlaybackSession.Position.TotalSeconds);
+                _ = ReportHistory(previousItem, progressValue);
+            }
+
+            playNow = item;
+            updatingPlaySelection = true;
+            try
+            {
+                gv_play.SelectedItem = item;
+            }
+            finally
+            {
+                updatingPlaySelection = false;
+            }
+
+            cb_Quity.ItemsSource = null;
+            OpenVideo(startFromBeginning);
         }
 
         private void btn_Select_Click(object sender, RoutedEventArgs e)

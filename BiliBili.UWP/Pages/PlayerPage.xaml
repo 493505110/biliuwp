@@ -29,7 +29,7 @@
             <SplitView  x:Name="sp_View"  PaneClosed="Sp_View_PaneClosed" PanePlacement="Right" PaneBackground="#B2000000" >
                 <SplitView.Pane>
                     <Grid RequestedTheme="Dark">
-                        <ListView  SelectionChanged="gv_play_SelectionChanged" Margin="10" IsItemClickEnabled="True" Name="gv_play">
+                        <ListView  SelectionChanged="gv_play_SelectionChanged" RightTapped="gv_play_RightTapped" Margin="10" IsItemClickEnabled="True" Name="gv_play">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="Background" Value="#B2424959"></Setter>

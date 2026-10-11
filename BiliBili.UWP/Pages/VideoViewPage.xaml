@@ -308,7 +308,7 @@
                                             </HyperlinkButton>
                                         </StackPanel>
                                     </Grid>
-                                    <ListView x:Name="gv_Play" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True" ItemClick="gv_Play_ItemClick" SelectionChanged="gv_Play_SelectionChanged" ItemsSource="{Binding pages}" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"  ItemContainerStyle="{StaticResource GridViewItemStyle}">
+                                    <ListView x:Name="gv_Play" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True" ItemClick="gv_Play_ItemClick" RightTapped="gv_Play_RightTapped" SelectionChanged="gv_Play_SelectionChanged" ItemsSource="{Binding pages}" ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"  ItemContainerStyle="{StaticResource GridViewItemStyle}">
 
                                         <ListView.ItemTemplate>
                                             <DataTemplate>

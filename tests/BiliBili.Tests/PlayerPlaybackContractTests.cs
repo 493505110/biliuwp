@@ -27,11 +27,11 @@ namespace BiliBili.Tests
         {
             var method = ReadMethod(
                 "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
-                "private void gv_play_SelectionChanged",
+                "private void SelectVideo",
                 "private void btn_Select_Click");
 
             var reportIndex = method.IndexOf("ReportHistory(previousItem", StringComparison.Ordinal);
-            var replaceIndex = method.IndexOf("playNow = selectedItem", StringComparison.Ordinal);
+            var replaceIndex = method.IndexOf("playNow = item", StringComparison.Ordinal);
 
             Assert.IsTrue(reportIndex >= 0, "切集前没有上报上一播放项");
             Assert.IsTrue(replaceIndex > reportIndex, "必须先保存上一播放项，再替换 playNow");
@@ -42,7 +42,7 @@ namespace BiliBili.Tests
         {
             var method = ReadMethod(
                 "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
-                "private async Task OpenVideoAsync(PlayerModel item)",
+                "private async Task OpenVideoAsync(PlayerModel item,",
                 "private void LaodSubTitleMenu");
 
             StringAssert.Contains(method, "await ReportHistory(item, 0)");
@@ -312,7 +312,7 @@ namespace BiliBili.Tests
             var source = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
             var openVideo = ReadMethod(
                 "BiliBili.UWP/Pages/PlayerPage.xaml.cs",
-                "private async Task OpenVideoAsync(PlayerModel item)",
+                "private async Task OpenVideoAsync(PlayerModel item,",
                 "private void LaodSubTitleMenu");
             var strategy = MethodBody(
                 source,

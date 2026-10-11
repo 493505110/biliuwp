@@ -1387,7 +1387,26 @@ namespace BiliBili.UWP.Pages
             var info = (gv_Play.ItemsSource as List<pagesModel>).FirstOrDefault(x => x.cid == (long)last_view.Tag);
             OpenPlayer(info);
         }
-        private void OpenPlayer(pagesModel info)
+        private void gv_Play_RightTapped(object sender, RightTappedRoutedEventArgs e)
+        {
+            if (!gv_Play.IsItemClickEnabled)
+            {
+                return;
+            }
+
+            var source = e.OriginalSource as DependencyObject;
+            while (source != null && source != gv_Play && !(source is ListViewItem))
+            {
+                source = VisualTreeHelper.GetParent(source);
+            }
+            if (source is ListViewItem container && container.Content is pagesModel info)
+            {
+                e.Handled = true;
+                OpenPlayer(info, true);
+            }
+        }
+
+        private void OpenPlayer(pagesModel info, bool startFromBeginning = false)
         {
             List<PlayerModel> ls = new List<PlayerModel>();
             int i = 1;
@@ -1462,7 +1481,7 @@ namespace BiliBili.UWP.Pages
                 }
             }
 
-            MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(PlayerPage), new object[] { ls, (gv_Play.ItemsSource as List<pagesModel>).IndexOf(info) });
+            MessageCenter.SendNavigateTo(NavigateMode.Play, typeof(PlayerPage), new object[] { ls, (gv_Play.ItemsSource as List<pagesModel>).IndexOf(info), startFromBeginning });
             PostHistory();
         }
     }
