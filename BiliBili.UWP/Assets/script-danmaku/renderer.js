@@ -246,6 +246,8 @@ function visitGraphicsPath(item, visit) {
     for (var i = 0; i < item.commands.length; i++) {
         var command = item.commands[i], count = command === 3 ? 4 : command === 6 ? 6 : command >= 1 && command <= 5 ? (command >= 4 ? 4 : 2) : 0;
         if (!count) continue;
+        // 旧作品可能留有多余的命令；保留完整前缀，不能让不完整尾段中断整帧合成。
+        if (offset + count > item.data.length) break;
         var points = item.data.slice(offset, offset + count); offset += count;
         if (command === 4 || command === 5) { points = points.slice(2); command -= 3; }
         visit(command, points);

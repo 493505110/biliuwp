@@ -1060,6 +1060,9 @@ function defineTreeProperties(element) {
 
 // 文本元素的 length（M8 里是文本字段的字符数）。
 function defineTextProperties(element) {
+    element.appendText = function (text) {
+        element.text += text === undefined || text === null ? "" : String(text);
+    };
     ["textWidth", "textHeight"].forEach(function (name) {
         Object.defineProperty(element, name, {
             configurable: true,
@@ -1440,6 +1443,8 @@ function createShapeElement() {
     var element = createRetainedElement("shape");
     element.shapeItems = [];
     element.graphics = createGraphics(element);
+    // 兼容旧作品混用 MovieClip.endFill() 和 Shape.graphics.endFill() 的写法。
+    element.endFill = function () { element.graphics.endFill(); };
     element.autoCached = true;
     // 构造期后加的字段也要不可枚举（脚本用 foreach/hasOwnProperty 探测显示对象）。
     hideElementInternals(element);

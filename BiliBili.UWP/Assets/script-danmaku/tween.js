@@ -249,6 +249,7 @@ function cloneSegments(segments) {
                 from: track.from,
                 to: track.to,
                 easing: track.easing,
+                sample: track.sample,
                 target: track.target
             });
         }
@@ -682,6 +683,7 @@ function reverseSegments(segments, durationMs) {
                 from: track.to,
                 to: track.from,
                 easing: track.easing,
+                sample: track.sample ? reverseSample(track.sample) : undefined,
                 target: track.target
             });
         }
@@ -693,6 +695,19 @@ function reverseSegments(segments, durationMs) {
     }
 
     return reversed;
+}
+
+function reverseSample(sample) {
+    return function (progress) { return sample(1 - progress); };
+}
+
+function sliceSample(sample, from, to) {
+    return function (progress) { return sample(from + (to - from) * progress); };
+}
+
+function sampleTrack(track, time, duration) {
+    return track.sample ? track.sample(time / duration)
+        : track.easing(time, track.from, track.to - track.from, duration);
 }
 
 function createTween(element, config, options) {
@@ -810,11 +825,7 @@ function applyMotion(motion, element, elapsedMs) {
             }
 
             appliedKeys[track.key] = true;
-            applyTweenValue(element, track.key, track.easing(
-                local,
-                track.from,
-                track.to - track.from,
-                segment.durationMs));
+            applyTweenValue(element, track.key, sampleTrack(track, local, segment.durationMs));
             markTweenKeyDirty(element, track.key);
             applied = true;
         }
@@ -950,9 +961,11 @@ function clipSegments(segments, fromMs, toMs) {
             var track = segment.tracks[trackIndex];
             tracks.push({
                 key: track.key,
-                from: track.easing(localFrom, track.from, track.to - track.from, segment.durationMs),
-                to: track.easing(localTo, track.from, track.to - track.from, segment.durationMs),
+                from: sampleTrack(track, localFrom, segment.durationMs),
+                to: sampleTrack(track, localTo, segment.durationMs),
                 easing: track.easing,
+                sample: track.sample ? sliceSample(track.sample,
+                    localFrom / segment.durationMs, localTo / segment.durationMs) : undefined,
                 target: track.target
             });
         }
@@ -977,6 +990,15 @@ var Tween = {
     // 与 M8 文档同签名；src 为空时等价于 to()。
     tween: function (object, dest, src, duration, easing) {
         return createDrivenHandle(object, buildTweenConfig(dest, src, easing), duration);
+    },
+    bezier: function (object, dest, src, controlPoint, duration, easing) {
+        return createBezierHandle(object, dest, src, controlPoint, duration, easing);
+    },
+    bezierTo: function (object, dest, controlPoint, duration, easing) {
+        return createBezierHandle(object, dest, null, controlPoint, duration, easing);
+    },
+    bezierFrom: function (object, src, controlPoint, duration, easing) {
+        return createBezierHandle(object, null, src, controlPoint, duration, easing);
     },
     to: function (object, dest, duration, easing) {
         var config = buildTweenConfig(dest, null, easing);
@@ -1104,6 +1126,48 @@ var Tween = {
         return Tween.parallel.apply(null, list || []);
     }
 };
+
+// BetweenAS3 BezierUpdater 的多控制点语义：相邻控制点的中点作为段界，
+// 每个控制点对应一段二次曲线；不是把全部控制点拼成一条高阶曲线。
+// 曲线采样保留在轨道上，避免起终值相同的往返运动丢失，也供 reverse/slice 复用。
+function createBezierSample(from, to, points, easing) {
+    return function (progress) {
+        var factor = easing(progress, 0, 1, 1);
+        if (factor === 1) return to;
+        var count = points.length;
+        var index = Math.max(0, Math.min(count - 1, Math.floor(factor * count)));
+        var local = factor * count - index;
+        var start = index === 0 ? from : (points[index - 1] + points[index]) / 2;
+        var end = index === count - 1 ? to : (points[index] + points[index + 1]) / 2;
+        return start + local * (2 * (1 - local) * (points[index] - start) + local * (end - start));
+    };
+}
+
+function createBezierHandle(object, dest, src, controlPoint, duration, easing) {
+    if (!object || typeof object !== "object") throw new Error("Tween 需要一个目标对象");
+    var config = buildTweenConfig(dest, src, easing);
+    var controls = {};
+    Object.keys(controlPoint || {}).forEach(function (key) {
+        var value = controlPoint[key];
+        var points = (Array.isArray(value) ? value : [value]).map(Number);
+        if (!points.every(isFinite)) throw new Error("bezier " + key + " 的控制点不是有效数字");
+        if (points.length) {
+            controls[key] = points;
+            if (!config[key]) config[key] = {};
+        }
+    });
+    Object.keys(config).forEach(function (key) {
+        if (config[key].toValue === undefined) config[key].toValue = readTweenTargetValue(object, key);
+    });
+    var handle = createDrivenHandle(object, config, duration === undefined ? 1 : duration);
+    handle.segments.forEach(function (segment) {
+        segment.tracks.forEach(function (track) {
+            if (controls[track.key]) track.sample = createBezierSample(
+                track.from, track.to, controls[track.key], resolveEasing(easing));
+        });
+    });
+    return handle;
+}
 
 // 把 M8 的 (dest, src, easing) 形式转成宿主内部的 motion 配置。
 function buildTweenConfig(dest, src, easing) {
