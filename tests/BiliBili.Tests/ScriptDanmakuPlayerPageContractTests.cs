@@ -133,6 +133,18 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void BuiltInDemo_StartsAtCurrentPlaybackPosition()
+        {
+            var body = Body("private void menuitem_LoadDemoScriptDanmaku_Click(");
+            StringAssert.Contains(body, "var position = mediaPlayer?.PlaybackSession.Position.TotalSeconds ?? 0;");
+            StringAssert.Contains(body, "ScriptDanmakuService.GetBuiltInDemo(position)");
+
+            var source = TestRepository.ReadFile("BiliBili.UWP/Helper/ScriptDanmakuService.cs");
+            StringAssert.Contains(source, "GetBuiltInDemo(double startTimeSeconds)");
+            StringAssert.Contains(source, "stime = startTimeSeconds,");
+        }
+
+        [TestMethod]
         public void ScriptPlayAction_ResumesPlayback()
         {
             var body = Body("private async void ScriptDanmakuControl_ActionRequested(");

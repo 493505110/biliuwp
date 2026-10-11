@@ -5075,6 +5075,16 @@ namespace BiliBili.UWP.Pages
             hidePointerFlag = false;
         }
 
+        private void MoreMenuFlyout_Opening(object sender, object e)
+        {
+            var visibility = SettingHelper.Get_EnableScriptDanmaku()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            menuitem_LoadScriptDanmaku.Visibility = visibility;
+            menuitem_LoadDemoScriptDanmaku.Visibility = visibility;
+            menuitem_ClearScriptDanmaku.Visibility = visibility;
+        }
+
         private async void menuitem_LoadScriptDanmaku_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -5111,7 +5121,8 @@ namespace BiliBili.UWP.Pages
         {
             try
             {
-                var items = ScriptDanmakuService.GetBuiltInDemo();
+                var position = mediaPlayer?.PlaybackSession.Position.TotalSeconds ?? 0;
+                var items = ScriptDanmakuService.GetBuiltInDemo(position);
                 SetScriptDanmakuPool(items);
                 Utils.ShowMessageToast("已加载内置示例代码弹幕", 3000);
             }

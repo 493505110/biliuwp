@@ -2490,6 +2490,44 @@ test('D45 延迟回调创建的元素和嵌套 delay 归属原条目，抛错后
     assert.equal(host.frameErrors.length, 0);
 });
 
+test('D46 内置示例在视频中途及重复加载时完整显示文字和粒子', async () => {
+    // 直接执行生产代码中的示例，避免测试副本与实际脚本脱节。
+    const source = fs.readFileSync(path.join(__dirname, '..', '..',
+        'BiliBili.UWP', 'Helper', 'ScriptDanmakuService.cs'), 'utf8');
+    const expression = /code = ([\s\S]*?)\r?\n\s*}/.exec(source);
+    assert.ok(expression, '应能读取内置示例脚本');
+    const code = [...expression[1].matchAll(/"(?:\\.|[^"\\])*"/g)]
+        .map(match => JSON.parse(match[0])).join('');
+    const host = await loadHost();
+
+    for (const position of [0, 6, 1200, 1200]) {
+        host.reset(position, true, 1, true);
+        host.append([scriptItem('demo-m8-sample', position, 7,
+            code + ';window.__demoLabel = label;window.__demoDots = dots;')]);
+        host.runFrames(120);
+        const label = host.sandbox.__demoLabel;
+        assert.ok(label && !label.expired, '加载两秒后文字应存活，播放位置：' + position);
+        assert.equal(label.text, '脚本弹幕已生效');
+        assert.ok(label.x > 0 && label.x < host.container.offsetWidth, '文字应滑入屏幕');
+        assert.ok(label.cacheCanvas.__counts.fillText > 0, '文字必须实际绘制');
+        assert.ok(host.mainCanvas().__marks.length > 0, '文字应合成到主画布');
+
+        host.runFrames(60);
+        const dots = host.sandbox.__demoDots;
+        assert.equal(dots.length, 24);
+        assert.ok(dots.every(dot => dot.visible && dot.alpha > 0 && dot.painted),
+            '加载三秒后粒子应显示');
+        host.runFrames(120);
+        assert.equal(label.expired, true, '文字动画结束后应回收');
+        host.runFrames(60);
+        assert.ok(dots.every(dot => !dot.visible), '粒子动画结束后应隐藏');
+        host.runFrames(120);
+        assert.equal(host.mainCanvas().__marks.length, 0, '示例结束后应清空画面');
+    }
+    assert.equal(host.frameErrors.length, 0);
+    assert.equal(host.errors().length, 0);
+});
+
 module.exports = { loadHost };
 if (require.main === module) {
     run().catch(error => { console.error(error); process.exitCode = 1; });

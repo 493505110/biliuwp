@@ -51,7 +51,7 @@ namespace BiliBili.UWP.Helper
         }
 
         /// <summary>
-        /// 内置示例。用于首次验证渲染链路，不依赖任何外部文件。
+        /// 内置示例。从当前播放位置开始，用于验证渲染链路，不依赖任何外部文件。
         /// 示例按**原版 M8 的 API 面**编写（不是自研的 ctx）：脚本只执行一次，
         /// 期间用 $.createComment / $.createShape 建出保留元件，用声明式 tween
         /// 或 interval 声明动画，之后逐帧由宿主插值（不要写成每帧重算坐标）。
@@ -66,7 +66,7 @@ namespace BiliBili.UWP.Helper
         /// 到点前直接返回。定时器登记在条目上，条目回收时由宿主统一清掉，
         /// 不需要脚本自己 clearTimer。
         /// </summary>
-        public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo()
+        public static IReadOnlyList<ScriptDanmakuModel> GetBuiltInDemo(double startTimeSeconds)
         {
             return ScriptDanmakuParser.Normalize(new[]
             {
@@ -75,7 +75,7 @@ namespace BiliBili.UWP.Helper
                     // 单条脚本：文字（tween）+ 粒子环（interval 逐帧）写在一条里，
                     // 与原版 M8 示例「一条脚本画完整个效果」的形态一致。
                     id = "demo-m8-sample",
-                    stime = 1,
+                    stime = startTimeSeconds,
                     duration = 7,
                     lang = LangJs,
                     code = "var label = $.createComment('脚本弹幕已生效', {"

@@ -281,15 +281,15 @@
                                     </Flyout>
                                 </c:DanmakuMTC.PlaybackRateFlyout>
                                 <c:DanmakuMTC.MoreMenuFlyout>
-                                    <MenuFlyout>
+                                    <MenuFlyout Opening="MoreMenuFlyout_Opening">
                                         <MenuFlyoutItem  Click="btn_VideoInfo_Click">播放设置</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_DM" Visibility="Collapsed" Click="menuitem_DM_Click">弹幕设置</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_LocalDanmu" Click="menuitem_LocalDanmu_Click">加载本地弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_tantan" Click="menuitem_tantan_Click">加载弹弹Play弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_UpdateDanmu" Click="menuitem_UpdateDanmu_Click">更新弹幕</MenuFlyoutItem>
-                                        <MenuFlyoutItem x:Name="menuitem_LoadScriptDanmaku" Click="menuitem_LoadScriptDanmaku_Click">加载代码弹幕</MenuFlyoutItem>
-                                        <MenuFlyoutItem x:Name="menuitem_LoadDemoScriptDanmaku" Click="menuitem_LoadDemoScriptDanmaku_Click">加载示例代码弹幕</MenuFlyoutItem>
-                                        <MenuFlyoutItem x:Name="menuitem_ClearScriptDanmaku" Click="menuitem_ClearScriptDanmaku_Click">清除代码弹幕</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_LoadScriptDanmaku" Visibility="Collapsed" Click="menuitem_LoadScriptDanmaku_Click">加载代码弹幕</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_LoadDemoScriptDanmaku" Visibility="Collapsed" Click="menuitem_LoadDemoScriptDanmaku_Click">加载示例代码弹幕</MenuFlyoutItem>
+                                        <MenuFlyoutItem x:Name="menuitem_ClearScriptDanmaku" Visibility="Collapsed" Click="menuitem_ClearScriptDanmaku_Click">清除代码弹幕</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_SubtitleSetting" Click="Menuitem_SubtitleSetting_Click">字幕设置</MenuFlyoutItem>
                                         <MenuFlyoutItem x:Name="menuitem_BiliJumpSkipCurrent" IsEnabled="False" Click="menuitem_BiliJumpSkipCurrent_Click">跳过当前广告</MenuFlyoutItem>
                                         <!--<MenuFlyoutItem x:Name="menuitem_Capture" Click="menuitem_Capture_Click">视频截图</MenuFlyoutItem>-->
