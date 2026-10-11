@@ -5,6 +5,7 @@ import {
     DEFAULT_TEXT_FONTSIZE,
     FLASH_PROJECTION_WIDTH,
     LIFE_TIME_UNBOUNDED,
+    MAX_AVM1_SCOPE_RETRIES,
     claimOrdinaryDanmaku,
     currentCreateParent,
     currentItem,
@@ -17,7 +18,9 @@ import {
 } from "./core.js";
 import {
     ensureRunning,
+    declareAvm1GlobalIfUndeclared,
     recoverItemFromCallbackError,
+    releaseItemElement,
     registerItemElement
 } from "./lifecycle.js";
 import {
@@ -39,7 +42,8 @@ import {
     resolveDeclaredLifeTimeMs
 } from "./tween.js";
 
-import { localMatrix, transformPoint, worldMatrix, transformedBounds } from "./geometry.js";
+import { localMatrix, transformPoint, worldMatrix, transformedBounds, screenToLocal } from "./geometry.js";
+import { releasePointerElement } from "./input.js";
 
 // ---- 保留元素 ----
 
@@ -92,6 +96,8 @@ function propertyDescriptor(name) {
     };
 }
 
+const retainedElements = new WeakSet();
+const ordinaryDanmakuProxies = new WeakSet();
 function createRetainedElement(kind) {
     var element = {
         id: nextElementId++,
@@ -137,6 +143,8 @@ function createRetainedElement(kind) {
         // 监听驱动整幅画面的每帧更新。注意它挂在**元素自身**上，
         // 不是 props（props 是变换/样式属性表）。
         eventListeners: {},
+        mouseEnabled: true,
+        mouseChildren: true,
         ownerItem: null,
         expired: false,
         // 逐属性记脏：元素被整体标脏（例如 insertItem 时）后，
@@ -211,10 +219,20 @@ function createRetainedElement(kind) {
         }
     });
 
+    retainedElements.add(element);
     // M8 元素 API：remove / setStyle 与 parent / children 访问器。
     attachElementApi(element);
     defineTreeProperties(element);
     attachDisplayListApi(element);
+    ["mouseX", "mouseY"].forEach(function (name) {
+        Object.defineProperty(element, name, {
+            get: function () {
+                var position = hostState.pointerPosition;
+                var point = screenToLocal(element, position.x, position.y);
+                return point ? point[name === "mouseX" ? "x" : "y"] : 0;
+            }
+        });
+    });
     ["width", "height"].forEach(function (name) {
         Object.defineProperty(element, name, {
             configurable: true, enumerable: false,
@@ -970,11 +988,24 @@ function attachDisplayListApi(element) {
         }
 
         for (var entry of bucket.slice()) {
+            if (event && event.immediatePropagationStopped) break;
             var item = entry.owner;
             if (bucket.indexOf(entry) < 0 || item && (!item.activated || item.failed || item.removed)) continue;
             var previous = hostState.activeItem;
             hostState.activeItem = item || previous;
-            try { entry.listener.call(element, event); }
+            try {
+                for (var attempt = 0; ; attempt++) {
+                    var elementCount = item ? item.elements.length : 0;
+                    try { entry.listener.call(element, event); break; }
+                    catch (error) {
+                        // 普通弹幕代理只用于这次入屏。旧脚本在克隆时读未声明
+                        // 变量不应重跑整局游戏；先回收本次副本，再重试同一事件。
+                        if (!item || type !== "added" || !ordinaryDanmakuProxies.has(event.target)
+                            || attempt >= MAX_AVM1_SCOPE_RETRIES || !declareAvm1GlobalIfUndeclared(error)) throw error;
+                        while (item.elements.length > elementCount) releaseItemElement(item, item.elements.length - 1);
+                    }
+                }
+            }
             catch (error) {
                 element.removeEventListener(type, entry.listener);
                 if (!item) throw error;
@@ -1040,6 +1071,10 @@ function defineTextProperties(element) {
         ["font", "size", "color", "bold", "italic", "align"].forEach(function (key) {
             if (format[key] !== undefined && format[key] !== null) element[key === "size" ? "fontsize" : key] = format[key];
         });
+    };
+    element.getTextFormat = function () {
+        return { font: element.font, size: element.fontsize, color: element.color,
+            bold: element.bold, italic: element.italic, align: element.align };
     };
     Object.defineProperty(element, "defaultTextFormat", {
         configurable: true,
@@ -1413,6 +1448,7 @@ function createShapeElement() {
 
 function createTextElement(text, style) {
     var element = createRetainedElement("text");
+    element.selectable = false;
     // 内容存在 textValue 上；对脚本暴露的 element.text 是访问器
     // （赋值即让位图缓存失效，见 defineContentProperties）。
     element.textValue = text === undefined || text === null ? "" : String(text);
@@ -1426,8 +1462,26 @@ function createTextElement(text, style) {
     return element;
 }
 
-// M8 的 createButton：当前是「带底色的文本 + 可选 onclick」的近似实现。
-// 按钮交互（命中测试 / hover 状态 / fillColors 渐变）待接入输入链后补齐。
+// 普通弹幕转成游戏障碍时必须保留 TextField 的方法，并避开显示树/宿主缓存
+// 的循环引用。副本先保持游离，等待脚本改 selectable 后主动 addChild。
+function cloneTextDisplayElement(source, copyValue) {
+    if (!retainedElements.has(source) || source.kind !== "text") return null;
+    var copy = createTextElement(source.text, copyValue(source.style));
+    copy.style = copyValue(source.style);
+    Object.keys(source.props).forEach(function (name) {
+        copy.props[name] = name === "mask" ? source.props[name] : copyValue(source.props[name]);
+    });
+    copy.selectable = source.selectable;
+    copy.mouseEnabled = source.mouseEnabled;
+    copy.mouseChildren = source.mouseChildren;
+    copy.defaultTextFormat = source.defaultTextFormat;
+    if (source.data !== undefined) copy.data = copyValue(source.data);
+    if (source.textFieldWidth !== undefined) defineHiddenValue(copy, "textFieldWidth", source.textFieldWidth);
+    if (currentItem()) registerItemElement(currentItem(), copy, false);
+    return copy;
+}
+
+// 按钮作为一个鼠标目标，文字和底色的事件统一交给按钮本身。
 function createButtonElement(options) {
     var source = options && typeof options === "object" ? options : {};
     var element = createRetainedElement("group");
@@ -1450,6 +1504,8 @@ function createButtonElement(options) {
     element.buttonHeight = height;
     element.fillColors = null;
     element.onclick = typeof source.onclick === "function" ? source.onclick : null;
+    element.mouseChildren = false;
+    element.isButton = true;
     return element;
 }
 
@@ -1608,7 +1664,10 @@ function clearItemDisplayListeners(item) {
 // 在原生弹幕入屏前提供同一形状的显示对象；筛选不改动 commentList。
 function filterOrdinaryDanmaku(comment) {
     if (!hostState.visible || !hostState.rootElement.hasEventListener("added")) return true;
-    var proxy = createRetainedElement("group");
+    var proxy = createTextElement(comment.txt, { color: comment.color, fontsize: comment.fontSize });
+    ordinaryDanmakuProxies.add(proxy);
+    proxy.selectable = true;
+    proxy.filters = [];
     proxy.data = comment;
     try {
         attachElement(proxy, hostState.rootElement);
@@ -1718,6 +1777,7 @@ function releaseElementCaches(element) {
 }
 
 function detachElement(element) {
+    releasePointerElement(element);
     // 摘链前先处理旧像素：嵌套元件要靠 treeParent 向上找祖先，
     // 摘了链就找不到它的复合层了。
     if (!element.lastPaintedRect) {
@@ -1766,6 +1826,9 @@ function applyCreateOptions(element, options) {
     if (source.visible !== undefined && source.visible !== null) {
         setPropertyInternal(element, "visible", !!source.visible, false);
     }
+    if (source.mouseEnabled !== undefined) element.mouseEnabled = !!source.mouseEnabled;
+    if (source.mouseChildren !== undefined) element.mouseChildren = !!source.mouseChildren;
+    if (source.enabled !== undefined) element.enabled = !!source.enabled;
 
     // 寿命：**未声明时不改**（元素活到条目窗口兜底上限，见
     // registerItemElement 的初值），声明时才按声明值收紧。
@@ -2705,6 +2768,7 @@ function createItemElement(factory, options) {
 export {
     clearItemDisplayListeners,
     filterOrdinaryDanmaku,
+    cloneTextDisplayElement,
     M8Display,
     MATRIX3D_IDENTITY,
     applyElementBlendMode,

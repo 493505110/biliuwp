@@ -415,6 +415,59 @@ namespace BiliBili.UWP.Controls
             return Task.CompletedTask;
         }
 
+        /// <summary>转发鼠标输入；不等待普通弹幕队列，也不触发 WebView2 初始化。</summary>
+        public void PushPointerEvent(string action, double normalizedX, double normalizedY, uint pointerId, bool down)
+        {
+            if (isReleased || !isPageReady || (!hostVisible && action != "cancel")
+                || Volatile.Read(ref pendingItemCount) == 0 || webView.CoreWebView2 == null
+                || double.IsNaN(normalizedX) || double.IsInfinity(normalizedX)
+                || double.IsNaN(normalizedY) || double.IsInfinity(normalizedY)) return;
+
+            try
+            {
+                webView.CoreWebView2.PostWebMessageAsJson(JsonConvert.SerializeObject(new
+                {
+                    type = "pointer",
+                    version = Volatile.Read(ref contentVersion),
+                    action,
+                    x = normalizedX,
+                    y = normalizedY,
+                    pointerId,
+                    down
+                }));
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("转发脚本弹幕鼠标失败", LogType.ERROR, ex);
+            }
+        }
+
+        /// <summary>返回是否命中 M8 互动元素；双击只检测，不重复派发 click。</summary>
+        public async Task<bool> TryHandleTapAsync(double normalizedX, double normalizedY, bool dispatchClick = true)
+        {
+            if (isReleased || !isPageReady || !hostVisible || Volatile.Read(ref pendingItemCount) == 0
+                || webView.CoreWebView2 == null || double.IsNaN(normalizedX) || double.IsNaN(normalizedY)
+                || normalizedX < 0 || normalizedX > 1 || normalizedY < 0 || normalizedY > 1) return false;
+            var version = Volatile.Read(ref contentVersion);
+            try
+            {
+                // 与按键一样绕过普通弹幕队列。宿主执行前再核对内容版本，避免旧点击落到新视频。
+                var result = await webView.CoreWebView2.ExecuteScriptAsync(
+                    "window.scriptDanmakuHost && "
+                    + version.ToString(CultureInfo.InvariantCulture)
+                    + " === window.scriptDanmakuHost.inputVersion() && window.scriptDanmakuHost.handleTap("
+                    + JsonConvert.SerializeObject(normalizedX) + ","
+                    + JsonConvert.SerializeObject(normalizedY) + ","
+                    + (dispatchClick ? "true" : "false") + ");");
+                return !isReleased && version == Volatile.Read(ref contentVersion) && result == "true";
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("处理脚本弹幕点击失败", LogType.ERROR, ex);
+                return false;
+            }
+        }
+
         /// <summary>
         /// 在后台准备并缓存分批命令，在 UI 线程只执行 WebView2 调用。
         /// 准备或投递期间快照更新时，取消旧准备并转而投递最新快照。

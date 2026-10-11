@@ -478,14 +478,14 @@ function computeShapeBounds(element, padding) {
 
 // 同步读取几何尺寸，不能等待下一帧缓存：Akari 在排字时立即读取 glyph.width。
 // Flash 尺寸不含滤镜/缓存扩边，隐藏的孩子仍计入容器几何范围。
-function displayObjectBounds(element, parentSpace) {
+function displayObjectBounds(element, parentSpace, includeChildren) {
     var rectangles = [], own = null;
     if (element.kind === "shape") own = computeShapeBounds(element, 0);
     else if (element.kind === "text") { var metrics = measureTextElement(element); own = { x: 0, y: 0, width: metrics.width, height: metrics.height }; }
     else if (element.kind === "image" && element.loaded) own = { x: 0, y: 0, width: element.imageWidth, height: element.imageHeight };
     else if (element.kind === "layer") own = { x: 0, y: 0, width: element.layerWidth, height: element.layerHeight };
     if (own) rectangles.push(own);
-    for (var i = 0; i < element.childList.length; i++) {
+    for (var i = 0; includeChildren !== false && i < element.childList.length; i++) {
         var child = element.childList[i];
         if (child.expired) continue;
         var bounds = displayObjectBounds(child, true);

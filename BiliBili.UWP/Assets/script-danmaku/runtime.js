@@ -15,6 +15,7 @@ import {
 import {
     M8Display,
     clonePerspectiveProjection,
+    cloneTextDisplayElement,
     defineHiddenValue,
     prepareOrdinaryDanmakuLayer
 } from "./display.js";
@@ -574,6 +575,8 @@ function clone(object) {
 
     var projectionCopy = clonePerspectiveProjection(object);
     if (projectionCopy) return projectionCopy;
+    var textCopy = cloneTextDisplayElement(object, clone);
+    if (textCopy) return textCopy;
 
     if (Array.isArray(object)) {
         var arrayCopy = [];

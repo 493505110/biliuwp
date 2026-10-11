@@ -58,7 +58,7 @@ namespace BiliBili.Tests
 
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AppendModuleSource("BiliBili.UWP/Assets/script-danmaku/host.js", visited, new StringBuilder());
-            Assert.AreEqual(15, visited.Count, "入口应加载全部十五个职责模块（含 GPU 滤镜、旧 M8 兼容与 ByteArray）");
+            Assert.AreEqual(16, visited.Count, "入口应加载全部十六个职责模块（含鼠标输入）");
 
             var project = XDocument.Load(TestRepository.GetPath("BiliBili.UWP/BiliBili.UWP.csproj"));
             XNamespace msbuild = "http://schemas.microsoft.com/developer/msbuild/2003";
@@ -420,10 +420,14 @@ namespace BiliBili.Tests
                 index = source.IndexOf("new Function(", index + 1, System.StringComparison.Ordinal);
             }
 
+            var legacyBody = TestRepository.Between(source, "function normalizeOrphanBreakStatements(code) {", "// 非枚举");
             Assert.AreEqual(
-                Regex.Matches(compileBody, @"new Function\(").Count,
+                Regex.Matches(compileBody + legacyBody, @"new Function\(").Count,
                 occurrences,
-                "宿主只应在 compileItem 里编译脚本，逐帧路径不得再出现 new Function");
+                "编译只允许在条目注册与旧语法解析探测中发生，逐帧路径不得编译");
+            StringAssert.Contains(compileBody, "normalizeOrphanBreakStatements(normalizeMultilineStrings(code))");
+            Assert.AreEqual(1, Regex.Matches(source, @"normalizeOrphanBreakStatements\(normalizeMultilineStrings").Count);
+            StringAssert.Contains(legacyBody, "breaks.length > 256");
             Assert.IsTrue(occurrences > 0);
             StringAssert.Contains(source, "item.run = compileItem(model);");
             StringAssert.Contains(compileBody, "if (!(error instanceof SyntaxError)) throw error;");
@@ -603,7 +607,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "target.fill(item.winding);");
             StringAssert.Contains(source, "target.quadraticCurveTo(points[0].x");
             StringAssert.Contains(source, "target.bezierCurveTo(points[0].x");
-            StringAssert.Contains(source, "function displayObjectBounds(element, parentSpace) {");
+            StringAssert.Contains(source, "function displayObjectBounds(element, parentSpace, includeChildren) {");
 
             // drawGraphicsData 仍然显式报错（两条真实脚本 0 次使用）。
             StringAssert.Contains(source, "drawGraphicsData 尚未支持");
@@ -1066,7 +1070,7 @@ namespace BiliBili.Tests
 
             var registerBody = TestRepository.MethodBody(
                 source,
-                "function registerItemElement(item, element) {");
+                "function registerItemElement(item, element, attach = true) {");
             StringAssert.Contains(
                 registerBody,
                 "element.lifeTimeMs = resolveElementLifeTimeMs(item, LIFE_TIME_UNBOUNDED);");
@@ -1492,7 +1496,7 @@ namespace BiliBili.Tests
         [TestMethod]
         public void Control_RequiresNoHitTestSoPlayerGesturesKeepWorking()
         {
-            // 阶段 1 不拦截输入，控件不得抢占命中测试。
+            // 鼠标由播放器转发，WebView2 本身不能抢占命中测试。
             StringAssert.Contains(
                 TestRepository.ReadFile("BiliBili.UWP/Controls/ScriptDanmakuControl.xaml"),
                 "IsHitTestVisible=\"False\"");

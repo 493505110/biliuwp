@@ -71,8 +71,14 @@ jobs:
       - name: Run M8 ordinary danmaku bridge tests
         run: node tests/host/ordinary-danmaku.test.js
 
+      - name: Run M8 mouse input tests
+        run: node tests/host/mouse-input.test.js
+
       - name: Run Duet Game compatibility tests
         run: node tests/host/av2561316-game.test.js
+
+      - name: Run av2676643 game compatibility tests
+        run: node tests/host/av2676643-game.test.js
 
       - name: Run unit tests
         run: dotnet test tests/BiliBili.Tests/BiliBili.Tests.csproj --configuration Release --no-restore

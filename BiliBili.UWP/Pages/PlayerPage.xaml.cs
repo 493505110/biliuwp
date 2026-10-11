@@ -127,6 +127,13 @@ namespace BiliBili.UWP.Pages
                 UIElement.TappedEvent,
                 new TappedEventHandler(PlayerSurface_Tapped),
                 true);
+            // 子控件可能已经处理事件；仍监听播放器区域，但排除实际的控制栏按钮。
+            playerSurface.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(PlayerSurface_PointerMoved), true);
+            playerSurface.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(PlayerSurface_PointerPressed), true);
+            playerSurface.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(PlayerSurface_PointerReleased), true);
+            playerSurface.AddHandler(UIElement.PointerExitedEvent, new PointerEventHandler(PlayerSurface_PointerExited), true);
+            playerSurface.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(PlayerSurface_PointerCanceled), true);
+            playerSurface.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(PlayerSurface_PointerCanceled), true);
         }
 
         private void InitMediaPlayer()
@@ -526,6 +533,7 @@ namespace BiliBili.UWP.Pages
 
         private void PlayerPage_VisibilityChanged(object sender, VisibilityChangedEventArgs e)
         {
+            if (!e.Visible) scriptDanmakuControl?.PushPointerEvent("cancel", 0, 0, 0, false);
             // 窗口从最小化还原时,XAML 会一并恢复此前被 Pause 的 Storyboard,
             // 暂停/缓冲状态下的弹幕会自己滚动起来,这里按当前播放状态重新对齐。
             if (mediaPlayer?.PlaybackSession?.PlaybackState == MediaPlaybackState.Playing)
@@ -4755,8 +4763,22 @@ namespace BiliBili.UWP.Pages
             sp_View.IsPaneOpen = true;
         }
 
-        private void MTC_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        private async void MTC_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
+            if (IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject)) return;
+            var request = playbackRequestGate.Current;
+            var scriptControl = scriptDanmakuControl;
+            if (LoadDanmu && scriptControl != null && scriptControl.ActualWidth > 0 && scriptControl.ActualHeight > 0)
+            {
+                var point = e.GetPosition(scriptControl);
+                if (await scriptControl.TryHandleTapAsync(point.X / scriptControl.ActualWidth, point.Y / scriptControl.ActualHeight, false))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+            if (_isExiting || !playbackRequestGate.IsCurrent(request)
+                || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
             if (!SettingHelper.IsPc() || SettingHelper.IsTabletMode())
             {
                 if (mediaElement.MediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
@@ -5451,6 +5473,7 @@ namespace BiliBili.UWP.Pages
 
         private async void PlayerSurface_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            var request = playbackRequestGate.Current;
             //无论走哪条分支都要消费掉，避免残留到下一次点击
             var toggleBar = mtcTapPendingToggle;
             mtcTapPendingToggle = false;
@@ -5460,10 +5483,23 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
+            var scriptControl = scriptDanmakuControl;
+            if (LoadDanmu && scriptControl != null && scriptControl.ActualWidth > 0 && scriptControl.ActualHeight > 0)
+            {
+                var point = e.GetPosition(scriptControl);
+                if (await scriptControl.TryHandleTapAsync(point.X / scriptControl.ActualWidth, point.Y / scriptControl.ActualHeight))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+            if (_isExiting || !playbackRequestGate.IsCurrent(request)
+                || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
+
             //点在 BAS 弹幕的互动元素上时，这一下已经由弹幕自己处理（跳转/seek），
             //不能再顺手收起控制栏，否则播放器的单击效果会叠加到弹幕交互上
             var handledByBas = await TryHandleBasDanmakuTapAsync(e);
-            if (!handledByBas && toggleBar)
+            if (!handledByBas && toggleBar && !_isExiting && playbackRequestGate.IsCurrent(request))
             {
                 MTC.HideOrShowMTC();
             }
@@ -5503,7 +5539,9 @@ namespace BiliBili.UWP.Pages
             while (current != null)
             {
                 if (ReferenceEquals(current, interactiveDanmakuControl)
-                    || ReferenceEquals(current, gridview_node))
+                    || ReferenceEquals(current, gridview_node)
+                    || current is ButtonBase || current is RangeBase || current is Selector
+                    || current is TextBox || current is PasswordBox)
                 {
                     return true;
                 }
@@ -5519,6 +5557,29 @@ namespace BiliBili.UWP.Pages
             }
 
             return false;
+        }
+
+        private void PlayerSurface_PointerMoved(object sender, PointerRoutedEventArgs e) => ForwardScriptPointer("move", e);
+        private void PlayerSurface_PointerPressed(object sender, PointerRoutedEventArgs e) => ForwardScriptPointer("down", e);
+        private void PlayerSurface_PointerReleased(object sender, PointerRoutedEventArgs e) => ForwardScriptPointer("up", e);
+        private void PlayerSurface_PointerExited(object sender, PointerRoutedEventArgs e) => ForwardScriptPointer("leave", e);
+        private void PlayerSurface_PointerCanceled(object sender, PointerRoutedEventArgs e) => ForwardScriptPointer("cancel", e);
+
+        private void ForwardScriptPointer(string action, PointerRoutedEventArgs e)
+        {
+            var control = scriptDanmakuControl;
+            if (_isExiting || !LoadDanmu || control == null || control.ActualWidth <= 0 || control.ActualHeight <= 0
+                || e.Pointer.PointerDeviceType != Windows.Devices.Input.PointerDeviceType.Mouse) return;
+            var point = e.GetCurrentPoint(control);
+            // 只转发左键，右键仍用于播放器菜单。
+            if (action == "down" && !point.Properties.IsLeftButtonPressed) return;
+            if (action == "up" && point.Properties.PointerUpdateKind != Windows.UI.Input.PointerUpdateKind.LeftButtonReleased) return;
+            var x = point.Position.X / control.ActualWidth;
+            var y = point.Position.Y / control.ActualHeight;
+            // 子控件之间移动也会冒泡 PointerExited，不能把它当作离开整个舞台。
+            if (action == "leave" && x >= 0 && x <= 1 && y >= 0 && y <= 1) return;
+            if (IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject)) action = "cancel";
+            control.PushPointerEvent(action, x, y, e.Pointer.PointerId, point.Properties.IsLeftButtonPressed);
         }
 
         #endregion

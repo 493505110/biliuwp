@@ -124,6 +124,7 @@ hostState.nextTriggerId = 0;
 // 舞台遮罩（M8 的 Player.setMask）：非空时整块画布裁剪到该元件的形状里。
 hostState.stageMaskElement = null;
 hostState.visible = true;
+hostState.pointerPosition = { x: 0, y: 0 };
 hostState.running = false;
 hostState.frameHandle = 0;
 // M8 舞台与显示器刷新分开：原版播放器的默认 stage.frameRate 为 30。

@@ -1,5 +1,6 @@
 // 条目编译、生命周期、播放时钟同步与帧调度。
-import { normalizeMultilineStrings } from "./legacy.js";
+import { normalizeMultilineStrings, normalizeOrphanBreakStatements } from "./legacy.js";
+import { resetPointer } from "./input.js";
 import {
     advanceParticleElements
 } from "./bitmap.js";
@@ -55,7 +56,7 @@ function isInWindow(item, now) {
     return !item.skippedByScriptSeek && now >= item.startMs && now <= item.endMs;
 }
 
-function registerItemElement(item, element) {
+function registerItemElement(item, element, attach = true) {
     element.ownerItem = item;
     // 寿命初值 = 条目窗口剩余时间（未声明 tween 时就是这个值）。
     // 声明了 tween 的元素再由 tween 的 lifeTime 收紧，
@@ -65,7 +66,7 @@ function registerItemElement(item, element) {
 
     item.elements.push(element);
     // parent 由创建参数决定；未指定时挂到条目 Canvas（M8 的默认父元件）。
-    if (element.treeParent === null) {
+    if (attach && element.treeParent === null) {
         attachElement(element, element.createParent || null);
     }
 
@@ -487,6 +488,7 @@ function isItemWindowReentered(item, now) {
 }
 
 function clearAllItems() {
+    resetPointer();
     hostState.ordinaryDanmakuOwners.clear();
     syncOrdinaryDanmakuSuppression();
     for (var index = 0; index < hostState.items.length; index++) {
@@ -676,6 +678,7 @@ function setState(positionSeconds, playing, rate, seekVersion) {
 // 因此这里只保证 Player.state 读到 "stop"（对脚本可观测的那一面），
 // 画面收尾交给各条目自己的 lifeTime / 窗口。这是刻意记录的偏离。
 function setStopped(positionSeconds, rate) {
+    resetPointer(true);
     hostState.ordinaryDanmakuOwners.clear();
     syncOrdinaryDanmakuSuppression();
     resetStageClock(true);
@@ -689,6 +692,7 @@ function setStopped(positionSeconds, rate) {
 
 function seekTo(positionSeconds, playing, rate, fromScript, seekVersion) {
     if (seekVersion !== undefined && seekVersion !== hostState.scriptSeekVersion) return;
+    resetPointer();
     resetStageClock(true);
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = !!playing;
@@ -733,7 +737,7 @@ function compileItem(model) {
         throw new Error("暂不支持的语言：" + lang + "（TS 转译尚未接入）");
     }
 
-    // 整个宿主里只有这一处动态编译，且每条脚本只编译一次。
+    // 执行用的动态编译只在注册时发生；旧语法修复另有受限的解析探测。
     // 脚本环境直接提供 M8 的全局名（见 SCRIPT_GLOBAL_NAMES），不再注入自研的 ctx。
     // 用参数注入而不是给 window 挂属性：脚本里对 $ / Tween 的赋值
     // 只影响它自己那一次执行，不会污染其它条目。
@@ -745,9 +749,9 @@ function compileItem(model) {
     try {
         return new Function(...SCRIPT_GLOBAL_NAMES, code);
     } catch (error) {
-        // 早期 M8 允许引号内直接换行；合法 JS 保持原样，只在语法失败时兼容。
+        // 早期 M8 的多行字符串与回调末尾 break；合法 JS 保持原样。
         if (!(error instanceof SyntaxError)) throw error;
-        return new Function(...SCRIPT_GLOBAL_NAMES, normalizeMultilineStrings(code));
+        return new Function(...SCRIPT_GLOBAL_NAMES, normalizeOrphanBreakStatements(normalizeMultilineStrings(code)));
     }
 }
 
@@ -840,6 +844,8 @@ export {
     ensureRunning,
     isInWindow,
     recoverItemFromCallbackError,
+    declareAvm1GlobalIfUndeclared,
+    releaseItemElement,
     registerItemElement,
     seekTo,
     setState,

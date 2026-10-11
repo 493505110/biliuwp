@@ -244,7 +244,8 @@ function createContextStub(canvas) {
 
     // 渐变对象（宿主 beginGradientFill 会用到）。记录色标数量，便于断言。
     ctx.__gradients = [];
-    ctx.getImageData = function (x, y, width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; };
+    ctx.createImageData = function (width, height) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; };
+    ctx.getImageData = function (x, y, width, height) { return ctx.createImageData(width, height); };
     ctx.putImageData = function () { };
     ctx.createLinearGradient = function (x0, y0, x1, y1) {
         const gradient = { kind: 'linear', x0, y0, x1, y1, stops: [], addColorStop(o, c) { gradient.stops.push([o, c]); } };

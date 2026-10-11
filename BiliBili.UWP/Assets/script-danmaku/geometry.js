@@ -116,6 +116,23 @@ function projectPoint(point, projection) {
         y: center.y + (point.y - center.y) * focal / depth, depth: depth };
 }
 
+// 屏幕点与元件本地 z=0 平面求交，2D / 3D 共用绘制时的矩阵和投影。
+function screenToLocal(element, x, y) {
+    var m = worldMatrix(element), projection = projectionFor(element);
+    var focal = toFiniteNumber(projection.focalLength, 1);
+    var center = projection.projectionCenter || { x: 0, y: 0 };
+    var dx = (x - center.x) / focal, dy = (y - center.y) / focal;
+    var a = m[0] - dx * m[2], b = m[4] - dx * m[6];
+    var c = m[1] - dy * m[2], d = m[5] - dy * m[6];
+    var tx = x - m[12] + dx * m[14], ty = y - m[13] + dy * m[14];
+    var determinant = a * d - b * c;
+    if (Math.abs(determinant) < 1e-10) return null;
+    var point = { x: (tx * d - b * ty) / determinant, y: (a * ty - tx * c) / determinant };
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)
+        || focal + transformPoint(m, point.x, point.y, 0).z < 1) return null;
+    return point;
+}
+
 function transformedBounds(bounds, matrix) {
     var points = [[bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
         [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height]];
@@ -392,5 +409,5 @@ function drawProjectedGPU(target, source, bounds, matrix, projection) {
 }
 
 export { IDENTITY, multiply, localMatrix, worldMatrix, relativeMatrix, transformPoint,
-    transformedBounds, subtree3D, projectionFor, projectPoint, drawProjected,
+    transformedBounds, subtree3D, projectionFor, projectPoint, screenToLocal, drawProjected,
     beginProjectedBatch, flushProjectedBatch, endProjectedBatch };

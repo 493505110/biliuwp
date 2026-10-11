@@ -243,6 +243,22 @@ namespace BiliBili.Tests
         }
 
         [TestMethod]
+        public void MouseInput_UsesPlayerSurfaceAndPrioritizesScriptOverBas()
+        {
+            var source = PlayerPageSource();
+            foreach (var name in new[] { "Moved", "Pressed", "Released", "Exited", "Canceled", "CaptureLost" })
+                StringAssert.Contains(source, "playerSurface.AddHandler(UIElement.Pointer" + name + "Event");
+            var forward = Body("private void ForwardScriptPointer(");
+            StringAssert.Contains(forward, "IsTapFromPlayerOverlay(");
+            StringAssert.Contains(forward, "control.PushPointerEvent(action, x, y, e.Pointer.PointerId");
+            var tap = Body("private async void PlayerSurface_Tapped(");
+            Assert.IsTrue(tap.IndexOf("scriptControl.TryHandleTapAsync", StringComparison.Ordinal)
+                < tap.IndexOf("TryHandleBasDanmakuTapAsync", StringComparison.Ordinal));
+            var doubleTap = Body("private async void MTC_DoubleTapped(");
+            StringAssert.Contains(doubleTap, "scriptControl.ActualHeight, false)");
+        }
+
+        [TestMethod]
         public void ScriptNavigate_IsRestrictedToBilibiliHttps()
         {
             // 脚本可请求跳转，只放行 https + bilibili.com，与 BAS 侧同款规则。

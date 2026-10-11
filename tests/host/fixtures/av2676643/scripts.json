@@ -1,0 +1,408 @@
+[
+  {
+    "id": "1122641917",
+    "stime": 0,
+    "duration": 0,
+    "lang": "js",
+    "code": "ScriptManager.clearTimer();\nScriptManager.clearEl();\nScriptManager.clearTrigger(); \nvar format = $.createTextFormat(\"Adobe 黑体 Std R\", 20, 0xFFF68F, true, false, false);\nvar text = \"    游戏说明\\n\\n我知道有很多人不看视频简介，所以就把说明放在这里了。\\n操作：W－↑，S－↓，A－←，D－→\\n\\n注意事项：\\n1.若开始后看不到自机，请刷新；\\n2.全屏无法操控者，请打开播放器右侧的设置，勾选“全屏输入”；\\n3.将弹幕透明度调为1可能会更流畅；\\n4.请不要乱拖进度条，最好也不要暂停；\\n5.请不要发超长弹幕或纯标点影响他人游戏。\\n\\n游戏愉快！\";\nvar intro = $.createComment(text,{x:0, y:0, lifeTime:0});\nintro.setTextFormat(format);\nintro.defaultTextFormat = format;\nintro.background = true;\nintro.backgroundColor = 0x104E8B;\n\nintro.x = (Player.width - intro.width) / 2;\nintro.y = (Player.height - intro.height) / 2;\n\nvar btn = $.createButton({x:0,y:0 + 20,text:\"开始游戏\",lifeTime:0,onclick:function(){\n  Player.seek(19000);\n  ScriptManager.clearEl();\n  $.root.removeEventListener(\"enterFrame\", countTime);\n}});\n\nbtn.scaleX = 1.5;\nbtn.scaleY = 1.5;\nbtn.x = intro.x + intro.width - btn.width - 10;\nbtn.y = intro.y + intro.height - btn.height - 3;\n\nfunction countTime(){\n\tif(Player.time > 23000)\n\t\tPlayer.seek(1000);\n}\n\n$.root.addEventListener(\"enterFrame\", countTime);"
+  },
+  {
+    "id": "1122634223",
+    "stime": 24,
+    "duration": 0,
+    "lang": "js",
+    "code": "var MAX_NUM = 2147483647;\nvar GRAVITY = 0.4;\nvar BASE64_CHARS = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-=\";\n\nvar oX = 0, oY = 0, pX = 0, pY = 0;\nvar pai_180 = Math.PI / 180;\nvar rotation = 0;\n\nvar current; //当前DisplayObject\nvar format = null;\nvar filters = null; //文字滤镜\n\nvar danmus = [];\n$G._set(\"danmus\",danmus);\nvar player;\nvar playerShape;\nvar background;\nvar scoreboard; \n\nvar gameWidth = 0;\nvar gameHeight = 0;\nvar playerWidth = 60;\nvar playerHeight = 60;\n\nvar Keyboard = {\n    A: 65,\n    S: 83,\n    W: 87,\n    D: 68\n};\n\nvar windowWidth = 0;\nvar windowHeight = 0;\n\nvar alive = true;\nvar indestructible = false;\nvar deadTime = 0;\nvar numDanmu = 0;\n\nvar RAW_player = \"7V0tlxw3FhVcaLgwcKGhf8LCwEDDwMDAQEPDhYGGgfkJgYGGhvkJZrOtsq7m6taTStXdVVK3n87R6XH3eGZKH1f33fehELx58+bNmzdv3rx58+bNmzdv3rx58+bNmzdv3rx58+btuvby9u27Zv-hh-+8+DB58+bN27nYbOFzxOPYjfd9xB5rDn10vHl70H3NOIyva3w6fvbh-cfYfeQmnMfaGevD81xz-dPbN7n--v7f-J6PzpPiM3d+n7E6YvPXz1+W7kM3ni-XcNk4T5e+4+f4CE+KyRc8LjpjtePz86+DPz-+kTE47mnsW34-feajNRCb+TxlPFZs5rmMc5hw2vItrLD6e7Yl0-OjD8PkiMH--Pl+s6fvcy79neAz9jL2OL7G5w2dI69r52Pn4DPbOvyZnKfFecvzFPunP-5++fW331++fv269PRzHJ-H4POCsT24DGx2fD5mLfz0-tfYp-m7gMcRh4HRyp3l89Bja-uUH6txKAfGXPL5yt-DWMw9vh97XJffyz6s2RHSj8bj5ZX5ci93ps6823cIje9lTe-mP5GzDMLn1jpkjbm7b+igvkJOPFuVN8dXrDfG4rj2gMnxM-T4fnz9nrA5r305q07E512cucajxW-oLY7tZT0nztH8HsYycJiN-3eofdyLr1tx0dqdO49Zh2zbAJehMzHm-P7jG7MDn4HX3wM2A5OxFzE+OKNo306jZ7SwmTB680z6DrjTC+Nz4iSr78GaB35h3tN6GLI293BjtaN78Nq581h85vkCNgOH--r4Y7MDn55NS1QNPo4J9iae-es-vywd59UJ47CKy7gWnyWmYxObnxyn89nK+0A48ctvb1-PZ+DXYM3ZxGdLwyQeVbyH58bnsAONs-nZONjZuuTuv43HH5wBc8TYDBziLvj0NNiseg-GBmPCz8-jEz9La-vQv5FxdSM+Yw9GV7G5Zes+CU6zRlc8NzQ9YPLXTx-yOTyJT7DJjYP49PEsql3qZxgPiSd4Wr1yonMor8Ga-495M95bff18GP3KkwmfMVbgGfy8P78LxTicYEeYMc3XYjR9buqZmoOm65nsr4ffq8wjdb+ydoXvS-+ezuaz+LT68tUmtrRL9vs-me+-S5+v5H8MsYd4-hSDGIuARwuHVNz+hlFPcY5C84mv0DWW8wvnUXrufIYRPh98RhUxzj36Rid+m3tdMNh8-0nyGwq+WIknyxzz8jq1Lof9DWxlP77aw7rX1SaMr5PFDN51nCyNndf1yf7QdewNxWagWzoGsChi9F-v-1vjkA83V1auDmJBsSdjz+uY7IdlTC5jEb+PxugUbeNWjJa4vOoe59hYjaHlONoH4tDfNORPH5a5W77+8jmv-Vbdg9hhZw7wA+7e49Ap8WyMuTV8rvVn0S91jcPHxHuf+Rnl6Q3jzjyHrK9mrhznMeHQ8n8uaxt4vaxvYJWNTZa+ObX+BPuG-fN5TJKtADsw7u04Nv979y8ei9PwuQejrc-53zQ3K93SivFBTqmldz5Aja1lznK-rOU4b9CeLZ-Y6sz6xmkeQrNRTQPrN2vP-LVtE+O9422Y4+sOFHNp5eko96DXIfjM2Iy4BLZzgEtYl3l9J-4B7pi6iSeCAdNyZ523+B7sQmAydJ4Fmy9jwPt8GZNvPPrwNXwrRsdnEu5s2lfAYussY58SzjGM18T+w3Le0vnaw52ZQydu2sXX0t4apttYvAt7HOt5sYvJLjT49Wn4TLbhNc+7iztb9mEY5zs0-buca6J+Az5j--45LJ0xiX2JFVwCNkyNz4FqFQCTOP47azlpb1v7HFzs4LVcxC7vwWjgssZYhXVs0armAvY662Gwn7VTvv9DYHScs7BR01E7jYNiYYEFjJGDNNxXW2-tzy-5GHTLODZpvZ+Ez6vaMZw7tcHv8ro01rWJz6GRW2n5HYIRm3igLm3+nega25zP2zhncU0KHrHPt6ZvdIzxUH2DOTNz55ynIDo8xipqGszBaDyOWr-FWq7FQddwegObazWvXth-xnvd4mOM0YLT82nQgs978uwwHvEZ4-+HRmLFF5ONOuRZM9cSThxfV-6odG7xZ0drdlL-doXNHEtqxelLXlgX7wiNfHa2kVT74ffSmjnNV6j4zLYOtFZgEdZ3-HpDm6rF2E6lP6sOxT57jtngdRvxGRi9jEPiHwdpdazNdWE0cxJwDIsL6tpmbOb1yGfVlp+JsZo4x5w69AWT9uIzc2jMPWs7lE84Iue74M6WZgHM-uPT52UNZ2xOPf47flbRLQ-BZtU3FJuNXKq8rmvzV+PRLWzGmmftvhZ-eDCXrs5nC6PBFRM2b+Izje+52lvb17DCItagsMcQD64+U4wBa-HsI8cc3jlOdr0+yxxtkzvH97HmVrGEwg80Lp5zlaBzsQZf81fgPfzeCTG6sAX31qvAuZbj1gSfB9ZKquIz6ZCv6-ry7FGzzLZgwuf47-hMN-DmXk62iue3OtYxXnlNx9fWXBFGFzZzjTdrHprFSbi+xYkYXfMN5NyL2CN3zvy-z-bhepanY3TjbKjWW8UeY5+p4lC2NdLezPOa1j5p+4dodcylaziNzn48Xrdstyk2g0NwbKGeUepXWjR6iUEUm--h8ZntDtKgtZbjDDHDVnx+qUWrD0V8KVfis94Fsbk-9+S6AqPVz9Gaq2DkXOn3MS6vYlh471MMF6-tE-wsxb7i85ZzUtg-hNi7zCcprhR94ZbnadCWntLUr2r4DHxlnriKO6TxAWfisaL6OVdhcIODKE6vsDrvEfLrqYbKf6fy5uLZBXOzHlbq7mWMbTqnYOtPhtEFFnG9o16cDvvqkA7FZvY5sR+B45CWuSRsvjIWqcDQjf1+fW2v17zGZqzF1h2MXNsi63fEQzg3T30v0PBOWtfqqy3nUOpoLnubsJjxWftyDp8XZ1ecyarZGn+DVV+gwGfWoNRXCO7Jdfw414fzvjt5dGHHddiIpl8ld-Ftq+6MjuflPYz1iudk-T3HWhL-gi+JuYZR129afMbz6zzW9j-V250Kl0VXKeo5WD6v+LzgUh3+-k28Tet31z7d29X-vMoBFC7ZwuZa7GHxmmxFxLaoL2rU+cs5olw7aVmbYhOBRzN-ztrsORr0yrY34imteL8X9R2o-c8x0HpesT1BNm-GZsa8Zk1hWq9X+lMLbOY5C5JXprm-bDtYtfl0rUZ9soi1-PLNz6TxP+ojnASfi-iN+DxUT3Q1r-z36-l2ch2OrTPb-PvZruc1ga-xjGQvgZ-t-rt27PGrai+CO9c4B8c-1uxGxeZW7CHbijjTT6rlUBvnUosm+5f3c8GZLf0qxS2drG+YcWacC8282qoLpPjMeFbgFem2+BzPy+sd+yO08xRujcu3+WFao-psuofZf2fpOCs7KvmPND8n4jXrPWyDzqY9Z-smcQkeLwufrTsYyG4a4fe29tRqXWpNEX5OxmfWK3fijtqru3XI3jq5mXMRB7LypRifOW5Z8x1Uj1cbGT6WGMfC8S0n1HGoYrLMucb6FVyQ51nxGl9nzOqzee6Gza06FILZwcIv9S1YfnAeA+AWxgE4HSR+GL4k3WM3cOYmjwqVWHfWNvjcRa7oYiNS3ijHsSwYLjYT508enEN5t-HRfJogNZDZ36e6wKA6dmY8Wtbx6Gxp4bNy58L224fPun7vul+VY-G+tWpZhUo9IfWlWHFGWtOviCmmvOkU03LG+la-f+39wkbls6laT1Y49DL36WeOxOdVvgatbcUu9S3wnPE5Be1Ofd9cr4TXiaUvH6D5rPC5VQ+Y9zU4Mmw-846zyziwdsWxlg9SS2e1dnlOGa-Ut2DkTw7BZSvOnWs1YO553bHPYYnrT-7A5VVqP288n1VH8fD9ynlWqt1Y8Ug8T61a9urbLuIQEz4j-vCGmJbd88x+VuWWq5itNBar89ao9V3gVfocP1-qGAzDZv5+1hZ1z+J95szByA+zdB5waNgXy-6hWPuD9fhVbIZV50fnUOOV9X34SjlWhfLTwgM0k1uovcS2Mdd+Jn-gWdy5ic28b+FzYF2Jzxe1mdiHhLWqvhQ5001svtLmuxmfVX8OkuvNZyz769kvxOtAMdra05ez7PC4BvWfWXPNn+N5dY-znrX8wrz+1S4hneQuz3atH1h9Y6rJsg6tuUN6T27WeAy-KcexnJRH2YXP1r3sbC+pP0nvBZYa71PgL2NJ+pteOVLSnjRPF35R1dwV10bozVbtQb0-B7qsxsoon1zVSiEMAibxz1C7S-DiLnjUE++8wiXxEwQjL1C5JHKBt+zHrHeQfYGvL2vn1DmuvcdrgPeoFZ-VwubsF04-D3Gm4b65G1efxXoGaw2gYNTKruXlK1ZXfKan2-FWnhWelfFZc7lznI7oeUWO1euanoYfW-6fXAuXcj15b6t-Qf8vbIY0XqfqzXtjGniP8R605nd5HuLQGhfL3OLOfhIzj6oXlyyMVk1dsZk5Nz8rr2vYyugYg3Sun67Ltmq3W+OgMSwW-+L3sQago3TW0GXMPIU-s46lGlxhDzYweROjv63zIfa8lT+o2oWF0difmjfKNbFnuucJuQaqN4IbKu5aWqT6izhX-2x-4F67n3kv70GNqVvtVcLo7N9++6bw8SPO5UhMUm21dacx2-fMg60YnGJtk82guXQaE8xjwLnlGgumumVn7b2rsUt-D88xc01+X3GLtY3Yg9R0qHDnIlakp8bu3jh3Pndqdxrpmas+USuOlPhVnud8Tn-5PFxztXxhNTsgPyPVGIFGyWfVnf0IN+sa0N0Uf8nvXq3r1LifPnBsx0n4vHtdY+70vudWDTau8bTynbx9s8KtO9Y-rvLnrRgOqzZYgZVxfUo8S8ElK-HAqknGn8vPX-s7rb9N+t3muDYuzB8C3Ser2rPlX8LfwPhF+QCBtSL8H+yzW-F5K76yhtEaq1PTbzR-kPGZ478H8OYqhw4b8dAFz5IaUIzRN+SvH8adsTZX9dpSbcFafRnlzpU8ujNrHt2Mz1s+Id6PgWuLkqbB8Tmc53KHM7l73zawuZiXlR9TfaF4-krOhnVGcX605h1btcqM97rOqGv5s9oQGrtQ29f8OevYRX1g2vP4TOOcevG5N8a9tq4xf1YebJA7dC3urFoP8+fB2KzYUqtlbmo2XJMBdaAojyHb0Wfa-EY+fqFtFPeF0F2+fHeT3iepusYE9+91a8-KoViDVz5k+YYw93ovI-gjx+jdEZ+zztHTtYaB5v9qHhjbu1auJOeT4RlVjxTd4zDt+RqMVn2jhc-KodV25hi9FTdL2qbU6dtz58RNNgLXwtJ8Dj6T2f+tsaK6H0KZdzgNNqufU-0J6mPS2G7OjQT+3TEGZ5eGYdyfVdj0NR1DXwvNg-Frnb9w+pzt2bPAZ407U26hOM1xS5hv5qhWzM4dz+Omj9DCZQObi3XBPvFl7RImaw6-gTFn8ynzDoJr9A3ObbVi7HS-F+Nh1NPO5xXhM9f13GFHXo3Pqutb918E4z4wzTfRGrJSA2AaXdbiylZ+LJ+7jM+NsRiJzy8at8F7r3Y-tcWV1Xc4KG6wS5+z3meeUeNKzKXY16Mxwxr-LbHEd8eoWt0co45u1V8FDq3+fV4PfIbR8w3bm9fa-Kp-69ncqrfaiM+w5nZVg2ZnjOlVtoF1R4NlI9RqxYbK-Qsavza6Prv6A3MOI+k5luZe+IUSPmts7ah44NZ86L0v6u-kXA3F4dniuHvumaxxTD5jrdxRXtfgEozFis0HY1iNO+tYmOtb71KFT0s1jlocwwz43PKNbmEY5lvPXQuXAufU9ceJFv7Bnbhm8uee59J4Hq3nY9UttGrY653VxF+G73Fo+so1NZ6Dn0v9QpqrL3xqmC9Q70jku2+4DkFrvfJzT1Y3ZDPuteU70zsga1yj5keU+7nG6XK2nrHCZ+Me4iL2oJWvMIBDmXcc7YlhsdZEzccQ5J7nUObvnDWH1ZgX69msNV2rWaFnrhULbcTIT7PPQ+U+Y83FAefXmCqO32ZNcuAzmvdhBLqDPey8T5DW71T4bOX4aj3GHg7N65N1Sssnwfpjqr06ApO778cK2zHZGssxzRwz-vTGnLU4JmpI1HAa9jP7mM7G6N58JCNWpxprVot5Z85POld4kFZ9JhOfYw5wGq9ZzhzmwB-efyzuYI+v8b2WP6FiA06zd7mOV41LK--S2jkcR2fmDxocg-lzOK827Iz3SJ8yx72+Br3bvJYzwzE9OrescZwYe7WZJ2ngsuV3UH68xUlnvuNo31qxz5airoj4o6bwewJXgcuxR1xmnLb8BQ39alqNo8WbV-bg2p9WxWQrliFQzbsnWeNT7rue+O+eGDutfYevkffLPHoUPu+Jp9y4v7J91wnpAWGu2vOz2Z+H4zPwlfGYX4HXoeLTNbTpacba4lJW7FEDo1e8g+8cJ59CdXwphtTRdDBuabyOgdHm78A8cxzwyXkLzIW34ih5XG7Chl9++XU23fLUcR7Mo1daRcTh+NrCZgufRa+ekl-txWbjDrdVzgbfPW7ZToF8sZe17mh6wn7ac1+B6LXN34FYHqkpNJTfCV++l861ijP8XtfUBHqHeQddfC-iMnQO4HbPHd0z65QtH3hD21jl13XnflFckvPn4-hzjVf28ukOnlnEhw+Oy9myJe728wbYCNNiR+d944djtfYLNoewEWP3QOesqTEatqF5hlEMe--vmy-u4Zn2zia37NRqu34f17WbCJ+PvEvKWyUGfWI-vIXjj2wXb77HOkWy-bw9gG1a85tdgc2Psn69ncTtJsfoZ+RfFnfO+Bx9JXesD+rt4D1kxWQY8Q0+Yt5uwWkfjZPH3sJn6MgRo32IHgujhSfPoCN6e5415iMxw1y81i7w9rjnruOyN2-evHnz5s2bN2-evHnz5s2bN2-evHnz5s2bN2-evHnzdlz7Pw==\";\n\n$G._set(\"step\", 0);\n\nvar timeline = 0;\nvar maxRotation = 5;\n\nvar glowFilter = $.createGlowFilter(0xffff00, 0.9, 8, 8, 2);\n\nfunction extract(data) \n{\n\tvar bmd = Bitmap.createBitmapData(1, 1);\n    var output = bmd.getPixels(bmd.rect);\n\toutput.clear();\n\n\tvar dataBuffer = [];\n\tdataBuffer.length = 4;\n\tvar outputBuffer = [];\n\toutputBuffer.length = 3;\n\n\tfor( var i = 0; i < data.length; i += 4)\n\t{\n\t\tfor( var j = 0; j < 4 && i + j < data.length; j++)\n\t\t{\n\t\t\tdataBuffer[j] = BASE64_CHARS.indexOf(data.charAt(i + j));\n\t\t}\n\n\t\toutputBuffer[0] = (dataBuffer[0] << 2) + ((dataBuffer[1] & 0x30) >> 4);   \n\t\toutputBuffer[1] = ((dataBuffer[1] & 0x0f) << 4) + ((dataBuffer[2] & 0x3c) >> 2);           \n\t\toutputBuffer[2] = ((dataBuffer[2] & 0x03) << 6) + dataBuffer[3];\n\n\t\tfor( var k = 0; k < outputBuffer.length; k++)\n\t\t{\n\t\t\tif(dataBuffer[k+1] == 64)\n\t\t\t\tbreak;\n\t\t\toutput.writeByte(outputBuffer[k]);\n\t\t}\n\t}\n\n\toutput.inflate();\n\n\toutput.position = 0;\n\n\treturn output;\n}\n\nfunction loadBitmapData(width, height, raw) \n{\n    var bmd = Bitmap.createBitmapData(width, height);\n    bmd.setPixels(bmd.rect, extract(raw));\n    return bmd;\n}\n\nfunction createScoreboard()\n{\n\tvar format = $.createTextFormat(\"Adobe 黑体 Std R\", 25, 0xffff00, true, false, false);\n\tscoreboard = $.createComment(\"死亡次数：\" + deadTime,{x:0, y:0, lifeTime:0});\n\tscoreboard.setTextFormat(format);\n\tscoreboard.defaultTextFormat = format;\n\tscoreboard.background = true;\n\tscoreboard.backgroundColor = 0x0000ff;\n}\n\nfunction createDanmu()\n{\n\tvar danmu = {};\n\tdanmu.init = function(newShape)\n\t{\n\t\tthis.shape = newShape;\n\t\tthis.type = newType;\n\t\tthis.vx = 0;\n\t\tthis.vy = 0;\n\n\t\t//确定类别\n\t\tthis.type = $G._(\"step\");\n\n\t\tswitch(this.type)\n\t\t{\n\t\t\tcase 0:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = Utils.rand(3,7);\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tbreak;\n\t\t\tcase 1:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = Utils.rand(3,7);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tbreak;\n\t\t\tcase 2:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(100, gameHeight - this.shape.height - 100);\n\t\t\t\tthis.rotation = Utils.rand(-40, 40);\n\t\t\t\tthis.shape.rotationZ = this.rotation;\n\t\t\t\tthis.v = 6;\n\t\t\t\tthis.vx = this.v * Math.cos(this.rotation * pai_180);\n\t\t\t\tthis.vy = this.v * Math.sin(this.rotation * pai_180);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 1;\n\t\t\t\tbreak;\n\t\t\tcase 3:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = Utils.rand(3,7);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tbreak;\n\t\t\tcase 4:\n\t\t\t\tthis.shape.x = -this.shape.width;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = Utils.rand(3,7);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 2;\n\t\t\t\tbreak;\n\t\t\tcase 5:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = 5;\n\t\t\t\tthis.shape.textColor = 0xBDFD4E;\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tthis.scale = 0;\n\t\t\t\tbreak;\n\t\t\tcase 6:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = 5;\n\t\t\t\tthis.shape.textColor = 0xBDFD4E;\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tthis.scale = 0;\n\t\t\t\tbreak;\n\t\t\tcase 7:\n\t\t\t\tthis.shape.rotationZ = 90;\n\t\t\t\tthis.shape.x = Utils.rand(this.shape.width, gameWidth);\n\t\t\t\tthis.shape.y = -this.shape.height;\n\t\t\t\tthis.vy = Utils.rand(3, 7);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 3;\n\t\t\t\tbreak;\n\t\t\tcase 8:\n\t\t\t\tthis.shape.x = Utils.rand(this.shape.width, gameWidth);\n\t\t\t\tthis.shape.y = -this.shape.height;\n\t\t\t\tthis.vy = 0;\n\t\t\t\tthis.ay = 1;\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 3;\n\t\t\t\tbreak;\n\t\t\tcase 9:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(100, gameHeight - this.shape.height - 100);\n\t\t\t\tthis.rotation = Math.atan((this.shape.y - player.shape.y) / (this.shape.x - player.shape.x)) / pai_180;\n\t\t\t\tthis.shape.rotationZ = this.rotation;\n\t\t\t\tthis.v = 6;\n\t\t\t\tthis.vx = this.v * Math.cos(this.rotation * pai_180);\n\t\t\t\tthis.vy = this.v * Math.sin(this.rotation * pai_180);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tbreak;\n\t\t\tcase 10:\n\t\t\t\tthis.shape.x = -this.shape.width;\n\t\t\t\tthis.shape.y = Utils.rand(100, gameHeight - this.shape.height - 100);\n\t\t\t\tthis.rotation = Math.atan((player.shape.y - this.shape.y) / (player.shape.x - this.shape.x)) / pai_180;\n\t\t\t\tthis.shape.rotationZ = this.rotation;\n\t\t\t\tthis.v = 6;\n\t\t\t\tthis.vx = this.v * Math.cos(this.rotation * pai_180);\n\t\t\t\tthis.vy = this.v * Math.sin(this.rotation * pai_180);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 2;\n\t\t\t\tbreak;\n\t\t\tcase 11:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.rotation = 0;\n\t\t\t\tthis.shape.rotationZ = this.rotation;\n\t\t\t\tthis.v = 3;\n\t\t\t\tthis.vx = 3;\n\t\t\t\tthis.vy = 0;\n\t\t\t\tthis.shape.textColor = Utils.rgb(Utils.rand(0xaa, 0xff),Utils.rand(0xaa, 0xff),Utils.rand(0xaa, 0xff));\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tbreak;\n\t\t\tcase 12:\n\t\t\t\tvar random = Utils.rand(0,2);\n\t\t\t\tif(random == 0){\n\t\t\t\t\tthis.type = 4;\n\t\t\t\t\tthis.shape.x = -this.shape.width;\n\t\t\t\t}\n\t\t\t\telse if(random == 1){\n\t\t\t\t\tthis.type = 0;\n\t\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\t}\n\t\t\t\tvar filters = this.shape.filters;\n\t\t\t\tfilters.push(glowFilter);\n\t\t\t\tthis.shape.filters = filters;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.vx = 2;\n\t\t\t\tthis.shape.textColor = 0x006666;\n\t\t\t\tbreak;\n\t\t\tcase 13:\n\t\t\t\tthis.vR = Utils.rand(-5, 5);\n\t\t\t\tthis.shape.rotationZ = Utils.rand(-180, 180);\n\t\t\t\tthis.shape.x = Utils.rand(0, gameWidth);\n\t\t\t\tthis.shape.y = gameHeight;\n\t\t\t\tthis.vx = (this.shape.x < gameWidth / 2) ? Utils.rand(0, 10) : Utils.rand(-10, 0);\n\t\t\t\tthis.vy = Utils.rand(-gameHeight / 12, -gameHeight / 30);\n\t\t\t\tthis.shape.textColor = Utils.rgb(Utils.rand(0x00, 0x55),Utils.rand(0x00, 0x55),Utils.rand(0x00, 0x55));\n\t\t\t\tthis.leaveType = 4;\n\t\t\t\tbreak;\n\t\t\tcase 14:\n\t\t\t\tvar random = Utils.rand(0,2);\n\t\t\t\tif(random == 0){\n\t\t\t\t\tthis.shape.x = 0;\n\t\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight / 2);\n\t\t\t\t}\n\t\t\t\telse{\n\t\t\t\t\tthis.shape.x = Utils.rand(0, gameWidth / 2);\n\t\t\t\t\tthis.shape.y = 0;\n\t\t\t\t}\n\t\t\t\tthis.shape.rotationZ = 222;\n\t\t\t\tthis.shape.textColor = Utils.rgb(Utils.rand(0x00, 0x55),Utils.rand(0x00, 0x55),Utils.rand(0x00, 0x55));\n\t\t\t\tthis.vx = 5.2;\n\t\t\t\tthis.vy = 4.684;\n\t\t\t\tthis.leaveType = 5;\n\t\t\t\tbreak;\n\t\t\tcase 15:\n\t\t\t\tvar random = Utils.rand(0,2);\n\t\t\t\tif(random == 0){\n\t\t\t\t\tthis.shape.x = 0;\n\t\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight / 2);\n\t\t\t\t}\n\t\t\t\telse{\n\t\t\t\t\tthis.shape.x = Utils.rand(0, gameWidth / 2);\n\t\t\t\t\tthis.shape.y = 0;\n\t\t\t\t}\n\t\t\t\tthis.shape.rotationZ = 222;\n\t\t\t\tthis.shape.textColor = Utils.rgb(Utils.rand(0x00, 0x55),Utils.rand(0x00, 0x55),Utils.rand(0x00, 0x55));\n\t\t\t\tthis.shape.scaleX = Math.random() * 1.5 + 0.5;\n\t\t\t\tthis.shape.scaleY = Math.random() * 1.5 + 0.5;\n\t\t\t\tthis.vx = 5.2;\n\t\t\t\tthis.vy = 4.684;\n\t\t\t\tthis.leaveType = 5;\n\t\t\t\tbreak;\n\t\t\tcase 16:\n\t\t\t\tthis.shape.x = gameWidth;\n\t\t\t\tthis.shape.y = Utils.rand(0, gameHeight - this.shape.height);\n\t\t\t\tthis.shape.rotationY = Utils.rand(-45,45);\n\t\t\t\tthis.vx = Utils.rand(3,7);\n\t\t\t\tthis.shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t\t\t\tthis.leaveType = 0;\n\t\t\t\tbreak;\n\t\t}\n\t};\n\n\tdanmu.move = function()\n\t{\n\t\tswitch(this.type)\n\t\t{\n\t\t\tcase 0:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tbreak;\n\t\t\tcase 1:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tbreak;\n\t\t\tcase 2:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tthis.shape.y -= this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 3:\n\t\t\t\tbreak;\n\t\t\tcase 4:\n\t\t\t\tthis.shape.x += this.vx;\n\t\t\t\tbreak;\n\t\t\tcase 5:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tthis.scale = Math.sin(timeline/2.27) / 2 + 1;\n\t\t\t\tthis.shape.scaleX = this.scale;\n\t\t\t\tthis.shape.scaleY = this.scale;\n\t\t\t\tbreak;\n\t\t\tcase 6:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tthis.scale = Math.sin(timeline) / 2 + 1;\n\t\t\t\tthis.shape.scaleX = this.scale;\n\t\t\t\tthis.shape.scaleY = this.scale;\n\t\t\t\tbreak;\n\t\t\tcase 7:\n\t\t\t\tthis.shape.y += this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 8:\n\t\t\t\tthis.vy += this.ay;\n\t\t\t\tthis.shape.y += this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 9:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tthis.shape.y -= this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 10:\n\t\t\t\tthis.shape.x += this.vx;\n\t\t\t\tthis.shape.y += this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 11:\n\t\t\t\tif(this.shape.x >= gameWidth - this.shape.width)\n\t\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\telse{\n\t\t\t\t\tvar reference = (Math.atan2(this.shape.y - player.shape.y, this.shape.x - player.shape.x)) / pai_180;\n\t\t\t\t\tif(this.rotation > reference)\n\t\t\t\t\t\tthis.rotation = this.rotation - 1;\n\t\t\t\t\telse if(this.rotation < reference)\n\t\t\t\t\t\tthis.rotation = this.rotation + 1;\n\t\t\t\t\tthis.shape.rotationZ = this.rotation;\n\t\t\t\t\tthis.vx = this.v * Math.cos(this.rotation * pai_180);\n\t\t\t\t\tthis.vy = this.v * Math.sin(this.rotation * pai_180);\n\t\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\t\tthis.shape.y -= this.vy;\n\t\t\t\t}\n\t\t\t\tbreak;\n\t\t\tcase 12:\n\t\t\t\tbreak;\n\t\t\tcase 13:\n\t\t\t\tthis.shape.rotationZ += this.vR;\n\t\t\t\tthis.vy += 1;\n\t\t\t\tthis.shape.x += this.vx;\n\t\t\t\tthis.shape.y += this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 14:\n\t\t\t\tthis.shape.x += this.vx;\n\t\t\t\tthis.shape.y += this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 15:\n\t\t\t\tthis.shape.x += this.vx;\n\t\t\t\tthis.shape.y += this.vy;\n\t\t\t\tbreak;\n\t\t\tcase 16:\n\t\t\t\tthis.shape.x -= this.vx;\n\t\t\t\tbreak;\n\t\t}\n\t};\n\n\tdanmu.checkLeave = function()\n\t{\n\t\tswitch(this.leaveType)\n\t\t{\n\t\t\tcase 0: //出左边界即离开\n\t\t\t\tif(this.shape.x < -this.shape.width)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t\tcase 1: //适用倾斜弹幕，检测上下左右四个方向\n\t\t\t\tif(this.shape.x < -this.shape.width || this.shape.x > gameWidth + this.shape.width || this.shape.y < -this.shape.height || this.shape.y > gameHeight + this.shape.height)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t\tcase 2: //出右边界即离开\n\t\t\t\tif(this.shape.x > gameWidth)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t\tcase 3: //出下边界即离开\n\t\t\t\tif(this.shape.y > gameHeight)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t\tcase 4: //用于弹跳弹幕\n\t\t\t\tif(this.shape.y > gameHeight + 10)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t\tcase 5: //左上角至右下角弹幕\n\t\t\t\tif(this.shape.x > gameWidth + this.shape.width || this.shape.y > gameHeight + this.shape.height)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t\tcase 6: //完全透明则消失\n\t\t\t\tif(this.shape.alpha <= 0)\n\t\t\t\t{\n\t\t\t\t\t$.root.removeChild(this.shape);\n\t\t\t\t\treturn true;\n\t\t\t\t}\n\t\t\t\telse\n\t\t\t\t\treturn false;\n\t\t\t\tbreak;\n\t\t}\n\t};\n\n\treturn danmu;\n}\n\nfunction createPlayer()\n{\n\tvar player = {};\n\t$G._set(\"player\",player);\n\tvar shapes = [6];\n\tvar bmd = loadBitmapData(playerWidth * 6, playerHeight, RAW_player);\n\n\tfor (var i = 0; i < 6; i++) \n\t{\n\t\tvar tempBmd = Bitmap.createBitmapData(playerWidth, playerHeight, true);\n\t\tvar point = $.createPoint(0, 0);\n\t\tvar rect = Bitmap.createRectangle(playerWidth * i, 0, playerWidth, playerHeight);\n\t\ttempBmd.copyPixels(bmd, rect, point);\n\t\tshapes[i] = Bitmap.createBitmap({bitmapData:tempBmd, lifeTime:0});\n\t\tshapes[i].x = -playerWidth / 2;\n\t\tshapes[i].y = -playerHeight / 2;\n\t\tshapes[i].remove();\t\t\n\t}\n\n\tplayer.normal = shapes[0];\n\tplayer.forwards = shapes[1];\n\tplayer.backwards = shapes[2];\n\tplayer.upwards = shapes[3];\n\tplayer.downwards = shapes[4];\n\tplayer.fall = shapes[5];\n\n\tplayer.shape = $.createCanvas({lifeTime:0, x:0, y:0});\n\tplayerShape = player.shape;\n\tplayerShape.addChild(player.normal);\n\n\tplayer.shield = $.createShape({x:0, y:0, lifeTime:0});\n\tplayer.shield.graphics.lineStyle(3, 0x00ffff);\n\tplayer.shield.graphics.drawCircle(player.shape.width >> 1, player.shape.height >> 1, 55 );\n\tplayer.shield.remove();\n\n\tplayer.speed = 10;\n\tplayer.fallSpeed = 0;\n\tplayer.bornSpeed = 5;\n\tplayer.state = 0; //0：静止，1：上，2：下，3：左，4：右 \n\n\tplayer.keyDown = [];\n\tplayer.keyDown[Keyboard.W] = 0;\n\tplayer.keyDown[Keyboard.S] = 0;\n\tplayer.keyDown[Keyboard.A] = 0;\n\tplayer.keyDown[Keyboard.D] = 0;\n\tPlayer.keyTrigger(function(keyCode){\n\t\tplayer.keyDown[keyCode] = true;\n\t\t}, MAX_NUM);\n\tPlayer.keyTrigger(function(keyCode) {\n\t\tplayer.keyDown[keyCode] = false;\n\t\t}, MAX_NUM, true);\n\n\treturn player;\n}\n\nfunction createBackground()\n{\n\tbackground = $.createShape({x:0,y:0,lifeTime:0});\n\tbackground.graphics.beginFill(0x000000);\n\tbackground.graphics.drawRect(0,0,Player.width,Player.height);\n\tbackground.graphics.endFill();\n\t$.root.setChildIndex(background, 0);\n}\n\nfunction movePlayer()\n{\n\tif(!alive)\n\t\treturn;\n\tif (player.keyDown[Keyboard.W ^ 0]) \n\t{\n\t\tnewY = playerShape.y - player.speed;\n\t\tif(newY < playerHeight >> 1)\n\t\t\tplayerShape.y = playerHeight >> 1;\n\t\telse\n\t\t\tplayerShape.y = newY;\n\t\tplayer.state = 1;\n\t}\n\telse if (player.keyDown[Keyboard.S ^ 0]) \n\t{\n\t\tnewY = playerShape.y + player.speed;\n\t\tif(newY > gameHeight - (playerHeight >> 1))\n\t\t\tplayerShape.y = gameHeight - (playerHeight >> 1);\n\t\telse\n\t\t\tplayerShape.y = newY;\n\t\tplayer.state = 2;\n\t}\n\tif (player.keyDown[Keyboard.A ^ 0])\n\t{\n\t\tnewX = playerShape.x - player.speed;\n\t\tif(newX < playerWidth >> 1)\n\t\t\tplayerShape.x = playerWidth >> 1;\n\t\telse\n\t\t\tplayerShape.x = newX;\n\t\tplayer.state = 3;\n\t}\n\telse if (player.keyDown[Keyboard.D ^ 0]) \n\t{\n\t\tnewX = playerShape.x + player.speed;\n\t\tif(newX > gameWidth - (playerWidth >> 1))\n\t\t\tplayerShape.x = gameWidth - (playerWidth >> 1);\n\t\telse\n\t\t\tplayerShape.x = newX;\n\t\tplayer.state = 4;\n\t}\n\tif(player.keyDown[65] + player.keyDown[83] + player.keyDown[87] + player.keyDown[68] == 0)\n\t\tplayer.state = 0;\n\n\tif(player.state != player.oldState)\n\t{\n\t\tplayerShape.removeChildAt(0);\n\t\tswitch(player.state)\n\t\t{\n\t\t\tcase 0:\n\t\t\t\tplayerShape.addChild(player.normal);\n\t\t\t\tbreak;\n\t\t\tcase 1:\n\t\t\t\tplayerShape.addChild(player.upwards);\n\t\t\t\tbreak;\n\t\t\tcase 2:\n\t\t\t\tplayerShape.addChild(player.downwards);\n\t\t\t\tbreak;\n\t\t\tcase 3:\n\t\t\t\tplayerShape.addChild(player.backwards);\n\t\t\t\tbreak;\n\t\t\tcase 4:\n\t\t\t\tplayerShape.addChild(player.forwards);\n\t\t\t\tbreak;\n\t\t}\n\t\tplayer.oldState = player.state;\n\t}\n\n\tif(indestructible)\n\t{\n\t\tplayer.shield.x = playerShape.x - playerWidth / 2;\n\t\tplayer.shield.y = playerShape.y - playerHeight / 2;\n\t}\n}\n\nfunction hitTest(objectA, objectB)\n{\n\tif(objectA.x + objectA.width >= objectB.x && objectA.x <= objectB.x + objectB.width && objectA.y + objectA.height >= objectB.y && objectA.y <= objectB.y + objectB.height)\n\t\treturn true;\n\telse\n\t\treturn false;\n}\n\nfunction hitPoint(object, x, y)\n{\n\toX = object.x;\n\toY = object.y;\n\tpX = x;\n\tpY = y;\n\trotation = object.rotationZ * pai_180;\n\tif(rotation != 0)\n\t{\n\t\toX = object.x * Math.cos(rotation) + object.y * Math.sin(rotation);\n\t\toY = -object.x * Math.sin(rotation) + object.y * Math.cos(rotation);\n\t\tpX = x * Math.cos(rotation) + y * Math.sin(rotation);\n\t\tpY = -x * Math.sin(rotation) + y * Math.cos(rotation);\n\t}\n\tif(pX >= oX && pX <= oX + object.width && pY >= oY && pY <= oY + object.height)\n\t\treturn true;\n\telse\n\t\treturn false;\n}\n\nfunction born()\n{\n\tplayerShape.removeChildAt(0);\n\tplayerShape.addChild(player.normal);\n\tplayerShape.y = Player.height / 2;\n\tplayerShape.x = -playerShape.width >> 2;\n\tindestructible = true;\n\n\t$.root.addChild(player.shield);\n\tplayer.shield.x = playerShape.x - playerWidth / 2;\n\tplayer.shield.y = playerShape.y - playerHeight / 2;\n\n\t$.root.addEventListener(\"enterFrame\",bornAnime);\n\ttimer(function(){\n\t\tindestructible = false;\n\t\tplayer.shield.remove();\n\t},3000);\n}\n\nfunction die()\n{\n\talive = false;\n\tdeadTime++;\n\tscoreboard.text = \"死亡次数：\" + deadTime;\n\tplayerShape.removeChildAt(0);\n\tplayerShape.addChild(player.fall);\n\t$.root.addEventListener(\"enterFrame\",dieAnime);\n}\n\nfunction bornAnime()\n{\n\tif(Player.state != \"playing\")\n\t\treturn;\n\tplayerShape.x += player.bornSpeed;\n\tplayer.shield.x = playerShape.x - playerWidth / 2;\n\tif(playerShape.x >= 60)\n\t{\n\t\t$.root.removeEventListener(\"enterFrame\",bornAnime);\n\t\talive = true;\n\t}\n}\n\nfunction dieAnime()\n{\n\tif(Player.state != \"playing\")\n\t\treturn;\n\tplayer.fallSpeed += GRAVITY;\n\tplayerShape.y += player.fallSpeed;\n\tif(playerShape.y > gameHeight + 50)\n\t{\n\t\t$.root.removeEventListener(\"enterFrame\",dieAnime);\n\t\tplayer.fallSpeed = 0;\n\t\tborn();\n\t}\n}\n\nfunction init()\n{\n\tScriptManager.clearTimer();\n\tScriptManager.clearEl();\n\tScriptManager.clearTrigger();\n\t// Player.seek(0);\n\t// Player.pause();\n\t$.frameRate = 30;\n\n\tcreateScoreboard();\n\tplayer = createPlayer();\n\tborn();\n\tcreateBackground();\n\n\t// debug();\n}\n\n//弹幕与自机的碰撞检测\nfunction checkCollision()\n{\n\tif(indestructible)\n\t{\n\t\tfor(var i = danmus.length-1; i >= 0; i--)\n\t\t{\n\t\t\tcurrent = danmus[i].shape;\n\n\t\t\tif((player.shield).hitTestObject(current))\n\t\t\t{\n\t\t\t\t($.root).removeChild(current);\n\t\t\t\tdanmus[i] = null;\n\t\t\t\tdanmus.splice(i, 1);\n\t\t\t}\n\t\t}\n\t}\n\telse\n\t{\n\t\tfor(var i = danmus.length-1; i >= 0; i--)\n\t\t{\n\t\t\tcurrent = danmus[i].shape;\n\n\t\t\tif(alive)\n\t\t\t{\n\t\t\t\tif(hitPoint(current, playerShape.x, playerShape.y))\n\t\t\t\t{\n\t\t\t\t\tdie();\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n\n//移动弹幕，离开场景时移除\nfunction moveDanmus()\n{\n\tfor(var i = danmus.length-1; i >= 0; i--)\n\t{\n\t\tdanmus[i].move();\n\t\tif(danmus[i].checkLeave())\n\t\t{\n\t\t\tdanmus.splice(i, 1);\n\t\t}\n\t}\n}\n\nfunction scaleGameArea()\n{\n\tif(gameWidth == Player.width && gameHeight == Player.height)\n\t\treturn;\n\tgameWidth = Player.width;\n\tgameHeight = Player.height;\n\n\t($.root.getChildAt(0)).width = gameWidth;\n\t($.root.getChildAt(0)).height = gameHeight;\n\t// $.root.setChildIndex(background, 0);\n}\n\nfunction mainLoop()\n{\n\tscaleGameArea();\n\n\tif(Player.state != \"playing\")\n\t\treturn;\n\n\tmovePlayer();\n\tmoveDanmus();\n\n\tcheckCollision();\n\n\ttimeline++;\n\n\tif(Player.time >= 360000){\n\t\t$G._set(\"numDanmu\", numDanmu);\n\t\t$G._set(\"deadTime\", deadTime);\n\t\tscoreboard.remove();\n\t\t$.root.removeEventListener(\"enterFrame\", mainLoop);\n\t\t$.root.removeEventListener(\"added\", added);\n\t}\n}\n\nfunction added(e)\n{\n\tif(e.target.selectable) //为true则为自带弹幕，克隆后删除\n\t{\n\t\tvar cloned = clone(e.target);\n\t\tcloned.selectable = false;\n\t\t// if(format == null)\n\t\t// \tformat = e.target.defaultTextFormat;\n\t\tcloned.setTextFormat(e.target.getTextFormat());\n\t\tif(filters == null)\n\t\t\tfilters = e.target.filters;\n\t\tcloned.filters = filters;\n\t\t// cloned.filters = e.target.filters;\n\n\t\t$.root.removeChild(e.target);\n\t\t$.root.addChild(cloned);\n\t\tvar danmu = createDanmu();\n\t\tdanmu.init(cloned);\n\t\tdanmus[danmus.length] = danmu;\n\t\tnumDanmu++;\n\t}\n}\n\nfunction debug()\n{\n\tPlayer.keyTrigger(function(keyCode){\n\t\tif(keyCode == 36)\n\t\t{\n\t\t\ttrace(numDanmu);\n\t\t}\n\t}, MAX_NUM);\n}\n\nfunction main()\n{\n\tinit();\n\n\t$.root.addEventListener(\"enterFrame\", mainLoop);\n\t$.root.addEventListener(\"added\", added);\n}\n\nmain();"
+  },
+  {
+    "id": "1090028023",
+    "stime": 39,
+    "duration": 0,
+    "lang": "js",
+    "code": "var n = 1;\n\nfunction changeBg()\n{\n\t$.root.removeChildAt(0);\n\n\tvar bg = $.createShape({x:0,y:0,lifeTime:0});\n\t$.root.setChildIndex(bg,0);\n\tif(n!=61)\n\t\tbg.graphics.beginFill(Utils.rand(0x000000,0xffffff));\n\telse\n\t\tbg.graphics.beginFill(0x30064b);\n\tbg.graphics.drawRect(0,0,Player.width,Player.height);\n\tbg.graphics.endFill();\n\tn++;\n}\n\nUtils.interval(changeBg, 455, 61);"
+  },
+  {
+    "id": "1121852671",
+    "stime": 53,
+    "duration": 0,
+    "lang": "js",
+    "code": "var step = 0;\nvar times = [54749,54999,55251,55498,55631,55883,56126,56384,56495,56744,56995,57379,57495,57750,57998,58501,58749,58992,59244,59377,59626,59877,60129,60378,60631,60748,61000,61251,61501,61752,62243,62495,62744,62996,63128,63497,63629,63882,63997,64248,64381,64634,64882,64992,65125,65384,65492,65993,66246,66496,66747,66879,67132,67381,67633,67885,68134,68243,68243,68502,68745,68995,69246,70249];\nvar danmus = $G._(\"danmus\");\nvar random;\nvar danmuShape;\nvar offsetX,offsetY;\nvar changedShape = null;\n\nfunction flash()\n{\n\twhile(true)\n\t{\n\t\tif(changedShape != null)\n\t\t{\n\t\t\tchangedShape.scaleX = 1;\n\t\t\tchangedShape.scaleY = 1;\n\t\t\tchangedShape.x = changedShape.x + offsetX;\n\t\t\tchangedShape.y = changedShape.y + offsetY;\n\t\t}\n\n\t\trandom = Utils.rand(0, danmus.length);\n\t\tdanmuShape = danmus[random].shape;\n\t\tif(danmus.length >= 1 && danmuShape.scaleX != 1)\n\t\t\tcontinue;\n\t\toffsetX = danmuShape.width / 2;\n\t\toffsetY = danmuShape.height / 2;\n\t\tdanmuShape.x = danmuShape.x - offsetX;\n\t\tdanmuShape.y = danmuShape.y - offsetY;\n\t\tdanmuShape.scaleX = 2;\n\t\tdanmuShape.scaleY = 2;\n\n\t\tchangedShape = danmuShape;\n\t\tbreak;\n\t};\n}\n\nfunction subLoop()\n{\n\tfor(var i = 0; i < 64; i++)\n\t{\n\t\tif(step == i && Player.time >= times[i])\n\t\t{\n\t\t\tflash();\n\t\t\tstep++;\n\t\t\tbreak;\n\t\t}\n\t\tif(step == 63)\n\t\t{\n\t\t\t$.root.removeEventListener('enterFrame',subLoop);\n\t\t}\n\t}\n}\n\n$.root.addEventListener('enterFrame',subLoop);\n\n//x2 = x-(scale-1)*width/2;"
+  },
+  {
+    "id": "1085159509",
+    "stime": 54.863,
+    "duration": 0,
+    "lang": "js",
+    "code": "$G._set(\"step\",1);"
+  },
+  {
+    "id": "1092997613",
+    "stime": 74.8,
+    "duration": 0,
+    "lang": "js",
+    "code": "//旋转4下\n\nvar danmus = $G._(\"danmus\");\nvar step = 0;\nvar times = [75424,75792,76420,76789];\n\nfunction rotate()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(danmus[i].vRotate == null)\n\t\t\tdanmus[i].vRotate = Utils.rand(-30,30);\n\t\tdanmus[i].shape.rotationZ += danmus[i].vRotate;\n\t}\n}\n\nfunction addEvent()\n{\n\t$.root.addEventListener(\"enterFrame\", rotate);\n\ttimer(function(){\n\t\t$.root.removeEventListener(\"enterFrame\", rotate);\n\t}, 100);\n}\n\nUtils.interval(addEvent, 380, 4);"
+  },
+  {
+    "id": "1093152247",
+    "stime": 76.82,
+    "duration": 0,
+    "lang": "js",
+    "code": "$G._set(\"step\",2);\n\nvar danmus = $G._get(\"danmus\");\nvar pai_180 = Math.PI / 180;\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 2;\n\tdanmus[i].vx = 6 * Math.cos(danmus[i].shape.rotationZ * pai_180);\n\tdanmus[i].vy = 6 * Math.sin(danmus[i].shape.rotationZ * pai_180);\n};"
+  },
+  {
+    "id": "1093170675",
+    "stime": 82.65,
+    "duration": 0,
+    "lang": "js",
+    "code": "//旋转弹幕，无过渡\n\nvar danmus = $G._(\"danmus\");\n\nfunction rotate()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(danmus[i].offsetRotate == null)\n\t\t\tdanmus[i].offsetRotate = Utils.rand(-90,90);\n\t\tdanmus[i].shape.rotationZ += danmus[i].offsetRotate;\n\t}\n}\n\nUtils.interval(rotate, 230, 6);"
+  },
+  {
+    "id": "1093180137",
+    "stime": 84.64,
+    "duration": 0,
+    "lang": "js",
+    "code": "var danmus = $G._get(\"danmus\");\nvar pai_180 = Math.PI / 180;\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].vx = 6 * Math.cos(danmus[i].shape.rotationZ * pai_180);\n\tdanmus[i].vy = 6 * Math.sin(danmus[i].shape.rotationZ * pai_180);\n};"
+  },
+  {
+    "id": "1093607173",
+    "stime": 90,
+    "duration": 0,
+    "lang": "js",
+    "code": "//旋转4下，有过渡效果\n\nvar danmus = $G._(\"danmus\");\nvar step = 0;\n\nfunction rotate()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(danmus[i].vRotate == null)\n\t\t\tdanmus[i].vRotate = Utils.rand(-30,30);\n\t\tdanmus[i].shape.rotationZ += danmus[i].vRotate;\n\t}\n}\n\nfunction addEvent()\n{\n\t$.root.addEventListener(\"enterFrame\", rotate);\n\ttimer(function(){\n\t\t$.root.removeEventListener(\"enterFrame\", rotate);\n\t}, 100);\n}\n\nUtils.interval(addEvent, 380, 4);"
+  },
+  {
+    "id": "1093611277",
+    "stime": 91.92,
+    "duration": 0,
+    "lang": "js",
+    "code": "var danmus = $G._get(\"danmus\");\nvar pai_180 = Math.PI / 180;\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 2;\n\tdanmus[i].vx = 6 * Math.cos(danmus[i].shape.rotationZ * pai_180);\n\tdanmus[i].vy = 6 * Math.sin(danmus[i].shape.rotationZ * pai_180);\n};"
+  },
+  {
+    "id": "1093627383",
+    "stime": 97.75,
+    "duration": 0,
+    "lang": "js",
+    "code": "//旋转弹幕，无过渡\n\nvar danmus = $G._(\"danmus\");\n\nfunction rotate()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(danmus[i].offsetRotate == null)\n\t\t\tdanmus[i].offsetRotate = Utils.rand(-90,90);\n\t\tdanmus[i].shape.rotationZ += danmus[i].offsetRotate;\n\t}\n}\n\nUtils.interval(rotate, 230, 6);"
+  },
+  {
+    "id": "1093632535",
+    "stime": 99.74,
+    "duration": 0,
+    "lang": "js",
+    "code": "var danmus = $G._get(\"danmus\");\nvar pai_180 = Math.PI / 180;\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].vx = 6 * Math.cos(danmus[i].shape.rotationZ * pai_180);\n\tdanmus[i].vy = 6 * Math.sin(danmus[i].shape.rotationZ * pai_180);\n};"
+  },
+  {
+    "id": "1097007555",
+    "stime": 105,
+    "duration": 0,
+    "lang": "js",
+    "code": "//旋转4下，有过渡效果\n\nvar danmus = $G._(\"danmus\");\n\nfunction rotate()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(danmus[i].backRotate == null){\n\t\t\tdanmus[i].backRotate = danmus[i].shape.rotationZ / 12;\n\t\t\ttrace(danmus[i].shape.rotationZ);\n\t\t\ttrace(danmus[i].backRotate);\n\t\t}\n\t\tdanmus[i].shape.rotationZ -= danmus[i].backRotate;\n\t}\n}\n\nfunction addEvent()\n{\n\t$.root.addEventListener(\"enterFrame\", rotate);\n\ttimer(function(){\n\t\t$.root.removeEventListener(\"enterFrame\", rotate);\n\t}, 100);\n}\n\nUtils.interval(addEvent, 380, 4);"
+  },
+  {
+    "id": "1097027613",
+    "stime": 107.09,
+    "duration": 0,
+    "lang": "js",
+    "code": "//所有弹幕恢复水平\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].shape.rotationZ = 0;\n\tdanmus[i].type = 1;\n};\n\n$G._set(\"step\",1);"
+  },
+  {
+    "id": "1097155537",
+    "stime": 112.5,
+    "duration": 0,
+    "lang": "js",
+    "code": "//向前瞬移\n\nvar danmus = $G._(\"danmus\");\n$G._set(\"step\",3);\n\nfunction forward()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].type = 3;\n\t\tdanmus[i].shape.x -= danmus[i].vx * 10;\n\t}\n}\n\nUtils.interval(forward, 230, 7);"
+  },
+  {
+    "id": "1199525649",
+    "stime": 115.15,
+    "duration": 0,
+    "lang": "js",
+    "code": "//逆向弹幕\n\nvar danmus = $G._(\"danmus\");\n$G._set(\"step\",4);\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 4;\n\tdanmus[i].leaveType = 2;\n}"
+  },
+  {
+    "id": "1121884357",
+    "stime": 120,
+    "duration": 0,
+    "lang": "js",
+    "code": "//上下移动1/4的弹幕\n\nvar danmus = $G._(\"danmus\");\nvar step = 0;\n\nfunction move()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(i % 4 == step) {\n\t\t\tif(danmus[i].tempVy == null){\n\t\t\t\tif(danmus[i].shape.y < Player.height / 2)\n\t\t\t\t\tdanmus[i].tempVy = 30;\n\t\t\t\telse\n\t\t\t\t\tdanmus[i].tempVy = -30;\n\t\t\t}\n\t\t\tdanmus[i].shape.y += danmus[i].tempVy;\n\t\t}\n\t}\n}\n\nfunction addEvent()\n{\n\t$.root.addEventListener(\"enterFrame\", move);\n\ttimer(function(){\n\t\t$.root.removeEventListener(\"enterFrame\", move);\n\t\tstep++;\n\t}, 200);\n}\n\nUtils.interval(addEvent, 380, 4);"
+  },
+  {
+    "id": "1097335605",
+    "stime": 128.85,
+    "duration": 0,
+    "lang": "js",
+    "code": "$G._set(\"step\", 5);"
+  },
+  {
+    "id": "1097364199",
+    "stime": 128.85,
+    "duration": 0,
+    "lang": "js",
+    "code": "$.root.removeChildAt(0);\nvar bg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(bg,0);\nbg.graphics.beginFill(0x0D6BBA);\nbg.graphics.drawRect(0,0,Player.width,Player.height);\nbg.graphics.endFill();"
+  },
+  {
+    "id": "1121808487",
+    "stime": 138.9,
+    "duration": 0,
+    "lang": "js",
+    "code": "//“my tears splashed down”\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].shape.scaleX = 1;\n\tdanmus[i].shape.scaleY = 1;\n\tdanmus[i].type = 17;\n\tdanmus[i].vy = 0;\n\tdanmus[i].leaveType = 3;\n\tdanmus[i].move = function() {\n\t\tthis.shape.x -= this.vx;\n\t\tthis.vy += 1;\n\t\tthis.shape.y += this.vy;\n\t\tbreak;\n\t};\n};"
+  },
+  {
+    "id": "1121826685",
+    "stime": 153.895,
+    "duration": 0,
+    "lang": "js",
+    "code": "//“my tears splashed down”\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].shape.scaleX = 1;\n\tdanmus[i].shape.scaleY = 1;\n\tdanmus[i].type = 17;\n\tdanmus[i].vy = 0;\n\tdanmus[i].leaveType = 3;\n\tdanmus[i].move = function() {\n\t\tthis.shape.x -= this.vx;\n\t\tthis.vy += 1;\n\t\tthis.shape.y += this.vy;\n\t\tbreak;\n\t};\n};"
+  },
+  {
+    "id": "1097514745",
+    "stime": 159.74,
+    "duration": 0,
+    "lang": "js",
+    "code": "//闪烁加快\n\nvar danmus = $G._get(\"danmus\");\n\n$G._set(\"step\",6);\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 6;\n};"
+  },
+  {
+    "id": "1097528445",
+    "stime": 167.244,
+    "duration": 0,
+    "lang": "js",
+    "code": "//纵向弹幕\n\n$G._set(\"step\",7);"
+  },
+  {
+    "id": "1100607789",
+    "stime": 167.244,
+    "duration": 0,
+    "lang": "js",
+    "code": "$.root.removeChildAt(0);\nvar bg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(bg,0);\nbg.graphics.beginFill(0xFF6100);\nbg.graphics.drawRect(0,0,Player.width,Player.height);\nbg.graphics.endFill();"
+  },
+  {
+    "id": "1121919243",
+    "stime": 172.42,
+    "duration": 0,
+    "lang": "js",
+    "code": "//分批加速\n\nvar danmus = $G._(\"danmus\");\nvar step = 0;\nvar playerWidth_4 = Player.width / 4;\n\nfunction speedUp()\n{\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tif(danmus[i].shape.x > playerWidth_4 * step && danmus[i].shape.x < playerWidth_4 * (step+1))\n\t\t\tdanmus[i].vy = 30;\n\t}\n\tstep++;\n}\n\nUtils.interval(speedUp, 380, 4);"
+  },
+  {
+    "id": "1100618161",
+    "stime": 174.8,
+    "duration": 0,
+    "lang": "js",
+    "code": "$.root.removeChildAt(0);\nvar bg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(bg,0);\nbg.graphics.beginFill(0xB433FF);\nbg.graphics.drawRect(0,0,Player.width,Player.height);\nbg.graphics.endFill();"
+  },
+  {
+    "id": "1100930697",
+    "stime": 180.558,
+    "duration": 0,
+    "lang": "js",
+    "code": "//自由落体\n\nvar bg = $.root.getChildAt(0);\n\nvar newBg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(newBg,0);\nnewBg.graphics.beginFill(0x000000);\nnewBg.graphics.drawRect(0,0,Player.width,Player.height);\nnewBg.graphics.endFill();\n\nvar GRAVITY = 1;\nvar vy = 0;\n\nfunction drop () {\n\tvy += GRAVITY;\n\tbg.y += vy;\n\tif(bg.y > Player.height)\n\t\t$.root.removeEventListener(\"enterFrame\", drop);\n}\n\n$.root.addEventListener(\"enterFrame\", drop);"
+  },
+  {
+    "id": "1121935249",
+    "stime": 180.558,
+    "duration": 0,
+    "lang": "js",
+    "code": "//自由落体\n\n$G._set(\"step\",3);\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 8;\n\tdanmus[i].vy = 0;\n\tdanmus[i].ay = 1;\n};"
+  },
+  {
+    "id": "1101069351",
+    "stime": 182,
+    "duration": 0,
+    "lang": "js",
+    "code": "//弹幕突然出现\n\nvar danmus = $G._(\"danmus\");\n\nfunction blink() {\n\tvar color = Utils.rand(0x000000, 0xffffff);\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tvar shape = danmus[i].shape;\n\t\tshape.x = Utils.rand(0, Player.width);\n\t\tshape.y = Utils.rand(0, Player.height);\n\t\tshape.textColor = color;\n\t\tshape.rotationZ = Utils.rand(0,360);\n\t}\n}\n\nUtils.interval(blink, 400, 9);"
+  },
+  {
+    "id": "1101165589",
+    "stime": 186.3,
+    "duration": 0,
+    "lang": "js",
+    "code": "//斜向弹幕\n\n$G._set(\"step\",9);\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 9;\n};"
+  },
+  {
+    "id": "1121965661",
+    "stime": 187.8,
+    "duration": 0,
+    "lang": "js",
+    "code": "//屏幕依次离开\n\nvar step = 0;\n\nvar bgs = [];\nbgs.length = 4;\n\nvar vx = Player.width / 12; //有待调整！！！！！！！！！！！！！！！！！！！\nvar vy = Player.height / 12; //有待调整！！！！！！！！！！！！！！！！！！！\n\nfor (var i = bgs.length - 1; i >= 0; i--) {\n\tbgs[i] = $.createShape({x:0,y:0,lifeTime:0});\n\t$.root.setChildIndex(bgs[i],0);\n\tif(i == 0)\n\t\tbgs[i].graphics.beginFill(0x5CB85C); //最上面\n\telse if(i == 1)\n\t\tbgs[i].graphics.beginFill(0xB37333);\n\telse if(i == 2)\n\t\tbgs[i].graphics.beginFill(0xFCB1CE);\n\telse if(i == 3)\n\t\tbgs[i].graphics.beginFill(0xF2CA71); //最下面\n\tbgs[i].graphics.drawRect(0,0,Player.width,Player.height);\n\tbgs[i].graphics.endFill();\n};\n\nbg = $.root.getChildAt(4);\n\nfunction leave(){\n\tswitch(step)\n\t{\n\t\tcase 0:\n\t\t\tbg.x += vx;\n\t\t\tif(bg.x > Player.width){\n\t\t\t\t$.root.removeChild(bg);\n\t\t\t\tstep++;\n\t\t\t\tbg = $.root.getChildAt(3);\n\t\t\t}\n\t\t\tbreak;\n\t\tcase 1:\n\t\t\tbg.y += vy;\n\t\t\tif(bg.y > Player.height){\n\t\t\t\t$.root.removeChild(bg);\n\t\t\t\tstep++;\n\t\t\t\tbg = $.root.getChildAt(2);\n\t\t\t}\n\t\t\tbreak;\n\t\tcase 2:\n\t\t\tbg.x -= vx;\n\t\t\tif(bg.x < -Player.width){\n\t\t\t\t$.root.removeChild(bg);\n\t\t\t\tstep++;\n\t\t\t\tbg = $.root.getChildAt(1);\n\t\t\t}\n\t\t\tbreak;\n\t\tcase 3:\n\t\t\tbg.y -= vy;\n\t\t\tif(bg.y < -Player.height){\n\t\t\t\t$.root.removeChild(bg);\n\t\t\t\tstep++;\n\t\t\t\tbg = $.root.getChildAt(0);\n\t\t\t}\n\t\t\tbreak;\n\t\tcase 4:\n\t\t\t$.root.removeEventListener(\"enterFrame\", leave);\n\t}\n}\n\n$.root.addEventListener(\"enterFrame\", leave);"
+  },
+  {
+    "id": "1104994777",
+    "stime": 195.361,
+    "duration": 0,
+    "lang": "js",
+    "code": "//屏幕突然变色\n\nvar step = 0;\n\nfunction changeBg()\n{\n\tvar bg = $.root.getChildAt(0);\n\t$.root.removeChild(bg);\n\n\tbg = $.createShape({x:0,y:0,lifeTime:0});\n\t$.root.setChildIndex(bg,0);\n\tif(step != 5)\n\t\tbg.graphics.beginFill(Utils.rand(0x000000, 0xffffff));\n\telse\n\t\tbg.graphics.beginFill(0xFFFACD);\n\tbg.graphics.drawRect(0,0,Player.width,Player.height);\n\tbg.graphics.endFill();\n\tstep++;\n}\n\nUtils.interval(changeBg, 230, 6);"
+  },
+  {
+    "id": "1105019473",
+    "stime": 197.42,
+    "duration": 0,
+    "lang": "js",
+    "code": "//弹幕暂停\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 3;\n};"
+  },
+  {
+    "id": "1105059087",
+    "stime": 197.8,
+    "duration": 0,
+    "lang": "js",
+    "code": "//弹幕反向\n\nvar danmus = $G._(\"danmus\");\n\n$G._set(\"step\",10);\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 10;\n};"
+  },
+  {
+    "id": "1105851909",
+    "stime": 202.6,
+    "duration": 0,
+    "lang": "js",
+    "code": "//弹幕撞向玩家\n\nvar danmus = $G._(\"danmus\");\nvar playerShape = ($G._(\"player\")).shape;\nvar current;\nvar distance = 0;\nvar pai_180 = Math.PI / 180;\n\nfunction moveToPlayer()\n{\n\tvar i = Utils.rand(0, danmus.length-1);\n\tcurrent = danmus[i];\n\tdistance = Math.sqrt((playerShape.x - current.shape.x) * (playerShape.x - current.shape.x) + (playerShape.y - current.shape.y) * (playerShape.y - current.shape.y));\n\tcurrent.vx = 25 * (playerShape.x - current.shape.x) / distance;\n\tcurrent.vy = 25 * (playerShape.y - current.shape.y) / distance;\n\tcurrent.leaveType = 1;\n}\n\nUtils.interval(moveToPlayer, 380, 4);"
+  },
+  {
+    "id": "1108644915",
+    "stime": 211.474,
+    "duration": 0,
+    "lang": "js",
+    "code": "//跟踪弹\n\n$G._set(\"step\",11);\n\nvar danmus = $G._(\"danmus\");\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tdanmus[i].type = 11;\n};"
+  },
+  {
+    "id": "1108485479",
+    "stime": 211.474,
+    "duration": 0,
+    "lang": "js",
+    "code": "//换渐变色屏幕\n\nvar bg = $.root.getChildAt(0);\n\nvar newBg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(newBg, 0);\nvar matrix = $.createMatrix();\nnewBg.graphics.beginGradientFill('linear',[0xff0000,0x00ffff],[1,0],[0,255],matrix);\nnewBg.graphics.drawRect(0,0,Player.width,Player.height);\n\nfunction fadeOut()\n{\n\tbg.alpha -= 0.05;\n\tif(bg.alpha <= 0)\n\t\t$.root.removeChild(bg);\n}\n\n$.root.addEventListener(\"enterFrame\", fadeOut);"
+  },
+  {
+    "id": "1112592529",
+    "stime": 221.424,
+    "duration": 0,
+    "lang": "js",
+    "code": "//“my tears splashed down”\n\nvar danmus = $G._(\"danmus\");\nvar PAI_180 = Math.PI / 180;\nvar nextX = 0;\nvar nextY = 0;\n\nfunction createNewDanmu(danmu,text,index,total,format)\n{\n\tvar newDanmu = clone(danmu);\n\tnewDanmu.shape.x = danmu.shape.x + index * 14 * Math.cos(danmu.shape.rotationZ * PAI_180);\n\tnewDanmu.shape.y = danmu.shape.y + index * 14 * Math.sin(danmu.shape.rotationZ * PAI_180);\n\tnewDanmu.shape.text = text;\n\tnewDanmu.shape.setTextFormat(format);\n\tnewDanmu.vx = 10 * (index / total - 0.5);\n\tnewDanmu.vy = 0;\n\tnewDanmu.ay = 1;\n\tnewDanmu.move = function()\n\t{\n\t\tthis.vy += this.ay;\n\t\tthis.shape.x += this.vx;\n\t\tthis.shape.y += this.vy;\n\t};\n\n\tnewDanmu.checkLeave = function()\n\t{\n\t\tif(this.shape.y > Player.height)\n\t\t{\n\t\t\t$.root.removeChild(this.shape);\n\t\t\treturn true;\n\t\t}\n\t\telse\n\t\t\treturn false;\n\n\t};\n\treturn newDanmu;\n}\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tvar text = danmus[i].shape.text;\n\tvar char_arr = text.split('');\n\tvar total = char_arr.length;\n\tvar format = danmus[i].shape.getTextFormat();\n\tfor (var j = char_arr.length - 1; j >= 0; j--) {\n\t\tvar newDanmu = createNewDanmu(danmus[i],char_arr[j],j,total,format);\n\t\tdanmus.push(newDanmu);\n\t\t$.root.addChild(newDanmu.shape);\n\t};\n\n\tdanmus[i].leaveType = 0;\n\tdanmus[i].shape.x = -10000;\n}"
+  },
+  {
+    "id": "1122028459",
+    "stime": 224.443,
+    "duration": 0,
+    "lang": "js",
+    "code": "//\"everything faded away\"\n\nvar danmus = $G._(\"danmus\");\nvar alpha = danmus[0].shape.alpha;\n\nfunction fadeAway()\n{\n\tif(alpha >= 0){\n\t\talpha -= 0.02;\n\t\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\t\tdanmus[i].shape.alpha = alpha;\n\t\t};\n\t}\n\telse{\n\t\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\t\tdanmus[i].leaveType = 0;\n\t\t\tdanmus[i].shape.x = -10000;\n\t\t};\n\t\t$.root.removeEventListener(\"enterFrame\", fadeAway);\n\t}\n}\n\n$.root.addEventListener(\"enterFrame\", fadeAway);"
+  },
+  {
+    "id": "1112663823",
+    "stime": 236.515,
+    "duration": 0,
+    "lang": "js",
+    "code": "//“my tears splashed down”\n\nvar danmus = $G._(\"danmus\");\nvar PAI_180 = Math.PI / 180;\nvar nextX = 0;\nvar nextY = 0;\n\nfunction createNewDanmu(danmu,text,index,total,format)\n{\n\tvar newDanmu = clone(danmu);\n\tnewDanmu.shape.x = danmu.shape.x + index * 14 * Math.cos(danmu.shape.rotationZ * PAI_180);\n\tnewDanmu.shape.y = danmu.shape.y + index * 14 * Math.sin(danmu.shape.rotationZ * PAI_180);\n\tnewDanmu.shape.text = text;\n\tnewDanmu.shape.setTextFormat(format);\n\tnewDanmu.vx = 10 * (index / total - 0.5);\n\tnewDanmu.vy = 0;\n\tnewDanmu.ay = 1;\n\tnewDanmu.move = function()\n\t{\n\t\tthis.vy += this.ay;\n\t\tthis.shape.x += this.vx;\n\t\tthis.shape.y += this.vy;\n\t};\n\n\tnewDanmu.checkLeave = function()\n\t{\n\t\tif(this.shape.y > Player.height)\n\t\t{\n\t\t\t$.root.removeChild(this.shape);\n\t\t\treturn true;\n\t\t}\n\t\telse\n\t\t\treturn false;\n\n\t};\n\treturn newDanmu;\n}\n\nfor (var i = danmus.length - 1; i >= 0; i--) {\n\tvar text = danmus[i].shape.text;\n\tvar char_arr = text.split('');\n\tvar total = char_arr.length;\n\tvar format = danmus[i].shape.getTextFormat();\n\tfor (var j = char_arr.length - 1; j >= 0; j--) {\n\t\tvar newDanmu = createNewDanmu(danmus[i],char_arr[j],j,total,format);\n\t\tdanmus.push(newDanmu);\n\t\t$.root.addChild(newDanmu.shape);\n\t};\n\n\tdanmus[i].leaveType = 0;\n\tdanmus[i].shape.x = -10000;\n}"
+  },
+  {
+    "id": "1122032735",
+    "stime": 239.421,
+    "duration": 0,
+    "lang": "js",
+    "code": "//\"everything faded away\"\n\nvar danmus = $G._(\"danmus\");\nvar alpha = danmus[0].shape.alpha;\n\nfunction fadeAway()\n{\n\tif(alpha >= 0){\n\t\talpha -= 0.02;\n\t\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\t\tdanmus[i].shape.alpha = alpha;\n\t\t};\n\t}\n\telse{\n\t\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\t\tdanmus[i].leaveType = 0;\n\t\t\tdanmus[i].shape.x = -10000;\n\t\t};\n\t\t$.root.removeEventListener(\"enterFrame\", fadeAway);\n\t}\n}\n\n$.root.addEventListener(\"enterFrame\", fadeAway);"
+  },
+  {
+    "id": "1109841679",
+    "stime": 242.4,
+    "duration": 0,
+    "lang": "js",
+    "code": "//左右弹\n\n$G._set(\"step\",12);"
+  },
+  {
+    "id": "1109848525",
+    "stime": 242.4,
+    "duration": 0,
+    "lang": "js",
+    "code": "//左中右渐变背景\n\nvar bg = $.root.getChildAt(0);\n\nvar newBg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(newBg, 0);\nvar matrix = $.createMatrix();\nmatrix.createGradientBox(Player.width / 2,0,0,0,0);\nnewBg.graphics.beginGradientFill('linear',[0x000033,0x006666],[1,1],[0,255],matrix,'reflect','rgb');\nnewBg.graphics.drawRect(0,0,Player.width,Player.height);\n\nfunction fadeOut()\n{\n\tbg.alpha -= 0.05;\n\tif(bg.alpha <= 0)\n\t\t$.root.removeChild(bg);\n}\n\n$.root.addEventListener(\"enterFrame\", fadeOut);"
+  },
+  {
+    "id": "1113061937",
+    "stime": 264.8,
+    "duration": 0,
+    "lang": "js",
+    "code": "//背景闪烁\n\nvar bg = $.root.getChildAt(0);\nvar step = 0;\nvar speed = 2.27;\n\nvar timeLine = 0;\n\nfunction flash () {\n\tif(Player.state != \"playing\")\n\t\treturn;\n\n\tif(timeLine == 3.6 * 30)\n\t\tspeed = 1.4;\n\telse if(timeLine == 5.4 * 30)\n\t\tspeed = 0.8;\n\telse if(timeLine > 7.253 * 30){\n\t\t$.root.removeChild(bg);\n\t\t$.root.removeEventListener(\"enterFrame\", flash);\n\t}\n\n\tbg.alpha = Math.cos(timeLine/speed);\n\ttimeLine++;\n}\n\nvar newBg = $.createShape({x:0,y:0,lifeTime:0});\nnewBg.graphics.beginFill(0xAAFFFF);\nnewBg.graphics.drawRect(0,0,Player.width,Player.height);\nnewBg.graphics.endFill();\n$.root.setChildIndex(newBg, 0);\n\n$.root.addEventListener(\"enterFrame\", flash);"
+  },
+  {
+    "id": "1112836337",
+    "stime": 264.879,
+    "duration": 0,
+    "lang": "js",
+    "code": "//加速\n\nvar danmus = $G._(\"danmus\");\nvar vx = 2;\n\nfunction speedUp () {\n\tif(vx <= 9.71)\n\t\tvx += 0.034;\n\t\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].vx = vx;\n\t};\n\n\tif(Player.time > 279776)\n\t\t$.root.removeEventListener(\"enterFrame\", speedUp);\n}\n\n$.root.addEventListener(\"enterFrame\", speedUp);"
+  },
+  {
+    "id": "1114060893",
+    "stime": 279.6,
+    "duration": 0,
+    "lang": "js",
+    "code": "//弹跳弹幕\n\n$G._set(\"step\",13);"
+  },
+  {
+    "id": "1114183419",
+    "stime": 294.791,
+    "duration": 0,
+    "lang": "js",
+    "code": "//水平弹幕\n\n$G._set(\"step\",1);"
+  },
+  {
+    "id": "1114225939",
+    "stime": 300.145,
+    "duration": 0,
+    "lang": "js",
+    "code": "//画面翻转\n\nvar bg = $.root.getChildAt(0);\nvar step = 0;\n\nfunction reverse () {\n\tswitch(step)\n\t{\n\t\tcase 0:\n\t\t\t$.root.scaleY = -1;\n\t\t\t$.root.y = Player.height;\n\t\t\tbreak;\n\t\tcase 1:\n\t\t\t$.root.scaleX = -1;\n\t\t\t$.root.x = Player.width;\n\t\t\tbreak;\n\t\tcase 2:\n\t\t\t$.root.scaleY = 1;\n\t\t\t$.root.y = 0;\n\t\t\tbreak;\n\t\tcase 3:\n\t\t\t$.root.scaleX = 1;\n\t\t\t$.root.x = 0;\n\t\t\tbreak;\n\t}\n\tstep++;\n}\n\nUtils.interval(reverse, 380, 4);"
+  },
+  {
+    "id": "1118137827",
+    "stime": 307.7,
+    "duration": 0,
+    "lang": "js",
+    "code": "//整体旋转\n\nfunction rotate()\n{\n\tvar danmus = $G._get(\"danmus\");\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].shape.rotationZ += 37;\n\t};\n}\n\nUtils.interval(rotate, 230, 6);\n\ntimer(function(){\n\t$G._set(\"step\", 14);\n\tvar danmus = $G._get(\"danmus\");\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].type = 14;\n\t\tdanmus[i].vx = 5.2;\n\t\tdanmus[i].vy = 4.684;\n\t};\n}, 1380);"
+  },
+  {
+    "id": "1118416005",
+    "stime": 315,
+    "duration": 0,
+    "lang": "js",
+    "code": "//长宽变化\n\nvar danmus = $G._(\"danmus\");\nvar step = 0;\nvar vSx = Math.random();\nvar vSy = 0;\n\nfunction scaleAll() {\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].shape.scaleX = danmus[i].shape.scaleX + vSx;\n\t\tdanmus[i].shape.scaleY = danmus[i].shape.scaleY + vSy;\n\t};\n}\n\nfunction addEvent()\n{\n\t$.root.addEventListener(\"enterFrame\", scaleAll);\n\ttimer(function(){\n\t\t$.root.removeEventListener(\"enterFrame\", scaleAll);\n\t\tstep++;\n\t\tif(step == 1){\n\t\t\tvSx = 0;\n\t\t\tvSy = Math.random();\n\t\t}\n\t\telse if(step == 2){\n\t\t\tvSx = -Math.random();\n\t\t\tvSy = 0;\n\t\t}\n\t\telse{\n\t\t\tvSx = 0;\n\t\t\tvSy = Math.random();\n\t\t}\n\t}, 100);\n}\n\nUtils.interval(addEvent, 380, 4);"
+  },
+  {
+    "id": "1118430075",
+    "stime": 316.52,
+    "duration": 0,
+    "lang": "js",
+    "code": "//长宽随机\n\n$G._set(\"step\", 15);"
+  },
+  {
+    "id": "1118491011",
+    "stime": 323,
+    "duration": 0,
+    "lang": "js",
+    "code": "//旋转换背景\n\nvar bg = $.root.getChildAt(0);\n\nvar newBg = $.createShape({x:0,y:0,lifeTime:0});\n$.root.setChildIndex(newBg,0);\nnewBg.graphics.beginFill(0x00333D);\nnewBg.graphics.drawRect(0,0,Player.width,Player.height);\nnewBg.graphics.endFill();\n\nfunction rotateBg () {\n\tbg.rotationZ += 3;\n\tif(bg.rotationZ > 90){\n\t\t$.root.removeChild(bg);\n\t\t$.root.removeEventListener(\"enterFrame\", rotateBg);\n\t}\n}\n\n$.root.addEventListener(\"enterFrame\", rotateBg);"
+  },
+  {
+    "id": "1118497889",
+    "stime": 325.124,
+    "duration": 0,
+    "lang": "js",
+    "code": "//3D弹幕\n\n$G._set(\"step\", 16);"
+  },
+  {
+    "id": "1118547445",
+    "stime": 330.124,
+    "duration": 0,
+    "lang": "js",
+    "code": "//变色\n\nvar danmus = $G._(\"danmus\");\n\nfunction changeColor () {\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].shape.textColor = Utils.rand(0x000000, 0xffffff);\n\t};\n}\n\nUtils.interval(changeColor, 380, 4);"
+  },
+  {
+    "id": "1118554185",
+    "stime": 339.9,
+    "duration": 0,
+    "lang": "js",
+    "code": "//回复正常\n\n$G._set(\"step\", 0);"
+  },
+  {
+    "id": "1122060217",
+    "stime": 354.3,
+    "duration": 0,
+    "lang": "js",
+    "code": "//爆破\n\n$G._set(\"step\", 3);\nvar scale = 1;\nvar alpha = 1;\nvar danmus = $G._(\"danmus\");\n\nfor (var ii = danmus.length - 1; ii >= 0; ii--) {\n\tdanmus[ii].type = 3;\n\tdanmus[ii].leaveType = 6;\n};\n\nfunction explode () {\n\tscale += 0.05;\n\talpha -= 0.02;\n\tfor (var i = danmus.length - 1; i >= 0; i--) {\n\t\tdanmus[i].shape.scaleX = scale;\n\t\tdanmus[i].shape.scaleY = scale;\n\t\tdanmus[i].shape.alpha = alpha;\n\t\tif(alpha <= 0){\n\t\t\t$.root.removeEventListener(\"enterFrame\", explode);\n\t\t}\n\t};\n}\n\n$.root.addEventListener(\"enterFrame\", explode);"
+  },
+  {
+    "id": "1122635713",
+    "stime": 361,
+    "duration": 0,
+    "lang": "js",
+    "code": "ScriptManager.clearTimer();\n// ScriptManager.clearEl();\nScriptManager.clearTrigger();\n\n$.root.removeChildAt(0);\n\nvar p = $G._('player');\np.shape.removeChildAt(0);\np.shape.addChild(p.forwards);\n\nfunction moveForwards () {\n\tp.shape.x += 17;\n\tif(p.shape.x > Player.width + 60)\n\t\t$.root.removeEventListener('enterFrame', moveForwards);\n}\n\n$.root.addEventListener('enterFrame', moveForwards);\n\nvar format = $.createTextFormat(\"Adobe 黑体 Std R\", 25, 0x5D478B, true, false, false);\nvar scoreboard = $.createComment(\"死亡次数：\" + $G._(\"deadTime\") + \"\\n弹幕总数：\" + $G._(\"numDanmu\"),{x:0, y:0, lifeTime:0});\nscoreboard.setTextFormat(format);\nscoreboard.defaultTextFormat = format;\nscoreboard.background = true;\nscoreboard.backgroundColor = 0xA4D3EE;\nscoreboard.x = (Player.width - scoreboard.width) / 2;\nscoreboard.y = (Player.height - scoreboard.height) / 2;\n\n$.createButton({x:Player.width-100,y:Player.height-50,text:\"投币继续\",lifeTime:0,onclick:function(){\n  Player.seek(0);\n}});"
+  }
+]

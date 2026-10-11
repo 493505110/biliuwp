@@ -35,6 +35,7 @@ import {
     resizeCanvas
 } from "./renderer.js";
 import { Global } from "./runtime.js";
+import { pushPointer, handleTap, resetPointer } from "./input.js";
 
 // 所有模块完成初始化后再创建舞台根，避免循环依赖读取尚未初始化的状态。
 hostState.rootElement = createRetainedElement("group");
@@ -119,6 +120,7 @@ window.scriptDanmakuHost = {
     },
     visible: function (shouldShow) {
         hostState.visible = shouldShow !== false;
+        if (!hostState.visible) resetPointer(true);
         syncOrdinaryDanmakuSuppression();
         if (hostState.visible) {
             hostState.dirty = true;
@@ -167,19 +169,26 @@ window.scriptDanmakuHost = {
     // 键盘事件：投递给在窗口内条目的 keyTrigger（up=true 的只收 keyUp）。
     pushKey: function (keyCode, up) {
         deliverKeyTrigger(Math.trunc(toFiniteNumber(keyCode, -1)), !!up);
-    }
+    },
+    pushPointer: pushPointer,
+    handleTap: handleTap,
+    inputVersion: function () { return hostState.ordinaryDanmakuBridgeVersion; }
 };
 
-// 按键走独立消息通道，不等待 C# 普通弹幕命令队列。内容版本防止
-// 已发出的旧视频按键在 reset 后误投递给新脚本；隐藏或停止时只接收松键。
+// 键盘/鼠标走独立消息通道，不等待 C# 普通弹幕命令队列。内容版本防止
+// 旧视频输入在 reset 后误投递给新脚本；隐藏或停止时只接收松键与取消鼠标。
 if (window.chrome && window.chrome.webview && window.chrome.webview.addEventListener) {
     window.chrome.webview.addEventListener("message", function (event) {
         var message = event.data;
-        if (!message || message.type !== "key"
+        if (!message
             || hostState.ordinaryDanmakuBridgeVersion === null
-            || message.version !== hostState.ordinaryDanmakuBridgeVersion
-            || ((!hostState.visible || state.stopped) && !message.up)) return;
-        window.scriptDanmakuHost.pushKey(message.keyCode, message.up);
+            || message.version !== hostState.ordinaryDanmakuBridgeVersion) return;
+        if (message.type === "key") {
+            if ((!hostState.visible || state.stopped) && !message.up) return;
+            window.scriptDanmakuHost.pushKey(message.keyCode, message.up);
+        } else if (message.type === "pointer") {
+            pushPointer(message.action, message.x, message.y, message.pointerId, message.down);
+        }
     });
 }
 
