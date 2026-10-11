@@ -36,6 +36,7 @@ import {
 } from "./renderer.js";
 import { Global } from "./runtime.js";
 import { pushPointer, handleTap, resetPointer } from "./input.js";
+import { prepareEffectsGPU } from "./effects-gpu.js";
 
 // 所有模块完成初始化后再创建舞台根，避免循环依赖读取尚未初始化的状态。
 hostState.rootElement = createRetainedElement("group");
@@ -194,4 +195,5 @@ if (window.chrome && window.chrome.webview && window.chrome.webview.addEventList
 
 window.addEventListener("resize", window.scriptDanmakuHost.resize);
 ensureCanvas();
+prepareEffectsGPU();
 post("ready");

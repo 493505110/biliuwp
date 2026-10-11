@@ -3,13 +3,22 @@ import { FLASH_PROJECTION_WIDTH, hostState, toFiniteNumber } from "./core.js";
 
 var IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
+// 只在绘制期间复用；脚本更新和输入回调始终读取当前变换。
+// Matrix/rawData 可被脚本原地修改，不能跨帧按对象身份缓存。
+var geometryPass = null;
+function beginGeometryPass() {
+    geometryPass = { world: new WeakMap() };
+}
+function endGeometryPass() { geometryPass = null; }
+
 function multiply(a, b) {
     var out = new Array(16);
     for (var c = 0; c < 4; c++) {
-        for (var r = 0; r < 4; r++) {
-            out[c * 4 + r] = 0;
-            for (var k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
-        }
+        var i = c * 4, x = b[i], y = b[i + 1], z = b[i + 2], w = b[i + 3];
+        out[i] = a[0] * x + a[4] * y + a[8] * z + a[12] * w;
+        out[i + 1] = a[1] * x + a[5] * y + a[9] * z + a[13] * w;
+        out[i + 2] = a[2] * x + a[6] * y + a[10] * z + a[14] * w;
+        out[i + 3] = a[3] * x + a[7] * y + a[11] * z + a[15] * w;
     }
     return out;
 }
@@ -45,6 +54,14 @@ function localMatrix(element, scrolled) {
 }
 
 function worldMatrix(element) {
+    if (geometryPass) {
+        var cached = geometryPass.world.get(element);
+        if (cached) return cached;
+        var local = localMatrix(element);
+        var world = element.treeParent ? multiply(worldMatrix(element.treeParent), local) : local;
+        geometryPass.world.set(element, world);
+        return world;
+    }
     var m = IDENTITY.slice();
     for (var node = element; node; node = node.treeParent) m = multiply(localMatrix(node), m);
     return m;
@@ -246,6 +263,14 @@ function visibleTextureRegion(points, projection, left, top, right, bottom) {
         bottom: Math.max.apply(Math, polygon.map(function (p) { return p.v; })) };
 }
 
+function projectedTextureRegion(bounds, matrix, projection, margin) {
+    var points = [[bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
+        [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height]]
+        .map(function (p) { return transformPoint(matrix, p[0], p[1], 0); });
+    return visibleTextureRegion(points, projection, -margin, -margin,
+        hostState.viewportWidth + margin, hostState.viewportHeight + margin);
+}
+
 function croppedProjectedSource(source, bounds, points, projection, left, top, right, bottom) {
     // 小纹理无需 UV 多边形裁剪；动态位图直接交给 Canvas→WebGL 上传，
     // 避免每帧多一次 Canvas 复制及跨上下文同步。
@@ -409,5 +434,6 @@ function drawProjectedGPU(target, source, bounds, matrix, projection) {
 }
 
 export { IDENTITY, multiply, localMatrix, worldMatrix, relativeMatrix, transformPoint,
-    transformedBounds, subtree3D, projectionFor, projectPoint, screenToLocal, drawProjected,
+    beginGeometryPass, endGeometryPass,
+    transformedBounds, subtree3D, projectionFor, projectPoint, screenToLocal, drawProjected, projectedTextureRegion,
     beginProjectedBatch, flushProjectedBatch, endProjectedBatch };

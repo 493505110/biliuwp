@@ -310,15 +310,17 @@ test('P38 自绘位图的滤镜扩边进入损坏范围，清空后阴影全部�
 });
 
 test('P39 驱动拒绝模糊着色器变体时，完整退回CPU且保留滤镜结果', async p => {
-    await p.page.evaluate(() => {
+    await p.page.addInitScript(() => {
         const sources=new WeakMap(), source=WebGLRenderingContext.prototype.shaderSource, status=WebGLRenderingContext.prototype.getShaderParameter;
         window.__rejectedShader=0;
         WebGLRenderingContext.prototype.shaderSource=function(shader,text){sources.set(shader,text);return source.call(this,shader,text);};
         WebGLRenderingContext.prototype.getShaderParameter=function(shader,key){
-            if(key===this.COMPILE_STATUS && /i<4;/.test(sources.get(shader)||'')){window.__rejectedShader++;return false;}
+            if(key===this.COMPILE_STATUS && /i<4;[^}]*n>=m\*2\./.test(sources.get(shader)||'')){window.__rejectedShader++;return false;}
             return status.call(this,shader,key);
         };
     });
+    await p.page.reload();
+    await p.page.waitForFunction(() => !!window.scriptDanmakuHost);
     await p.script('var box=$.createShape({lifeTime:20,x:100,y:100});box.graphics.beginFill(0xffffff);box.graphics.drawRect(0,0,1,20);box.graphics.endFill();box.filters=[$.createBlurFilter(5,0,1)];');
     for(const x of [98,99,100,101,102]) assert.ok(Math.abs((await p.pixel(x,110))[3]-51)<=1);
     assert.equal(await p.page.evaluate(()=>window.__rejectedShader),1);
@@ -657,6 +659,51 @@ test('P65 移除根显式投影后，默认投影保持原版焦距和深度缩�
     await p.script(shape+'box.z=288.1473083496094;$.root.transform.perspectiveProjection=null;');
     assert.deepEqual(await p.pixel(260,210),[255,255,255,255]);
     assert.equal((await p.pixel(275,210))[3],0);
+});
+
+test('P66 大半径分块模糊在透明边界、分数核宽及重复quality下与常规GPU吻合', async p => {
+    const host=await createBrowserHost();
+    try {
+        const fallback=await host.page();
+        try {
+            await fallback.page.addInitScript(()=>{
+                const get=WebGLRenderingContext.prototype.getExtension;
+                WebGLRenderingContext.prototype.getExtension=function(name){return name==='OES_texture_float'?null:get.call(this,name);};
+            });
+            await fallback.page.reload();
+            await fallback.page.waitForFunction(()=>!!window.scriptDanmakuHost);
+            const pattern='var box=$.createShape({lifeTime:20,x:200,y:200});box.graphics.beginFill(0xff2040,0.7);box.graphics.drawRect(0,0,50,25);box.graphics.endFill();box.graphics.beginFill(0x20ff80,0.4);box.graphics.drawRect(13,8,28,33);box.graphics.endFill();';
+            for(const [x,y,quality] of [[33,0,1],[43.5,35,1],[63,65.25,2],[127.5,33,1],[255,255,1]]) {
+                const code=pattern+'box.filters=[$.createBlurFilter('+x+','+y+','+quality+')];';
+                await p.script(code);await fallback.script(code);
+                for(const point of [[180,210],[199,210],[200,210],[207,210],[220,220],[249,225],[260,240],[220,180],[220,260]]) {
+                    const actual=await p.pixel(...point),expected=await fallback.pixel(...point);
+                    // 透明边缘反预乘会放大1级舍入误差；比较覆盖率和实际合成颜色。
+                    assert.ok(Math.abs(actual[3]-expected[3])<=1
+                        && actual.slice(0,3).every((v,i)=>Math.abs(v*actual[3]-expected[i]*expected[3])/255<=1.1),
+                        JSON.stringify({x,y,quality,point,actual,expected}));
+                }
+            }
+            assert.deepEqual(fallback.errors,[]);
+        } finally {await fallback.page.close();}
+    } finally {await host.close();}
+});
+
+test('P67 浮点FBO不完整时保留常规GPU模糊，后续更新也不回读CPU', async p => {
+    await p.page.evaluate(()=>{
+        window.__checks=0;window.__readbacks=0;window.__floatAllocations=0;
+        const status=WebGLRenderingContext.prototype.checkFramebufferStatus,read=CanvasRenderingContext2D.prototype.getImageData,upload=WebGLRenderingContext.prototype.texImage2D;
+        WebGLRenderingContext.prototype.texImage2D=function(...args){if(args.length===9&&args[7]===this.FLOAT)__floatAllocations++;return upload.apply(this,args);};
+        WebGLRenderingContext.prototype.checkFramebufferStatus=function(...args){return ++__checks===3?this.FRAMEBUFFER_UNSUPPORTED:status.apply(this,args);};
+        CanvasRenderingContext2D.prototype.getImageData=function(...args){__readbacks++;return read.apply(this,args);};
+    });
+    await p.script('var box=$.createShape({lifeTime:20,x:200,y:200});box.graphics.beginFill(0xffffff);box.graphics.drawRect(0,0,1,20);box.graphics.endFill();box.filters=[$.createBlurFilter(63,0,1)];window.__box=box;window.__display=$;');
+    assert.equal(await p.page.evaluate(()=>__checks),await p.page.evaluate(()=>__floatAllocations?3:2));
+    assert.equal(await p.page.evaluate(()=>__readbacks),0);
+    assert.ok(Math.abs((await p.pixel(200,210))[3]-4)<=1);
+    await p.update('__box.filters=[__display.createBlurFilter(65,0,1)];');
+    assert.equal(await p.page.evaluate(()=>__readbacks),1,'只有测试取样读取像素');
+    assert.ok(Math.abs((await p.pixel(200,210))[3]-3)<=1);
 });
 
 async function run() {

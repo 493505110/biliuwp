@@ -171,6 +171,8 @@ function createRetainedElement(kind) {
         compositeDirty: false,
         // 复合层位图在元素本地坐标系里的原点与尺寸（子树内容决定）。
         compositeBounds: null,
+        compositeFullBounds: null,
+        compositeCrop: null,
         // 元素在主画布上「上一帧画到哪」的包围盒。脏矩形擦除、以及
         // 元素到期/隐藏时的残影清理都依赖它（没有它就只能整屏清屏）。
         lastPaintedRect: null,
@@ -1774,6 +1776,8 @@ function releaseElementCaches(element) {
     element.projectedPlanar = false;
     element.projectedEffectCanvas = null;
     element.compositeBounds = null;
+    element.compositeFullBounds = null;
+    element.compositeCrop = null;
     element.propertyDirty = {};
 
     for (var index = 0; index < element.childList.length; index++) {
