@@ -24,7 +24,6 @@ namespace BiliBili.Tests
             var location = MethodBody(service, "private static bool TryToLocation");
             var danmakuParser = MethodBody(service, "private static DanmakuModel ParseDanmaku");
             var positionDanmakuValidator = MethodBody(service, "private static bool IsSupportedPositionDanmaku");
-            var numberValidator = MethodBody(service, "private static bool IsFinitePositionDanmakuNumber(object value)");
             var player = ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
 
             StringAssert.Contains(service, "private const long DanmakuClosedState = 1;");
@@ -39,11 +38,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(danmakuParser, "location == DanmakuLocation.Position && !IsSupportedPositionDanmaku(text)");
             StringAssert.Contains(danmakuParser, "text.Replace(\"/n\", \"\\r\\n\")");
             StringAssert.Contains(danmakuParser, "var displayText = location == DanmakuLocation.Position");
-            StringAssert.Contains(positionDanmakuValidator, "var data = JArray.Parse(text);");
-            StringAssert.Contains(positionDanmakuValidator, "data.Count > 7 && data.Count < 11");
-            StringAssert.Contains(positionDanmakuValidator, "opacity.Length < 2");
-            StringAssert.Contains(positionDanmakuValidator, "IsFinitePositionDanmakuNumber(data[10])");
-            StringAssert.Contains(numberValidator, "double.IsNaN(number)");
+            StringAssert.Contains(positionDanmakuValidator, "NSDanmaku.Helper.PositionDanmaku.TryParse(text, out parsed)");
             StringAssert.Contains(player, "load?.IsDanmakuClosed == true");
             StringAssert.Contains(player, "LoadSupplementAsync(initial, cancellationToken)");
         }
@@ -246,8 +241,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(bottom, "RemoveFixedDanmaku(grid_Bottom, grid);");
             StringAssert.Contains(remove, "lifetime.Stop();");
             StringAssert.Contains(remove, "element.Children.Clear();");
-            StringAssert.Contains(clear, "foreach (var item in positionStoryList.ToList())");
-            StringAssert.Contains(clear, "positionStoryList.Clear();");
+            StringAssert.Contains(clear, "ClearPositionDanmaku();");
             StringAssert.Contains(clear, "fixedLifetimes.Clear();");
         }
 

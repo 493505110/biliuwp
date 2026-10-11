@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -288,6 +288,7 @@ namespace BiliBili.UWP.Pages
                     HandleInteractiveDanmakuPosition();
                     SyncBasDanmakuPosition();
                     SyncScriptDanmakuPosition();
+                    SyncPositionDanmakuPlayback();
                 }
                 else
                 {
@@ -301,6 +302,7 @@ namespace BiliBili.UWP.Pages
                                 HandleInteractiveDanmakuPosition();
                                 SyncBasDanmakuPosition();
                                 SyncScriptDanmakuPosition();
+                                SyncPositionDanmakuPlayback();
                             }
                         }
                         catch (Exception ex)
@@ -516,6 +518,7 @@ namespace BiliBili.UWP.Pages
 
                 SyncBasDanmakuPlaybackState();
                 SyncScriptDanmakuPlaybackState();
+                SyncPositionDanmakuPlayback();
             });
 
         }
@@ -677,6 +680,7 @@ namespace BiliBili.UWP.Pages
             {
                 danmu = e;
                 ApplyOrdinaryDanmakuSuppression();
+                RefreshPositionDanmakuPool();
             }
         }
 
@@ -1110,6 +1114,7 @@ namespace BiliBili.UWP.Pages
                     ClearBiliJumpAds();
                     ClearSubTitle();
                     ClearBasDanmaku();
+                    ResetPositionDanmakuPool();
                     ClearScriptDanmaku();
                     //退出视频时确定性地关掉 BAS 弹幕的 WebView2。
                     //控件自身的 Unloaded 也会兜底释放，但那条路径依赖页面被移出可视树，
@@ -1728,6 +1733,8 @@ namespace BiliBili.UWP.Pages
             DanMuPool = pool == null
                 ? new List<NSDanmaku.Model.DanmakuModel>()
                 : new List<NSDanmaku.Model.DanmakuModel>(pool);
+            positionDanmakuPoolReady = false;
+            danmu?.SetPositionDanmakuList(null);
             var version = ++danmakuPoolVersion;
             _ = PrepareDanmakuTimelineAsync(DanMuPool, version, includeCurrentPosition);
             SyncScriptDanmakuComments();
@@ -1741,8 +1748,9 @@ namespace BiliBili.UWP.Pages
             try
             {
                 var timeline = await Task.Run(() =>
-                    new PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel>(pool, item => item.time));
-                if (version != danmakuPoolVersion)
+                    new PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel>(
+                        pool.Where(item => item != null && item.location != NSDanmaku.Model.DanmakuLocation.Position), item => item.time));
+                if (version != danmakuPoolVersion || _isExiting)
                 {
                     return;
                 }
@@ -1750,6 +1758,8 @@ namespace BiliBili.UWP.Pages
                 danmakuTimeline = timeline;
                 // 以准备完成时的实际播放位置复位，避免补发准备期间已经过去的弹幕。
                 ResetDanmakuTimeline(includeCurrentPosition);
+                positionDanmakuPoolReady = true;
+                RefreshPositionDanmakuPool();
             }
             catch (Exception ex)
             {
@@ -1869,6 +1879,45 @@ namespace BiliBili.UWP.Pages
             sended.Clear();
         }
 
+        private bool positionDanmakuPoolReady;
+
+        private void ResetPositionDanmakuPool()
+        {
+            // 切换视频/退出时同时使尚未完成的后台排序失效。
+            ++danmakuPoolVersion;
+            positionDanmakuPoolReady = false;
+            danmu?.SetPositionDanmakuList(null);
+        }
+
+        private void RefreshPositionDanmakuPool()
+        {
+            if (!positionDanmakuPoolReady || _isExiting) return;
+            // M7 按存活区间显示，不受普通弹幕合并/每秒数量上限破坏其排版。
+            var pool = (DanMuPool ?? new List<NSDanmaku.Model.DanmakuModel>()).Where(item =>
+            {
+                NSDanmaku.Helper.PositionDanmaku definition;
+                if (item == null || item.location != NSDanmaku.Model.DanmakuLocation.Position
+                    || !NSDanmaku.Helper.PositionDanmaku.TryParse(item.text, out definition)
+                    || DanDis_Dis(definition.Text)) return false;
+                try { return DMZZBDS.Length == 0 || !Regex.IsMatch(item.source ?? string.Empty, DMZZBDS); }
+                catch (ArgumentException) { return true; }
+            });
+            danmu?.SetPositionDanmakuList(pool);
+            SyncPositionDanmakuPlayback();
+        }
+
+        private void SyncPositionDanmakuPlayback()
+        {
+            var session = mediaPlayer?.PlaybackSession;
+            if (session == null || _isExiting) return;
+            danmu?.SetPositionDanmakuPlayback(
+                session.Position.TotalSeconds,
+                session.PlaybackState == MediaPlaybackState.Playing,
+                session.PlaybackRate,
+                LoadDanmu && !ordinaryDanmakuSuppressed
+                    && IsDanmakuLocationEnabled(NSDanmaku.Model.DanmakuLocation.Position));
+        }
+
         private void Timer_Date_Tick(object sender, object e)
         {
             if (_PointerHideTime >= 50 && !hidePointerFlag)
@@ -1879,6 +1928,7 @@ namespace BiliBili.UWP.Pages
 
             try
             {
+                SyncPositionDanmakuPlayback();
                 if (mediaPlayer?.PlaybackSession.PlaybackState == MediaPlaybackState.Playing && LoadDanmu)
                 {
                     var batch = danmakuTimeline?.Advance(
@@ -1973,7 +2023,7 @@ namespace BiliBili.UWP.Pages
                     danmu.AddBottomDanmu(item, false);
                     break;
                 case NSDanmaku.Model.DanmakuLocation.Position:
-                    danmu.AddPositionDanmu(item);
+                    // M7 由独立区间索引和媒体时钟驱动。
                     break;
                 case NSDanmaku.Model.DanmakuLocation.ReverseScroll:
                     danmu.AddReverseScrollDanmu(item, false);
@@ -2504,6 +2554,7 @@ namespace BiliBili.UWP.Pages
             mediaPlayer?.Pause();
             ClearPlaybackSource();
             ClearBasDanmaku();
+            ResetPositionDanmakuPool();
             ClearScriptDanmaku();
             txt_VideoCodec.Text = "未知";
             string playbackErrorMessage = null;
@@ -3824,6 +3875,7 @@ namespace BiliBili.UWP.Pages
 
             btn_DanmakuLocationTypes.Content = DanmakuLocationTypeDialog.GetShortSummary();
             ApplyBasDanmakuVisibility();
+            SyncPositionDanmakuPlayback();
         }
 
         /// <summary>
@@ -4018,6 +4070,7 @@ namespace BiliBili.UWP.Pages
             SyncBasDanmakuPlaybackState();
             _ = scriptDanmakuControl?.SetVisibleAsync(e);
             SyncScriptDanmakuPlaybackState();
+            SyncPositionDanmakuPlayback();
             if (!e)
             {
                 currentInteractiveDanmaku = null;
@@ -4063,6 +4116,7 @@ namespace BiliBili.UWP.Pages
         {
             // 独立于总开关和各位置类型的 Visibility，恢复时保留用户原来的设置。
             if (danmu != null) danmu.Opacity = ordinaryDanmakuSuppressed ? 0 : 1;
+            SyncPositionDanmakuPlayback();
         }
 
         private void SeekFromScriptDanmaku(double positionSeconds)
@@ -4083,6 +4137,7 @@ namespace BiliBili.UWP.Pages
             session.Position = TimeSpan.FromSeconds(target);
             lastScriptDanmakuPosition = -1;
             SyncScriptDanmakuPosition();
+            SyncPositionDanmakuPlayback();
         }
 
         private async Task NavigateFromScriptDanmakuAsync(string url)
@@ -4823,6 +4878,7 @@ namespace BiliBili.UWP.Pages
             SyncBasDanmakuPlaybackState();
             // 宿主时钟按 rate 外推，倍速变了必须重推，否则脚本时间轴永久漂移且不会自愈。
             SyncScriptDanmakuPlaybackState();
+            SyncPositionDanmakuPlayback();
         }
 
         private void MTC_FullWindows(object sender, EventArgs e)
@@ -5011,6 +5067,7 @@ namespace BiliBili.UWP.Pages
         {
             ClearBiliJumpAds();
             ClearBasDanmaku();
+            ResetPositionDanmakuPool();
             ClearScriptDanmaku();
             var data = await interactionVideo.GetNodes(node_id);
             if (data == null)

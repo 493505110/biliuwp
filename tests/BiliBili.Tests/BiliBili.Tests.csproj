@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\PositionDanmaku.cs" Link="Production\PositionDanmaku.cs" />
     <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\ScrollDanmakuPlacement.cs"
              Link="Production\ScrollDanmakuPlacement.cs" />
     <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\DanmakuRowHeightIndex.cs"
