@@ -100,6 +100,37 @@ function normalizeOrphanBreakStatements(code) {
     return replace(replacements);
 }
 
+// 旧弹幕游戏的闪烁、追踪和淡出写法假定屏上始终有普通弹幕。
+// 过滤、加载或 seek 后列表可能为空：为这三种已知源码模式补空目标检查。
+// 只改编译副本，不按视频/弹幕 ID 特判，也不屏蔽其它空引用的运行错误。
+function normalizeLegacyEmptyDanmakuTargets(code) {
+    if (!code.includes("danmus")) return code;
+    const replacements = [];
+    normalizeMultilineStrings(code, (word, start) => {
+        if (word !== "random" && word !== "var") return;
+        if (/\.\s*$/.test(code.slice(0, start))) return;
+        const tail = code.slice(start);
+        const flash = word === "random" && /^random\s*=\s*Utils\.rand\(\s*0\s*,\s*danmus\.length\s*\)\s*;\s*danmuShape\s*=\s*danmus\[random\]\.shape\s*;/.test(tail);
+        const tracking = word === "var" && /^var\s+i\s*=\s*Utils\.rand\(\s*0\s*,\s*danmus\.length\s*-\s*1\s*\)\s*;\s*current\s*=\s*danmus\[i\]\s*;/.test(tail);
+        if (flash || tracking) {
+            // 从当前效果回调返回，外层节拍/定时器仍继续；下一次可正常选中目标。
+            replacements.push({ start, end: start, text: "if (!danmus.length) return;\n" });
+        } else if (word === "var") {
+            const fade = /^var\s+alpha\s*=\s*danmus\[0\]\.shape\.alpha\s*;/.exec(tail);
+            // 空场以完全不透明为起点，仍注册淡出回调，随后到来的障碍也能淡出。
+            if (fade) replacements.push({ start, end: start + fade[0].length,
+                text: "var alpha = danmus.length ? danmus[0].shape.alpha : 1;" });
+        }
+    });
+    if (!replacements.length) return code;
+    let result = "", offset = 0;
+    for (const entry of replacements) {
+        result += code.slice(offset, entry.start) + entry.text;
+        offset = entry.end;
+    }
+    return result + code.slice(offset);
+}
+
 // 非枚举，保持 for-in / foreach 对数组的行为；只作用于独立的 M8 宿主页。
 function sortOn(fields, options) {
     const names = Array.isArray(fields) ? fields : [fields];
@@ -130,4 +161,4 @@ function sortOn(fields, options) {
 
 if (!Array.prototype.sortOn) Object.defineProperty(Array.prototype, "sortOn", { configurable: true, writable: true, value: sortOn });
 
-export { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements, sortOn };
+export { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements, normalizeLegacyEmptyDanmakuTargets, sortOn };

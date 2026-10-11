@@ -2,7 +2,9 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const { loadHost } = require('./retained-mode.test');
+const { evaluateModule } = require('./host-loader');
 const scripts = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/av2676643/scripts.json'), 'utf8'));
 const mainProbe = `;window.__game={root:$.root,player:player,bullets:danmus,
     state:function(){return {alive:alive,invincible:indestructible,deaths:deadTime,count:numDanmu,step:$G._("step")};}};`;
@@ -26,6 +28,14 @@ function click(h, button) {
 }
 
 async function legacyTests() {
+    const { normalizeLegacyEmptyDanmakuTargets } = (await evaluateModule(path.resolve(
+        __dirname, '../../BiliBili.UWP/Assets/script-danmaku/legacy.js'), vm.createContext({}))).namespace;
+    const literal = 'var alpha = danmus[0].shape.alpha;';
+    for (const source of [JSON.stringify(literal), '`' + literal + '`', '// ' + literal,
+        '/* ' + literal + ' */', '/' + literal + '/',
+        'var alpha = other[0].shape.alpha;', 'var missing; missing.shape;']) {
+        assert.equal(normalizeLegacyEmptyDanmakuTargets(source), source, '字符串、注释、正则与无关代码保持原样');
+    }
     const h = await create(0, [item(`
         window.__result=[];
         for(var i=0;i<3;i++) {
@@ -137,6 +147,56 @@ async function timelineTests() {
     console.log('ok 全部 58 条原始脚本 / 两段非法 break 回调 / 362 秒游戏时间轴 / 结算继续按钮');
 }
 
+async function emptyTimelineTests() {
+    const h = await create(24);
+    const game = h.sandbox.__game;
+    step(h, Math.ceil((362 - 24.034) / .034));
+    assert.equal(game.bullets.length, 0);
+    assert.equal(game.state().count, 0);
+    assert.equal(h.sandbox.__game, game, '空弹幕关卡不能重启主游戏');
+    assert.ok(game.root.children.some(e => e.isButton), '没有普通弹幕也必须正常结算');
+    clean(h);
+    console.log('ok 全时间轴无普通弹幕 / 四处空目标 / 正常结算');
+}
+
+async function emptyTargetRecoveryTests() {
+    // 每段保留原始脚本，只追加观测；换用不同 ID，防止按弹幕 ID 特判。
+    const cases = [
+        ['1121852671', ';window.__effect={run:flash,step:function(){return step;}};', 53, 55],
+        ['1105851909', ';window.__effect={run:moveToPlayer};', 202.6, 203.2],
+        ['1122028459', ';window.__effect={run:fadeAway};', 224.443, 224.5],
+        ['1122032735', ';window.__effect={run:fadeAway};', 239.421, 239.5]
+    ];
+    for (const [id, probe, start, target] of cases) {
+        const main = observedScripts.find(s => s.id === '1122634223');
+        const effect = scripts.find(s => s.id === id);
+        const h = await create(24, [main, { ...effect, id: 'empty-' + id, code: effect.code + '\n' + probe }]);
+        const game = h.sandbox.__game;
+        // 先结束出生无敌期，再把时间推进到关卡的第一个空目标回调。
+        step(h, 100);
+        h.api.setState(start, true, 1);
+        step(h, Math.ceil((target - start) / .034));
+        clean(h);
+        if (id === '1121852671') assert.ok(h.sandbox.__effect.step() > 0, '空目标也必须推进节拍');
+        assert.equal(h.api.filterOrdinaryDanmaku(comment), false);
+        const bullet = game.bullets[0];
+        assert.ok(bullet, '空目标之后仍能生成障碍');
+        // 直接调用原回调，验证补上目标后效果确实执行，而非吞掉异常。
+        h.sandbox.__effect.run();
+        if (id === '1121852671') assert.equal(bullet.shape.scaleX, 2);
+        else if (id === '1105851909') {
+            assert.equal(bullet.leaveType, 1);
+            assert.ok(Number.isFinite(bullet.vx) && Number.isFinite(bullet.vy));
+        } else assert.ok(bullet.shape.alpha < 1 && bullet.shape.alpha > 0);
+        assert.equal(h.sandbox.__game, game);
+        clean(h);
+    }
+    // 无关的空引用仍应报告，不能靠屏蔽所有 TypeError 来通过回归。
+    const broken = await create(0, [item('var missing; missing.shape;')]);
+    assert.equal(broken.errors('runtime').length, 1);
+    console.log('ok 空目标后恢复闪烁 / 追踪 / 两段淡出 / 无关空引用继续报错');
+}
+
 async function browserTests() {
     const { createBrowserHost } = require('./browser-host');
     const browser = await createBrowserHost();
@@ -173,11 +233,25 @@ async function browserTests() {
         assert.ok(result.obstaclePixels > 30, '真实 Canvas 必须画出彩色文字障碍');
         assert.ok(result.spritePixels > 100, '原始位图自机必须实际可见');
         console.log('ok Edge 原始开始按钮 / 位图自机 WASD / 普通弹幕障碍像素', JSON.stringify(result));
+        const empty = await browser.page();
+        const emptyResult = await empty.page.evaluate(scripts => {
+            const h = scriptDanmakuHost;
+            h.reset(24, true, 1, true, 375); h.setOrdinaryDanmakuBridge(17); h.append(scripts);
+            for (let i = 0; i < 10000; i++) __step(34);
+            return { count: __game.state().count, bullets: __game.bullets.length,
+                finished: __game.root.children.some(e => e.isButton),
+                errors: __messages.filter(m => m.type === 'error') };
+        }, observedScripts);
+        assert.deepEqual(empty.errors, []); assert.deepEqual(emptyResult.errors, []);
+        assert.equal(emptyResult.count, 0); assert.equal(emptyResult.bullets, 0);
+        assert.equal(emptyResult.finished, true);
+        console.log('ok Edge 全时间轴无普通弹幕 / 正常结算', JSON.stringify(emptyResult));
     } finally { await browser.close(); }
 }
 (async () => {
     if (!process.argv.includes('--browser-only')) {
-        await legacyTests(); await cloneTests(); await gameplayTests(); await timelineTests();
+        await legacyTests(); await cloneTests(); await gameplayTests();
+        await emptyTargetRecoveryTests(); await emptyTimelineTests(); await timelineTests();
     }
     if (process.argv.includes('--browser') || process.argv.includes('--browser-only')) await browserTests();
 })().catch(error => { console.error(error); process.exitCode = 1; });

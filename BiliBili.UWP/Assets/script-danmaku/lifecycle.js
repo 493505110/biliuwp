@@ -1,5 +1,5 @@
 // 条目编译、生命周期、播放时钟同步与帧调度。
-import { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements } from "./legacy.js";
+import { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements, normalizeLegacyEmptyDanmakuTargets } from "./legacy.js";
 import { resetPointer } from "./input.js";
 import {
     advanceParticleElements
@@ -746,6 +746,7 @@ function compileItem(model) {
     // 只往实参表加名字而漏了这里，整表就会错位——foreach 收到 trace、
     // getTimer 收到 stopExecution，真实脚本静默失败或中途被终止。
     // 现在形参一律从 SCRIPT_GLOBAL_NAMES 展开生成，全宿主只有这一处真源。
+    code = normalizeLegacyEmptyDanmakuTargets(code);
     try {
         return new Function(...SCRIPT_GLOBAL_NAMES, code);
     } catch (error) {

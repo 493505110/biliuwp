@@ -432,6 +432,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "item.run = compileItem(model);");
             StringAssert.Contains(compileBody, "if (!(error instanceof SyntaxError)) throw error;");
             StringAssert.Contains(compileBody, "normalizeMultilineStrings(code)");
+            StringAssert.Contains(compileBody, "code = normalizeLegacyEmptyDanmakuTargets(code);");
+            Assert.IsTrue(compileBody.IndexOf("normalizeLegacyEmptyDanmakuTargets(code)", System.StringComparison.Ordinal)
+                < compileBody.IndexOf("new Function(", System.StringComparison.Ordinal),
+                "空目标兼容须在正常编译及旧语法回退之前执行");
 
             // 注入名清单只有一张表（SCRIPT_GLOBAL_NAMES），compileItem 的形参与
             // createScriptScope 的实参都以它为准，避免两边顺序漂移。
