@@ -127,6 +127,7 @@ namespace BiliBili.UWP.Controls
                 AttachClick("btn_send", Btn_Send_Click);
                 AttachClick("MyFullWindowButton", Btn_Full_Click);
                 AttachClick("CaptureBtn", Btn_Capture_Click);
+                AttachClick("MyPlaybackRateButton", Btn_PlaybackRate_Click);
 
                 var video360Button = GetTemplateChild("Video360Button") as AppBarToggleButton;
                 if (video360Button != null)
@@ -348,6 +349,11 @@ namespace BiliBili.UWP.Controls
             {
                 (sender as Border).Visibility = Visibility.Visible;
             }
+        }
+
+        private void Btn_PlaybackRate_Click(object sender, RoutedEventArgs e)
+        {
+            PlaybackRateFlyout?.ShowAt((FrameworkElement)sender);
         }
 
         private void Btn_Capture_Click(object sender, RoutedEventArgs e)
@@ -667,6 +673,15 @@ namespace BiliBili.UWP.Controls
 
 
 
+
+        public FlyoutBase PlaybackRateFlyout
+        {
+            get { return (FlyoutBase)GetValue(PlaybackRateFlyoutProperty); }
+            set { SetValue(PlaybackRateFlyoutProperty, value); }
+        }
+
+        public static readonly DependencyProperty PlaybackRateFlyoutProperty =
+            DependencyProperty.Register("PlaybackRateFlyout", typeof(FlyoutBase), typeof(MediaTransportControls), new PropertyMetadata(null));
 
         public FlyoutBase MoreMenuFlyout
         {

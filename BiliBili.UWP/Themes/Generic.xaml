@@ -879,6 +879,17 @@
                                                 </AppBarButton>
                                                 
 
+                                                <AppBarButton x:Name='MyPlaybackRateButton'
+                                                              Width="48" Height="48"
+                                                              Style='{StaticResource AppBarButtonStyle}'
+                                                              MediaTransportControlsHelper.DropoutOrder='17'
+                                                              ToolTipService.ToolTip="播放倍速"
+                                                              AutomationProperties.Name="播放倍速">
+                                                    <AppBarButton.Icon>
+                                                        <FontIcon Glyph="&#xEB9D;" />
+                                                    </AppBarButton.Icon>
+                                                </AppBarButton>
+
                                                 <AppBarButton x:Name='ListButton'
                                                               Style='{StaticResource AppBarButtonStyle}'
                                                  MediaTransportControlsHelper.DropoutOrder='17'

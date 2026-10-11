@@ -4945,7 +4945,7 @@ namespace BiliBili.UWP.Pages
 
         private void slider_Rate_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            if (mediaElement == null)
+            if (mediaElement?.MediaPlayer == null)
             {
                 return;
             }

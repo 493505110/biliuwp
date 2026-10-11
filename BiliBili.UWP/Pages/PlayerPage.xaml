@@ -59,12 +59,6 @@
                         </ListView>
                         <ScrollViewer x:Name="grid_Setting" Visibility="Visible"  ScrollViewer.VerticalScrollBarVisibility="Auto" >
                             <StackPanel Margin="10 5">
-                                <Grid  Margin="0 10 0 0">
-                                    <TextBlock FontSize="16" Foreground="White" >视频倍速</TextBlock>
-                                    <TextBlock FontSize="16" HorizontalAlignment="Right" Foreground="White" ><Run Text="{Binding ElementName=slider_Rate,Path=Value,Mode=OneWay}"></Run>倍</TextBlock>
-                                </Grid>
-
-                                <Slider x:Name="slider_Rate" ValueChanged="slider_Rate_ValueChanged"  StepFrequency="0.25" Value="1" Maximum="2" Minimum="0.5"></Slider>
                                 <Grid Margin="0 10 0 0">
                                     <TextBlock Foreground="White" VerticalAlignment="Center">使用DASH</TextBlock>
                                     <ToggleSwitch  Foreground="White" x:Name="sw_UseDASH" Toggled="Sw_UseDASH_Toggled" HorizontalAlignment="Right" MinWidth="0" Width="68" Margin="10 0"></ToggleSwitch>
@@ -275,6 +269,17 @@
 
                                     </ComboBox>
                                 </c:DanmakuMTC.QuityContent>
+                                <c:DanmakuMTC.PlaybackRateFlyout>
+                                    <Flyout Placement="Top">
+                                        <StackPanel Width="240" RequestedTheme="Dark">
+                                            <Grid>
+                                                <TextBlock FontSize="16" Foreground="White">视频倍速</TextBlock>
+                                                <TextBlock FontSize="16" HorizontalAlignment="Right" Foreground="White"><Run Text="{Binding ElementName=slider_Rate,Path=Value,Mode=OneWay}" />倍</TextBlock>
+                                            </Grid>
+                                            <Slider x:Name="slider_Rate" ValueChanged="slider_Rate_ValueChanged" StepFrequency="0.25" Value="1" Maximum="2" Minimum="0.5" AutomationProperties.Name="播放倍速" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </c:DanmakuMTC.PlaybackRateFlyout>
                                 <c:DanmakuMTC.MoreMenuFlyout>
                                     <MenuFlyout>
                                         <MenuFlyoutItem  Click="btn_VideoInfo_Click">播放设置</MenuFlyoutItem>
