@@ -36,6 +36,8 @@ namespace BiliBili.UWP.Controls
         private TaskCompletionSource<bool> navigationCompletion;
         private TaskCompletionSource<bool> pageReadyCompletion;
         private int contentVersion;
+        private int playbackVersion;
+        private int scriptSeekVersion;
         private bool isPageReady;
         private bool rendererFailureNotified;
         private int parsedItemCount;
@@ -119,7 +121,8 @@ namespace BiliBili.UWP.Controls
             double positionSeconds,
             bool shouldPlay,
             bool visible,
-            double playbackRate)
+            double playbackRate,
+            double videoDurationSeconds = 0)
         {
             if (isReleased)
             {
@@ -138,6 +141,7 @@ namespace BiliBili.UWP.Controls
                 {
                     var safePosition = Math.Max(0, positionSeconds);
                     var safeRate = NormalizeRate(playbackRate);
+                    scriptSeekVersion = 0;
                     await ExecuteScriptAsync(
                         "window.scriptDanmakuHost.reset("
                         + JsonConvert.SerializeObject(safePosition)
@@ -147,6 +151,9 @@ namespace BiliBili.UWP.Controls
                         + JsonConvert.SerializeObject(safeRate)
                         + ","
                         + JsonConvert.SerializeObject(visible)
+                        + ","
+                        + JsonConvert.SerializeObject(double.IsNaN(videoDurationSeconds) || double.IsInfinity(videoDurationSeconds)
+                            ? 0 : Math.Max(0, videoDurationSeconds))
                         + ");");
 
                     // reset 会清空宿主侧的 commentList，这里把保留的快照补回去，
@@ -191,10 +198,13 @@ namespace BiliBili.UWP.Controls
             double playbackRate)
         {
             var version = Volatile.Read(ref contentVersion);
+            var playback = Volatile.Read(ref playbackVersion);
+            var seekVersion = scriptSeekVersion;
             return ExecuteCommandAsync(
                 version,
                 async () =>
                 {
+                    if (playback != Volatile.Read(ref playbackVersion)) return;
                     await ExecuteScriptAsync(
                         "window.scriptDanmakuHost.setState("
                         + JsonConvert.SerializeObject(Math.Max(0, positionSeconds))
@@ -202,6 +212,8 @@ namespace BiliBili.UWP.Controls
                         + JsonConvert.SerializeObject(shouldPlay)
                         + ","
                         + JsonConvert.SerializeObject(NormalizeRate(playbackRate))
+                        + ","
+                        + JsonConvert.SerializeObject(seekVersion)
                         + ");");
                 });
         }
@@ -209,13 +221,20 @@ namespace BiliBili.UWP.Controls
         public Task SeekAsync(
             double positionSeconds,
             bool shouldPlay,
-            double playbackRate)
+            double playbackRate,
+            bool fromScript = false)
         {
             var version = Volatile.Read(ref contentVersion);
+            // 新的脚本定位使仍在普通弹幕队列后等待的旧进度命令作废。
+            var playback = fromScript
+                ? Interlocked.Increment(ref playbackVersion)
+                : Volatile.Read(ref playbackVersion);
+            var seekVersion = scriptSeekVersion;
             return ExecuteCommandAsync(
                 version,
                 async () =>
                 {
+                    if (playback != Volatile.Read(ref playbackVersion)) return;
                     await ExecuteScriptAsync(
                         "window.scriptDanmakuHost.seek("
                         + JsonConvert.SerializeObject(Math.Max(0, positionSeconds))
@@ -223,6 +242,10 @@ namespace BiliBili.UWP.Controls
                         + JsonConvert.SerializeObject(shouldPlay)
                         + ","
                         + JsonConvert.SerializeObject(NormalizeRate(playbackRate))
+                        + ","
+                        + JsonConvert.SerializeObject(fromScript)
+                        + ","
+                        + JsonConvert.SerializeObject(seekVersion)
                         + ");");
                 });
         }
@@ -336,6 +359,25 @@ namespace BiliBili.UWP.Controls
                     + ");"));
         }
 
+        /// <summary>原生弹幕入屏前派发共享 root 的 added 事件，读取脚本的 visible 判断。</summary>
+        public async Task<bool> FilterOrdinaryDanmakuAsync(ScriptDanmakuComment comment)
+        {
+            if (isReleased) return false;
+            // 没有代码弹幕时不初始化 WebView2，也不序列化普通弹幕。
+            if (!hostVisible || Volatile.Read(ref pendingItemCount) == 0) return true;
+            var version = Volatile.Read(ref contentVersion);
+            var visible = true;
+            await ExecuteCommandAsync(version, async () =>
+            {
+                var result = await webView.CoreWebView2.ExecuteScriptAsync(
+                    "window.scriptDanmakuHost.filterOrdinaryDanmaku("
+                    + JsonConvert.SerializeObject(comment) + ");");
+                // 宿主失败时保持普通弹幕；只接受明确的布尔返回值。
+                visible = result != "false";
+            });
+            return !isReleased && version == Volatile.Read(ref contentVersion) && visible;
+        }
+
         /// <summary>
         /// 把按键事件转发给脚本的 <c>Player.keyTrigger</c>。
         /// <paramref name="keyCode"/> 用 Windows.System.VirtualKey 的整数值——
@@ -344,15 +386,33 @@ namespace BiliBili.UWP.Controls
         /// </summary>
         public Task PushKeyEventAsync(int keyCode, bool isKeyUp)
         {
-            var version = Volatile.Read(ref contentVersion);
-            return ExecuteCommandAsync(
-                version,
-                async () => await ExecuteScriptAsync(
-                    "window.scriptDanmakuHost.pushKey("
-                    + keyCode.ToString(CultureInfo.InvariantCulture)
-                    + ","
-                    + (isKeyUp ? "true" : "false")
-                    + ");"));
+            // 输入不能排在逐条普通弹幕筛选、整池快照和状态同步后面。
+            // 消息按投递顺序到达宿主，不等待 ExecuteScriptAsync 的往返结果；
+            // 按键也不能触发惰性初始化，未就绪时直接丢弃。
+            // 隐藏期间仍放行松键，避免再显示时保留先前的按住状态。
+            if (isReleased || !isPageReady || (!hostVisible && !isKeyUp)
+                || Volatile.Read(ref pendingItemCount) == 0 || webView.CoreWebView2 == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                webView.CoreWebView2.PostWebMessageAsJson(JsonConvert.SerializeObject(new
+                {
+                    type = "key",
+                    version = Volatile.Read(ref contentVersion),
+                    keyCode,
+                    up = isKeyUp
+                }));
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("转发脚本弹幕按键失败", LogType.ERROR, ex);
+                ShowRendererFailureOnce("脚本弹幕按键转发失败");
+            }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -707,6 +767,15 @@ namespace BiliBili.UWP.Controls
                     break;
                 case "seek":
                 {
+                    int sourceVersion;
+                    if (int.TryParse(message["version"]?.ToString(), out sourceVersion)
+                        && sourceVersion != Volatile.Read(ref contentVersion)) return;
+                    int requestVersion;
+                    if (int.TryParse(message["seekVersion"]?.ToString(), out requestVersion))
+                    {
+                        if (requestVersion < scriptSeekVersion) return;
+                        scriptSeekVersion = requestVersion;
+                    }
                     double seconds;
                     if (!double.TryParse(
                         message["seconds"]?.ToString(),

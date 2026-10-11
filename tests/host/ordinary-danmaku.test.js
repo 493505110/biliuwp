@@ -60,7 +60,7 @@ async function run() {
     {
         const host = await create();
         host.append([
-            item('first', take + 'Player.keyTrigger(function(){ScriptManager.clearEl();},10000);', 1),
+            item('first', `var layer=${layer};` + take + 'Player.keyTrigger(function(){$.root.addChild(layer);},10000);', 1),
             item('second', take, 2)
         ]);
         host.runFrames(1);

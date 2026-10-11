@@ -58,6 +58,8 @@ var SCRIPT_GLOBAL_NAMES = [
     "timer", "interval", "clearTimer", "clearTimeout", "clear", "load",
     "trace", "tracex", "stopExecution", "foreach", "clone", "getTimer",
     "parseInt", "parseFloat", "Math", "String", "Bitmap",
+    // Duet 等旧脚本直接把缓动名传给 Tween.tween，不经过 TweenEasing 命名空间。
+    "Linear", "Expo",
     // AS2/AS3 的全局转换函数。真实脚本（av2669196 的 11 条）里
     // String 用了 1 次、其余为 0，但它们在 M8 文档的示例与当年作品里
     // 很常见，而 AVM1 兜底救不了「函数被当作对象属性访问」之外的情况。
@@ -104,6 +106,8 @@ hostState.hadActiveItem = false;
 hostState.elements = [];
 hostState.rootElement = null;
 hostState.generation = 0;
+// 脚本发起定位时立即递增，让已在 WebView2 传输中的旧进度命令也失效。
+hostState.scriptSeekVersion = 0;
 // 当前正在执行脚本 / 定时器回调 / 触发器回调的条目：$、interval、
 // commentTrigger 等全局函数靠它归属元素、定时器与触发器。
 hostState.activeItem = null;
@@ -319,7 +323,10 @@ function requestSeek(seconds) {
         return false;
     }
 
-    post("action", { action: "seek", seconds: value });
+    hostState.pendingScriptSeekMs = value * 1000;
+    hostState.scriptSeekVersion++;
+    post("action", { action: "seek", seconds: value,
+        seekVersion: hostState.scriptSeekVersion, version: hostState.ordinaryDanmakuBridgeVersion });
     return true;
 }
 

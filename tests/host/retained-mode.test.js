@@ -323,7 +323,11 @@ async function loadHost(hostPath) {
     sandbox.devicePixelRatio = 1;
     sandbox.performance = { now: () => clock };
     sandbox.addEventListener = function () { };
-    sandbox.chrome = { webview: { postMessage: (text) => messages.push(JSON.parse(text)) } };
+    const webMessageListeners = [];
+    sandbox.chrome = { webview: {
+        postMessage: (text) => messages.push(JSON.parse(text)),
+        addEventListener: (type, listener) => { if (type === 'message') webMessageListeners.push(listener); }
+    } };
     sandbox.console = { log() { }, warn() { }, error() { }, count() { } };
     sandbox.Image = function ImageStub() { this.width = 0; this.height = 0; };
     // Player.createSound 的载体（原版是从 i2.hdslb.com/soundlib/<name>.mp3 在线拉的音效）。
@@ -380,6 +384,9 @@ async function loadHost(hostPath) {
         messages: messages,
         frameErrors: frameErrors,
         api: sandbox.scriptDanmakuHost,
+        postHostMessage(data) {
+            for (const listener of webMessageListeners) listener({ data: JSON.parse(JSON.stringify(data)) });
+        },
         now: () => clock,
         advanceClock(ms) { clock += ms; },
         pendingFrames: () => rafCallbacks.size,
@@ -1028,7 +1035,7 @@ test('D10 暂停且没有待推进的补间时帧循环自停，恢复播放后�
 test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数都在脚本作用域里', async () => {
     // 这条用例的正文刻意用**原版 M8 的写法**写成（不出现 ctx、不出现宿主扩展），
     // 断言的也是 M8 文档里写明的行为：$ 是元件工厂、Player.time 实时读、
-    // $G 跨条目共享、ScriptManager.clearTimer 停当前条目的定时器、
+    // $G 跨条目共享、ScriptManager 是共享管理器、
     // timer/interval/clearTimer/foreach/clone/Utils/trace 都在脚本作用域里可用。
     const host = await loadHost();
     host.reset(0, true, 1, true);
@@ -1119,8 +1126,7 @@ test('D11 M8 脚本原样执行：$ / Player / $G / ScriptManager / 全局函数
         host.errors().filter((message) => message.itemId === 'd11-c').length, 0,
         'stopExecution 是主动终止，不得被上报成脚本错误');
 
-    // ScriptManager.clearTimer() 只清当前条目的定时器：第一条的 ticker 停了，
-    // 但第二条（$G 里存着 handle）不受影响。这里直接调第一条留下的函数验证。
+    // 没有调用共享管理器清理时，跨条目保存的无限 Timer 继续运行。
     const logLengthBefore = host.sandbox.__log.length;
     host.setState(3.2, true, 1);
     host.runFrames(30);

@@ -472,6 +472,7 @@
     <Compile Include="Modules\Playback\PlaybackEventTimeline.cs" />
     <Compile Include="Modules\Playback\PlaybackUrl.cs" />
     <Compile Include="Modules\Playback\PlaybackRestoreState.cs" />
+    <Compile Include="Modules\Playback\ScriptDanmakuSeekState.cs" />
     <Compile Include="Modules\Playback\PlaybackHistory.cs" />
     <Compile Include="Modules\ArticleVM.cs" />
     <Compile Include="Modules\Detail\VideoDetailVM.cs" />

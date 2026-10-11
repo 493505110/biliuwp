@@ -93,6 +93,7 @@ namespace BiliBili.UWP.Pages
         List<ScriptDanmakuModel> scriptDanmuPool = new List<ScriptDanmakuModel>();
         double lastScriptDanmakuPosition = -1;
         DateTime lastScriptDanmakuPositionAt;
+        readonly ScriptDanmakuSeekState scriptDanmakuSeekState = new ScriptDanmakuSeekState();
         // 手动加载的脚本（菜单「加载代码弹幕」）与当前视频下发的 mode=8 代码弹幕
         // 是两个独立来源，各自记账、合并成 scriptDanmuPool 后再推给宿主。
         // 分开存的原因：① 视频下发的池会随分页加载反复落定，不能冲掉手动加载的脚本；
@@ -1338,6 +1339,7 @@ namespace BiliBili.UWP.Pages
         // 弹幕位置类型掩码的本地副本：ShowDanmaku 每条弹幕都要判定，避免高频读 LocalSettings
         int danmakuLocationMask = -1;
         bool ordinaryDanmakuSuppressed;
+        int danmakuDisplayVersion;
         List<string> sended = new List<string>();
 
         /// <summary>
@@ -1620,6 +1622,7 @@ namespace BiliBili.UWP.Pages
             }
 
             scriptDanmuPool = merged.OrderBy(item => item.stime).ToList();
+            scriptDanmakuSeekState.Reset();
             lastScriptDanmakuPosition = -1;
             lastScriptDanmakuPositionAt = DateTime.UtcNow;
             ReplaceScriptDanmakuWindow();
@@ -1634,6 +1637,7 @@ namespace BiliBili.UWP.Pages
             manualScriptDanmakuPool = new List<ScriptDanmakuModel>();
             scriptDanmakuPoolFromVideo = new List<ScriptDanmakuModel>();
             scriptDanmuPool = new List<ScriptDanmakuModel>();
+            scriptDanmakuSeekState.Reset();
             lastScriptDanmakuPosition = -1;
             lastScriptDanmakuPositionAt = DateTime.UtcNow;
             ReleaseScriptDanmakuControl();
@@ -1657,13 +1661,17 @@ namespace BiliBili.UWP.Pages
             var shouldPlay = session != null
                 && session.PlaybackState == MediaPlaybackState.Playing
                 && LoadDanmu;
+            // 弹幕可能先于 MediaOpened 返回，先用分 P 元数据补足长脚本的运行窗口。
+            var videoDuration = session?.NaturalDuration.TotalSeconds ?? 0;
+            if (videoDuration <= 0) videoDuration = playNow?.Duration ?? 0;
 
             _ = scriptDanmakuControl.ReplaceAsync(
                 scriptDanmuPool,
                 position,
                 shouldPlay,
                 LoadDanmu,
-                GetScriptDanmakuPlaybackRate());
+                GetScriptDanmakuPlaybackRate(),
+                videoDuration);
         }
 
         private void SyncScriptDanmakuPosition()
@@ -1677,6 +1685,16 @@ namespace BiliBili.UWP.Pages
             var position = Math.Max(0, session.Position.TotalSeconds);
             var now = DateTime.UtcNow;
             var shouldPlay = session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu;
+            var observation = scriptDanmakuSeekState.Observe(position);
+            if (observation == ScriptSeekObservation.Pending) return;
+            if (observation == ScriptSeekObservation.Confirmed)
+            {
+                // 目标已经由 SeekFromScriptDanmaku 显式投递，确认只同步状态，不能再手动 seek。
+                lastScriptDanmakuPosition = position;
+                lastScriptDanmakuPositionAt = now;
+                _ = scriptDanmakuControl.SetPlaybackStateAsync(position, shouldPlay, GetScriptDanmakuPlaybackRate());
+                return;
+            }
             var shouldSeek = lastScriptDanmakuPosition < 0;
             if (!shouldSeek && session.PlaybackState == MediaPlaybackState.Playing)
             {
@@ -1710,7 +1728,8 @@ namespace BiliBili.UWP.Pages
                 return;
             }
 
-            var position = Math.Max(0, session.Position.TotalSeconds);
+            // seek 期间 Buffering/Playing 事件可能仍读到旧位置，只同步请求的目标。
+            var position = scriptDanmakuSeekState.TargetSeconds ?? Math.Max(0, session.Position.TotalSeconds);
             var shouldPlay = session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu;
             _ = scriptDanmakuControl.SetPlaybackStateAsync(
                 position,
@@ -1867,6 +1886,7 @@ namespace BiliBili.UWP.Pages
 
         private void ResetDanmakuTimeline(bool includeCurrentPosition = true)
         {
+            ++danmakuDisplayVersion;
             if (danmakuTimeline == null)
             {
                 return;
@@ -1961,7 +1981,7 @@ namespace BiliBili.UWP.Pages
             }
         }
 
-        private void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)
+        private async void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)
         {
             // 时间轴仍照常消费，解除接管后不补发游戏期间已过去的弹幕。
             // DanMuPool 不变，M8 的 Player.commentList 继续提供完整数据。
@@ -1975,6 +1995,14 @@ namespace BiliBili.UWP.Pages
             {
                 return;
             }
+
+            var scriptControl = scriptDanmakuControl;
+            var displayVersion = danmakuDisplayVersion;
+            if (scriptControl != null && !await scriptControl.FilterOrdinaryDanmakuAsync(ToScriptDanmakuComment(item))) return;
+            // 异步筛选期间切视频、拖动进度或退出时，不把旧弹幕画进新时间轴。
+            if (_isExiting || !LoadDanmu || ordinaryDanmakuSuppressed
+                || displayVersion != danmakuDisplayVersion
+                || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
 
             var itemSecond = item.time < 0 ? 0 : (int)Math.Floor(item.time);
             if (itemSecond != danmakuLimitSecond)
@@ -2018,19 +2046,19 @@ namespace BiliBili.UWP.Pages
             switch (item.location)
             {
                 case NSDanmaku.Model.DanmakuLocation.Top:
-                    danmu.AddTopDanmu(item, false);
+                    _ = danmu.AddTopDanmu(item, false);
                     break;
                 case NSDanmaku.Model.DanmakuLocation.Bottom:
-                    danmu.AddBottomDanmu(item, false);
+                    _ = danmu.AddBottomDanmu(item, false);
                     break;
                 case NSDanmaku.Model.DanmakuLocation.Position:
                     // M7 由独立区间索引和媒体时钟驱动。
                     break;
                 case NSDanmaku.Model.DanmakuLocation.ReverseScroll:
-                    danmu.AddReverseScrollDanmu(item, false);
+                    _ = danmu.AddReverseScrollDanmu(item, false);
                     break;
                 default:
-                    danmu.AddScrollDanmu(item, false);
+                    _ = danmu.AddScrollDanmu(item, false);
                     break;
             }
 
@@ -4116,7 +4144,7 @@ namespace BiliBili.UWP.Pages
             object sender,
             ScriptDanmakuActionEventArgs e)
         {
-            if (e == null)
+            if (e == null || !ReferenceEquals(sender, scriptDanmakuControl))
             {
                 return;
             }
@@ -4168,9 +4196,14 @@ namespace BiliBili.UWP.Pages
                 target = duration;
             }
 
+            scriptDanmakuSeekState.Begin(session.Position.TotalSeconds, target);
+            lastScriptDanmakuPosition = target;
+            lastScriptDanmakuPositionAt = DateTime.UtcNow;
+            // 投递请求目标，不能把异步 Position setter 后立即读出的旧进度当成确认。
+            _ = scriptDanmakuControl?.SeekAsync(target,
+                session.PlaybackState == MediaPlaybackState.Playing && LoadDanmu,
+                GetScriptDanmakuPlaybackRate(), fromScript: true);
             session.Position = TimeSpan.FromSeconds(target);
-            lastScriptDanmakuPosition = -1;
-            SyncScriptDanmakuPosition();
             SyncPositionDanmakuPlayback();
         }
 
@@ -4779,10 +4812,11 @@ namespace BiliBili.UWP.Pages
             hidePointerFlag = true;
             mediaElement.MediaPlayer.Pause();
             SendDanmakuDialog dialog = new SendDanmakuDialog(playNow.Aid, playNow.Mid, mediaElement.MediaPlayer.PlaybackSession.Position.TotalSeconds);
-            dialog.DanmakuSended += new EventHandler<SendDanmakuModel>((obj, item) =>
+            dialog.DanmakuSended += new EventHandler<SendDanmakuModel>(async (obj, item) =>
             {
-                // 转发给脚本的 Player.commentTrigger 回调（只通知，不改渲染）。
-                _ = scriptDanmakuControl?.PushSentCommentAsync(new ScriptDanmakuComment
+                var scriptControl = scriptDanmakuControl;
+                var displayVersion = danmakuDisplayVersion;
+                var comment = new ScriptDanmakuComment
                 {
                     txt = item.text ?? string.Empty,
                     time = mediaElement.MediaPlayer.PlaybackSession.Position.TotalSeconds,
@@ -4792,19 +4826,23 @@ namespace BiliBili.UWP.Pages
                     // 与 M8 的 CommentData.mode 同一套，直接透传。
                     mode = item.location,
                     fontSize = 25
-                });
+                };
+                if (scriptControl != null) await scriptControl.PushSentCommentAsync(comment);
+                var visible = scriptControl == null || await scriptControl.FilterOrdinaryDanmakuAsync(comment);
+                if (_isExiting || displayVersion != danmakuDisplayVersion
+                    || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
 
-                if (!ordinaryDanmakuSuppressed && item.location == 1)
+                if (visible && !ordinaryDanmakuSuppressed && item.location == 1)
                 {
-                    danmu.AddScrollDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
+                    _ = danmu.AddScrollDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
                 }
-                if (!ordinaryDanmakuSuppressed && item.location == 4)
+                if (visible && !ordinaryDanmakuSuppressed && item.location == 4)
                 {
-                    danmu.AddBottomDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
+                    _ = danmu.AddBottomDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
                 }
-                if (!ordinaryDanmakuSuppressed && item.location == 5)
+                if (visible && !ordinaryDanmakuSuppressed && item.location == 5)
                 {
-                    danmu.AddTopDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
+                    _ = danmu.AddTopDanmu(new NSDanmaku.Model.DanmakuModel { text = item.text, color = item.color.ToColor(), size = 25 }, true);
                 }
                 mediaElement.MediaPlayer.Play();
             });

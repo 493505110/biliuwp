@@ -10,6 +10,7 @@ import {
 import {
     M8Display,
     createRetainedElement,
+    filterOrdinaryDanmaku,
     prepareOrdinaryDanmakuLayer
 } from "./display.js";
 import {
@@ -17,6 +18,7 @@ import {
     appendItems,
     clearAllItems,
     ensureRunning,
+    prepareItemsForComment,
     seekTo,
     setState,
     setStopped,
@@ -42,9 +44,12 @@ M8Display.Global = Global;
 // ---- 宿主命令对象（控件通过 ExecuteScriptAsync 逐字调用）----
 
 window.scriptDanmakuHost = {
-    reset: function (positionSeconds, playing, rate, shouldShow) {
+    reset: function (positionSeconds, playing, rate, shouldShow, videoDurationSeconds) {
         hostState.generation++;
+        hostState.scriptSeekVersion = 0;
         clearAllItems();
+        hostState.pendingScriptSeekMs = null;
+        hostState.videoDurationMs = Math.max(0, Number(videoDurationSeconds) || 0) * 1000;
         state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
         state.playing = !!playing;
         state.stopped = false;
@@ -109,8 +114,8 @@ window.scriptDanmakuHost = {
     setStopped: function (positionSeconds, rate) {
         setStopped(positionSeconds, rate);
     },
-    seek: function (positionSeconds, playing, rate) {
-        seekTo(positionSeconds, playing, rate);
+    seek: function (positionSeconds, playing, rate, fromScript, seekVersion) {
+        seekTo(positionSeconds, playing, rate, fromScript, seekVersion);
     },
     visible: function (shouldShow) {
         hostState.visible = shouldShow !== false;
@@ -137,6 +142,11 @@ window.scriptDanmakuHost = {
     resetComments: function () {
         hostState.commentSnapshot = [];
     },
+    filterOrdinaryDanmaku: function (comment) {
+        if (!hostState.visible || state.stopped) return true;
+        prepareItemsForComment();
+        return filterOrdinaryDanmaku(normalizeComment(comment)) && !hostState.ordinaryDanmakuSuppressed;
+    },
     appendComments: function (list) {
         if (!Array.isArray(list)) {
             return;
@@ -159,6 +169,19 @@ window.scriptDanmakuHost = {
         deliverKeyTrigger(Math.trunc(toFiniteNumber(keyCode, -1)), !!up);
     }
 };
+
+// 按键走独立消息通道，不等待 C# 普通弹幕命令队列。内容版本防止
+// 已发出的旧视频按键在 reset 后误投递给新脚本；隐藏或停止时只接收松键。
+if (window.chrome && window.chrome.webview && window.chrome.webview.addEventListener) {
+    window.chrome.webview.addEventListener("message", function (event) {
+        var message = event.data;
+        if (!message || message.type !== "key"
+            || hostState.ordinaryDanmakuBridgeVersion === null
+            || message.version !== hostState.ordinaryDanmakuBridgeVersion
+            || ((!hostState.visible || state.stopped) && !message.up)) return;
+        window.scriptDanmakuHost.pushKey(message.keyCode, message.up);
+    });
+}
 
 window.addEventListener("resize", window.scriptDanmakuHost.resize);
 ensureCanvas();

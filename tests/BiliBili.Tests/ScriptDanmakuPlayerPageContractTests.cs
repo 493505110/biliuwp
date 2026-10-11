@@ -169,7 +169,9 @@ namespace BiliBili.Tests
             // 发送成功回调里把这条弹幕转发给脚本的 Player.commentTrigger。
             var body = Body("private async void MTC_SendDanmakued(");
 
-            StringAssert.Contains(body, "scriptDanmakuControl?.PushSentCommentAsync(");
+            StringAssert.Contains(body, "await scriptControl.PushSentCommentAsync(comment)");
+            Assert.IsTrue(body.IndexOf("PushSentCommentAsync(comment)", StringComparison.Ordinal)
+                < body.IndexOf("FilterOrdinaryDanmakuAsync(comment)", StringComparison.Ordinal));
             // mode 直接用 SendDanmakuModel.location（它本身就是 1/4/5 这套编号）。
             StringAssert.Contains(body, "mode = item.location,");
         }

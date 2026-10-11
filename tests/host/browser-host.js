@@ -62,7 +62,12 @@ async function createBrowserHost(revision) {
                 window.__stepTo = ms => { clock = 1000 + ms; const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(fn => fn(clock)); };
                 window.__step = ms => window.__stepTo(clock - 1000 + ms);
                 window.__messages = [];
-                window.chrome = { webview: { postMessage: text => window.__messages.push(JSON.parse(text)) } };
+                const incoming = new EventTarget();
+                window.chrome = { webview: {
+                    postMessage: text => window.__messages.push(JSON.parse(text)),
+                    addEventListener: incoming.addEventListener.bind(incoming)
+                } };
+                window.__postHostMessage = data => incoming.dispatchEvent(new MessageEvent('message', { data }));
             }, { seed, disableWebgl });
             await page.goto(`http://127.0.0.1:${server.address().port}/script-danmaku-host.html`);
             await page.waitForFunction(() => !!window.scriptDanmakuHost);

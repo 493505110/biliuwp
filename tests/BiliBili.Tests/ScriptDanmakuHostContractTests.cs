@@ -250,11 +250,11 @@ namespace BiliBili.Tests
         {
             var page = TestRepository.ReadFile("BiliBili.UWP/Pages/PlayerPage.xaml.cs");
             StringAssert.Contains(TestRepository.MethodBody(page,
-                "private void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)"),
+                "private async void ShowDanmaku(NSDanmaku.Model.DanmakuModel item)"),
                 "if (ordinaryDanmakuSuppressed) return;");
-            StringAssert.Contains(page, "if (!ordinaryDanmakuSuppressed && item.location == 1)");
-            StringAssert.Contains(page, "if (!ordinaryDanmakuSuppressed && item.location == 4)");
-            StringAssert.Contains(page, "if (!ordinaryDanmakuSuppressed && item.location == 5)");
+            StringAssert.Contains(page, "if (visible && !ordinaryDanmakuSuppressed && item.location == 1)");
+            StringAssert.Contains(page, "if (visible && !ordinaryDanmakuSuppressed && item.location == 4)");
+            StringAssert.Contains(page, "if (visible && !ordinaryDanmakuSuppressed && item.location == 5)");
             var syncComments = TestRepository.MethodBody(page, "private void SyncScriptDanmakuComments()");
             Assert.IsFalse(syncComments.Contains("ordinaryDanmakuSuppressed"));
             StringAssert.Contains(syncComments, "pool.Select(ToScriptDanmakuComment)");
@@ -1110,7 +1110,7 @@ namespace BiliBili.Tests
 
             var seekToBody = TestRepository.MethodBody(
                 source,
-                "function seekTo(positionSeconds, playing, rate) {");
+                "function seekTo(positionSeconds, playing, rate, fromScript, seekVersion) {");
             StringAssert.Contains(seekToBody, "resetItemsForSeek(now);");
 
             // 向后 seek 越过窗口后元素已被释放，再拖回来只能重建：
@@ -1300,7 +1300,8 @@ namespace BiliBili.Tests
         {
             var source = HostSource();
             StringAssert.Contains(source, "post(\"action\", { action: \"pause\" });");
-            StringAssert.Contains(source, "post(\"action\", { action: \"seek\", seconds: value });");
+            StringAssert.Contains(source, "post(\"action\", { action: \"seek\", seconds: value,");
+            StringAssert.Contains(source, "seekVersion: hostState.scriptSeekVersion");
             StringAssert.Contains(source, "post(\"action\", { action: \"navigate\", url: value });");
         }
 
@@ -1468,7 +1469,9 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "window.scriptDanmakuHost.resetComments();");
             StringAssert.Contains(batches, "window.scriptDanmakuHost.appendComments([");
             StringAssert.Contains(source, "window.scriptDanmakuHost.pushComment(");
-            StringAssert.Contains(source, "window.scriptDanmakuHost.pushKey(");
+            // 按键走独立 WebMessage 通道，不与逐条弹幕筛选串行等待。
+            StringAssert.Contains(source, "webView.CoreWebView2.PostWebMessageAsJson(");
+            StringAssert.Contains(source, "type = \"key\"");
 
             // 快照要保留并在 reset 之后补投：脚本可能是后于弹幕池加载的。
             StringAssert.Contains(source, "private IEnumerable<ScriptDanmakuComment> danmakuSnapshot =");
@@ -1540,7 +1543,8 @@ namespace BiliBili.Tests
             var addItemBody = TestRepository.MethodBody(
                 source,
                 "function addItem(model, itemGeneration) {");
-            StringAssert.Contains(addItemBody, "durationSeconds = MAX_ITEM_WINDOW_MS / 1000;");
+            StringAssert.Contains(addItemBody,
+                "durationSeconds = Math.max(MAX_ITEM_WINDOW_MS, (hostState.videoDurationMs || 0) - startMs) / 1000;");
             StringAssert.Contains(addItemBody, "endMs: startMs + durationSeconds * 1000,");
         }
 
@@ -1637,9 +1641,9 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "stopped: false,");
             StringAssert.Contains(source, "if (state.stopped) {");
             StringAssert.Contains(source, "setStopped: function (positionSeconds, rate) {");
-            var setStateBody = TestRepository.MethodBody(source, "function setState(positionSeconds, playing, rate) {");
+            var setStateBody = TestRepository.MethodBody(source, "function setState(positionSeconds, playing, rate, seekVersion) {");
             StringAssert.Contains(setStateBody, "state.stopped = false;");
-            var seekBody = TestRepository.MethodBody(source, "function seekTo(positionSeconds, playing, rate) {");
+            var seekBody = TestRepository.MethodBody(source, "function seekTo(positionSeconds, playing, rate, fromScript, seekVersion) {");
             StringAssert.Contains(seekBody, "state.stopped = false;");
 
             // ⑩ 控件通道：PlayerPage 播完最后一集时通知宿主。

@@ -913,8 +913,7 @@ function attachDisplayListApi(element) {
     };
 
     // Flash 的 EventDispatcher：DisplayObject 可以挂监听。
-    // 本宿主只真正派发 "enterFrame"（见 dispatchItemEnterFrame），
-    // 其余事件类型登记了也不会被派发（不抛错）。
+    // added 沿父显示树冒泡，监听归属于登记时的脚本，随条目回收。
     element.addEventListener = function (type, listener) {
         if (typeof listener !== "function" || !type) {
             return;
@@ -926,8 +925,11 @@ function attachDisplayListApi(element) {
             element.eventListeners[type] = bucket;
         }
 
-        if (bucket.indexOf(listener) < 0) {
-            bucket.push(listener);
+        if (bucket.some(function (entry) { return entry.listener === listener; })) return;
+        var entry = { listener: listener, owner: currentItem() || element.ownerItem };
+        bucket.push(entry);
+        if (entry.owner && type !== "enterFrame") {
+            entry.owner.displayListeners.push({ element: element, type: type, entry: entry });
         }
 
         if (type === "enterFrame") {
@@ -941,9 +943,13 @@ function attachDisplayListApi(element) {
             return;
         }
 
-        var index = bucket.indexOf(listener);
+        var index = bucket.findIndex(function (entry) { return entry.listener === listener; });
         if (index >= 0) {
+            var entry = bucket[index];
             bucket.splice(index, 1);
+            if (entry.owner && type !== "enterFrame") {
+                entry.owner.displayListeners = entry.owner.displayListeners.filter(function (record) { return record.entry !== entry; });
+            }
         }
 
         if (type === "enterFrame") {
@@ -963,8 +969,20 @@ function attachDisplayListApi(element) {
             return true;
         }
 
-        for (var index = 0; index < bucket.length; index++) {
-            bucket[index].call(element, event);
+        for (var entry of bucket.slice()) {
+            var item = entry.owner;
+            if (bucket.indexOf(entry) < 0 || item && (!item.activated || item.failed || item.removed)) continue;
+            var previous = hostState.activeItem;
+            hostState.activeItem = item || previous;
+            try { entry.listener.call(element, event); }
+            catch (error) {
+                element.removeEventListener(type, entry.listener);
+                if (!item) throw error;
+                if (!recoverItemFromCallbackError(item, error)) reportRuntimeError(error, item.model.id);
+            } finally {
+                hostState.activeItem = previous;
+                if (item) item.createParent = null;
+            }
         }
 
         return true;
@@ -1011,6 +1029,12 @@ function defineTreeProperties(element) {
 
 // 文本元素的 length（M8 里是文本字段的字符数）。
 function defineTextProperties(element) {
+    ["textWidth", "textHeight"].forEach(function (name) {
+        Object.defineProperty(element, name, {
+            configurable: true,
+            get: function () { return measureTextElement(element)[name === "textWidth" ? "width" : "height"]; }
+        });
+    });
     element.setTextFormat = function (format) {
         if (!format) return;
         ["font", "size", "color", "bold", "italic", "align"].forEach(function (key) {
@@ -1563,6 +1587,35 @@ function attachElement(element, parent) {
     }
 
     hostState.dirty = true;
+    var event = { type: "added", target: element, currentTarget: element, bubbles: true };
+    var ancestor = element;
+    while (ancestor) {
+        event.currentTarget = ancestor;
+        ancestor.dispatchEvent(event);
+        ancestor = ancestor.treeParent;
+    }
+}
+
+function clearItemDisplayListeners(item) {
+    for (var record of item.displayListeners || []) {
+        var bucket = record.element.eventListeners[record.type];
+        var index = bucket ? bucket.indexOf(record.entry) : -1;
+        if (index >= 0) bucket.splice(index, 1);
+    }
+    item.displayListeners = [];
+}
+
+// 在原生弹幕入屏前提供同一形状的显示对象；筛选不改动 commentList。
+function filterOrdinaryDanmaku(comment) {
+    if (!hostState.visible || !hostState.rootElement.hasEventListener("added")) return true;
+    var proxy = createRetainedElement("group");
+    proxy.data = comment;
+    try {
+        attachElement(proxy, hostState.rootElement);
+        return proxy.visible !== false && proxy.treeParent !== null;
+    } finally {
+        removeChildFromParent(proxy, true);
+    }
 }
 
 function addChildToParent(element, parent) {
@@ -1964,7 +2017,12 @@ var M8Display = {
         };
     },
     createPoint: function (x, y) {
-        return { x: toFiniteNumber(x, 0), y: toFiniteNumber(y, 0) };
+        var point = { x: toFiniteNumber(x, 0), y: toFiniteNumber(y, 0) };
+        // Flash Point.length 是到原点的距离；碰撞检测会在坐标变化后读取。
+        Object.defineProperty(point, "length", {
+            get: function () { return Math.sqrt(point.x * point.x + point.y * point.y); }
+        });
+        return point;
     },
     createColor: function (value) {
         return toFiniteNumber(value, 0);
@@ -2645,6 +2703,8 @@ function createItemElement(factory, options) {
 }
 
 export {
+    clearItemDisplayListeners,
+    filterOrdinaryDanmaku,
     M8Display,
     MATRIX3D_IDENTITY,
     applyElementBlendMode,

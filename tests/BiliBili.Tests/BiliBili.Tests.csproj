@@ -60,6 +60,8 @@
              Link="Production\PlaybackUrl.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackRestoreState.cs"
              Link="Production\PlaybackRestoreState.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\ScriptDanmakuSeekState.cs"
+             Link="Production\ScriptDanmakuSeekState.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackHistory.cs"
              Link="Production\PlaybackHistory.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\ScriptDanmakuParser.cs"

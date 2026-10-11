@@ -431,20 +431,17 @@ function allItems() {
 
 var ScriptManager = {
     clearTimer: function () {
-        clearItemScheduledTimers(currentItem());
+        for (var item of allItems()) {
+            clearItemScheduledTimers(item);
+            clearItemRealTimers(item);
+        }
     },
     clearEl: function () {
-        var item = currentItem();
-        if (item) {
-            clearItemElements(item);
-        }
+        // 管理器属于播放器：下一条脚本用它清理上一场景（Duet 的开场 → 游戏）。
+        for (var item of allItems()) clearItemElements(item);
     },
     clearTrigger: function () {
-        // 清掉当前条目上所有 commentTrigger / keyTrigger 登记。
-        var item = currentItem();
-        if (item) {
-            clearItemTriggers(item);
-        }
+        for (var item of allItems()) clearItemTriggers(item);
     },
     // M8 的 popEl(el)：原版是「从管理表移除 + 停掉 motionManager + 从显示列表摘离」
     // —— ScriptManager.as 的 popEl 就是 delete / motionManager.stop() / m.remove()，
@@ -559,14 +556,8 @@ function foreach(loop, callback) {
         return;
     }
 
-    if (Array.isArray(loop)) {
-        for (var index = 0; index < loop.length; index++) {
-            callback(index, loop[index]);
-        }
-
-        return;
-    }
-
+    // Flash 数组也能用命名键保存对象（Duet 的 rect_blocks["block560"]）。
+    // 与普通对象一样枚举实际存在的属性，不能只按 length 遍历数字下标。
     for (var key in loop) {
         if (Object.prototype.hasOwnProperty.call(loop, key)) {
             callback(key, loop[key]);
@@ -716,6 +707,8 @@ function createScriptScope(item) {
         window.Math,
         window.String,
         ScriptBitmap,
+        TweenEasing.Linear.easeInOut,
+        TweenEasing.Expo.easeInOut,
         // AS2/AS3 的全局转换函数。int/uint 必须自己实现：
         // JS 只有 Number/Boolean/isNaN 是现成的（直接透传 window 上的），
         // 而 int()/uint() 是 AVM1 特有的 32 位截断转换。

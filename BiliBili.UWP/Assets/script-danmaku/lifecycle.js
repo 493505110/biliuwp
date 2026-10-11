@@ -25,6 +25,7 @@ import {
 } from "./core.js";
 import {
     attachElement,
+    clearItemDisplayListeners,
     detachElement,
     dispatchItemEnterFrame,
     prepareOrdinaryDanmakuLayer,
@@ -51,7 +52,7 @@ import {
 // ---- 条目生命周期 ----
 
 function isInWindow(item, now) {
-    return now >= item.startMs && now <= item.endMs;
+    return !item.skippedByScriptSeek && now >= item.startMs && now <= item.endMs;
 }
 
 function registerItemElement(item, element) {
@@ -97,6 +98,7 @@ function clearItemTimers(item) {
 
 function clearItemTriggers(item) {
     item.triggers = [];
+    clearItemDisplayListeners(item);
 }
 
 function activateItem(item, now) {
@@ -387,6 +389,19 @@ function updateItems(now, logicalFrame) {
     return anyActive;
 }
 
+// 原生弹幕命令可能先于下一次 RAF 到达；先登记当前时刻的脚本监听，
+// 但不借每条普通弹幕额外推进 Timer、enterFrame 或 Tween。
+function prepareItemsForComment() {
+    var now = currentPositionMs();
+    for (var item of hostState.items) {
+        if (isInWindow(item, now)) {
+            if (!item.activated && !item.compileFailed) activateItem(item, now);
+        } else if (item.activated) {
+            deactivateItem(item);
+        }
+    }
+}
+
 // seek 后按新位置重算插值：已激活且在窗口内的条目只让 tween 重新插值，
 // 不重跑脚本；元素已经到期被摘除的（例如向后拖过再拖回来），
 // 按条目进度重算补间后重建元素——脚本仍然不重跑，也不重复执行。
@@ -632,7 +647,8 @@ function stopRunning() {
     hostState.dirty = true;
 }
 
-function setState(positionSeconds, playing, rate) {
+function setState(positionSeconds, playing, rate, seekVersion) {
+    if (seekVersion !== undefined && seekVersion !== hostState.scriptSeekVersion) return;
     if (!!playing !== state.playing) {
         resetStageClock(true);
     }
@@ -671,7 +687,8 @@ function setStopped(positionSeconds, rate) {
     tick(currentPositionMs());
 }
 
-function seekTo(positionSeconds, playing, rate) {
+function seekTo(positionSeconds, playing, rate, fromScript, seekVersion) {
+    if (seekVersion !== undefined && seekVersion !== hostState.scriptSeekVersion) return;
     resetStageClock(true);
     state.positionMs = Math.max(0, Number(positionSeconds) || 0) * 1000;
     state.playing = !!playing;
@@ -680,7 +697,22 @@ function seekTo(positionSeconds, playing, rate) {
     state.updatedAt = performance.now();
 
     var now = currentPositionMs();
-    resetItemsForSeek(now);
+    // 客户端明确标记脚本定位，重复确认仍保留游戏；三参数入口兼容旧桥接。
+    var scriptSeek = fromScript === true || (fromScript === undefined
+        && hostState.pendingScriptSeekMs != null && Math.abs(hostState.pendingScriptSeekMs - now) < 1000);
+    hostState.pendingScriptSeekMs = null;
+    if (scriptSeek) {
+        // 游戏用 seek 切 BGM：保留已运行的对象/补间，不补执行跨过的旧代码弹幕。
+        for (var item of hostState.items) {
+            // 回跳到碰撞音效后，其后的 BGM 返回脚本重新成为将来事件。
+            // 只跳过本次定位之前的未执行代码，不能永久沿用上次的跳过标志。
+            if (!item.activated) item.skippedByScriptSeek = item.startMs < now;
+            item.lastAdvanceMs = -1;
+        }
+    } else {
+        for (var item of hostState.items) item.skippedByScriptSeek = false;
+        resetItemsForSeek(now);
+    }
     if (state.playing) {
         ensureRunning();
     } else {
@@ -724,7 +756,7 @@ function addItem(model, itemGeneration) {
     var durationSeconds = Number(model.duration);
     if (!isFinite(durationSeconds) || durationSeconds <= 0) {
         // 不设时间窗：元素寿命交给脚本的 lifeTime，这里只留防呆上限。
-        durationSeconds = MAX_ITEM_WINDOW_MS / 1000;
+        durationSeconds = Math.max(MAX_ITEM_WINDOW_MS, (hostState.videoDurationMs || 0) - startMs) / 1000;
     }
 
     var item = {
@@ -747,6 +779,7 @@ function addItem(model, itemGeneration) {
         lastAdvanceMs: -1,
         // Flash 的 enterFrame 监听表（随条目回收一起清掉）。
         frameListeners: [],
+        displayListeners: [],
         // timer / interval 登记表（条目回收 / reset / seek 越窗时统一清掉）。
         scheduledTimers: [],
         // 真实时间的一次性定时器（原版 timer()/Utils.delay 的 setTimeout，
@@ -798,6 +831,7 @@ function appendItems(list) {
 }
 
 export {
+    prepareItemsForComment,
     addItem,
     appendItems,
     clearAllItems,

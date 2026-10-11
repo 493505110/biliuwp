@@ -4,6 +4,7 @@ import {
     DEFAULT_TEXT_FONTSIZE,
     LIFE_TIME_UNBOUNDED,
     MAX_REPEAT_EXPANSION,
+    currentItem,
     hostState,
     toFiniteNumber
 } from "./core.js";
@@ -41,6 +42,12 @@ import {
 // 不要拿"宿主支持补间 scaleX"去推断原版支持。
 var TWEEN_KEYS = ["x", "y", "z", "alpha", "rotation", "rotationX", "rotationY",
     "rotationZ", "scaleX", "scaleY", "fontsize"];
+// BetweenAS3 还接受普通对象；不要在游戏对象上注入 motion 等内部字段。
+var objectMotions = new WeakMap();
+
+function targetMotion(target) {
+    return target.kind ? target.motion : objectMotions.get(target);
+}
 
 function readNumberMember(config, name) {
     if (!config || typeof config !== "object") {
@@ -139,6 +146,7 @@ function invalidateElementCache(element) {
 // 每帧推进 tween 时值一定在变，逐帧置 needsCache 会让叶子缓存形同虚设，
 // 因此这里只在「内容类属性」变化时才失效缓存。
 function markTweenKeyDirty(element, key) {
+    if (!element.kind) { hostState.dirty = true; return; }
     element.propertyDirty[key] = true;
     if (!TRANSFORM_ONLY_KEYS[key]) {
         invalidateElementCache(element);
@@ -146,6 +154,10 @@ function markTweenKeyDirty(element, key) {
 }
 
 function applyTweenValue(element, key, value) {
+    if (!element.kind || !(key in element.props) && key !== "fontsize") {
+        element[key] = value;
+        return;
+    }
     if (key === "fontsize") {
         if (element.style) {
             element.style.fontsize = value;
@@ -161,6 +173,9 @@ function applyTweenValue(element, key, value) {
 // { toValue: Player.width } 没有 fromValue）。fontsize 取文本样式上的值，
 // 其余属性取元素自己的属性；元素上本来就没有该属性时视为 0。
 function readTweenTargetValue(element, key) {
+    if (!element.kind || !(key in element.props) && key !== "fontsize") {
+        return element[key] === undefined ? 0 : element[key];
+    }
     if (key === "fontsize") {
         return element.style ? element.style.fontsize : DEFAULT_TEXT_FONTSIZE;
     }
@@ -233,7 +248,8 @@ function cloneSegments(segments) {
                 key: track.key,
                 from: track.from,
                 to: track.to,
-                easing: track.easing
+                easing: track.easing,
+                target: track.target
             });
         }
 
@@ -265,7 +281,7 @@ function resolveRelativeMotionValue(element, key, value) {
     return containerWidth * value;
 }
 
-function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element) {
+function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element, driven) {
     if (!propertyConfig || typeof propertyConfig !== "object") {
         return null;
     }
@@ -277,14 +293,14 @@ function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element)
         // 由当前值推导出来的 fromValue 不参与换算。
         fromValue = readTweenTargetValue(element, key);
     } else {
-        fromValue = resolveRelativeMotionValue(element, key, Number(fromValue));
+        fromValue = driven ? Number(fromValue) : resolveRelativeMotionValue(element, key, Number(fromValue));
     }
 
     var toValue = propertyConfig.toValue;
     if (toValue === undefined || toValue === null) {
         toValue = fromValue;
     } else {
-        toValue = resolveRelativeMotionValue(element, key, Number(toValue));
+        toValue = driven ? Number(toValue) : resolveRelativeMotionValue(element, key, Number(toValue));
     }
 
     var from = Number(fromValue);
@@ -297,7 +313,8 @@ function createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element)
         key: key,
         from: from,
         to: to,
-        easing: resolveEasing(propertyConfig.easing)
+        easing: resolveEasing(propertyConfig.easing),
+        target: driven ? element : null
     };
 }
 
@@ -331,7 +348,7 @@ function resolveDeclaredLifeTimeMs(declaredSeconds) {
 //    （M8 的 `repeat` 是「整条补间重复」，因此每段都从 fromValue 重新开始）。
 //  - startDelay 只作用于第一段。
 //  - 一条属性都没有时返回空列表：调用方（createTween）据此判定配置无效。
-function buildMotionSegments(config, options, element) {
+function buildMotionSegments(config, options, element, driven) {
     var declaredLifeTimeSeconds = readDeclaredSeconds(config, "lifeTime");
     if (declaredLifeTimeSeconds === null && options && typeof options === "object") {
         declaredLifeTimeSeconds = readDeclaredSeconds(options, "lifeTime");
@@ -346,14 +363,15 @@ function buildMotionSegments(config, options, element) {
 
     var segments = [];
     var index;
-    for (index = 0; index < TWEEN_KEYS.length; index++) {
-        var key = TWEEN_KEYS[index];
+    var keys = driven ? Object.keys(config) : TWEEN_KEYS;
+    for (index = 0; index < keys.length; index++) {
+        var key = keys[index];
         var propertyConfig = config[key];
         if (propertyConfig === undefined || propertyConfig === null) {
             continue;
         }
 
-        var track = createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element);
+        var track = createTweenTrack(config, propertyConfig, key, lifeTimeSeconds, element, driven);
         if (!track) {
             continue;
         }
@@ -422,9 +440,13 @@ function createTweenHandle(segments, durationMs, elements) {
             // 组合子的结果可能还没装到元件上（组合子是纯时间轴运算），
             // 这里在开始播放时统一安装：接管来源句柄的元件。
             installTweenHandle(handle);
+            if (handle.timeMs >= handle.durationMs) handle.timeMs = 0;
             handle.state = "playing";
             handle.needsFinalApply = false;
             handle.ownerItem = firstHandleItem(handle) || handle.ownerItem;
+            // 脚本正文结束就可能绘制首帧；不能等下一帧才应用 from 值，
+            // 否则默认 alpha=1 的文字会在从 0 淡入前先闪一次。
+            applyHandleValues(handle);
             hostState.dirty = true;
             if (handle.ownerItem) {
                 ensureRunning();
@@ -492,19 +514,19 @@ function firstHandleItem(handle) {
 //    新的段列表），否则两条句柄会各自写同一批属性；
 //  - 再把合并后的段列表挂成该元件的 motion，让逐帧路径统一插值。
 function installTweenHandle(handle) {
-    if (handle.installed || handle.elements.length === 0) {
+    if (handle.elements.length === 0) {
         return handle;
     }
 
     handle.installed = true;
     for (var index = 0; index < handle.elements.length; index++) {
         var element = handle.elements[index];
-        if (!element || !element.kind) {
+        if (!element || targetMotion(element) && targetMotion(element).handle === handle) {
             continue;
         }
 
         supersedeElementHandle(element, handle);
-        element.motion = {
+        var motion = {
             segments: handle.segments,
             // 句柄补间的时长由句柄自己收口，不改元素寿命
             // （元素寿命仍由创建参数的 lifeTime / 条目窗口决定）。
@@ -515,14 +537,20 @@ function installTweenHandle(handle) {
             persistent: false,
             handle: handle
         };
-        element.hasTween = true;
-        if (element.ownerItem) {
-            element.ownerItem.hasTween = true;
-            if (element.ownerItem.tweenHandles.indexOf(handle) < 0) {
-                element.ownerItem.tweenHandles.push(handle);
+        if (element.kind) {
+            element.motion = motion;
+            element.hasTween = true;
+        } else {
+            objectMotions.set(element, motion);
+        }
+        var owner = element.ownerItem || currentItem() || handle.ownerItem;
+        if (owner) {
+            owner.hasTween = true;
+            if (owner.tweenHandles.indexOf(handle) < 0) {
+                owner.tweenHandles.push(handle);
             }
 
-            handle.ownerItem = element.ownerItem;
+            handle.ownerItem = owner;
         }
     }
 
@@ -532,13 +560,13 @@ function installTweenHandle(handle) {
 // 元件被新句柄接管：旧句柄停在原地并退出逐帧推进表，
 // 否则它会继续按自己的时间轴写同一批属性。
 function supersedeElementHandle(element, nextHandle) {
-    var motion = element.motion;
+    var motion = targetMotion(element);
     if (!motion || !motion.handle || motion.handle === nextHandle) {
         return;
     }
 
     motion.handle.state = "stopped";
-    var item = element.ownerItem;
+    var item = element.ownerItem || motion.handle.ownerItem;
     if (!item) {
         return;
     }
@@ -653,7 +681,8 @@ function reverseSegments(segments, durationMs) {
                 key: track.key,
                 from: track.to,
                 to: track.from,
-                easing: track.easing
+                easing: track.easing,
+                target: track.target
             });
         }
 
@@ -771,6 +800,7 @@ function applyMotion(motion, element, elapsedMs) {
 
         for (trackIndex = 0; trackIndex < segment.tracks.length; trackIndex++) {
             var track = segment.tracks[trackIndex];
+            if (track.target && track.target !== element) continue;
             if (appliedKeys && appliedKeys[track.key]) {
                 continue;
             }
@@ -793,12 +823,15 @@ function applyMotion(motion, element, elapsedMs) {
     if (!applied) {
         // 全部段都还没开始（延迟期间）：按最早那段的起始值落位，
         // 否则元素会停在上一次写入的值上。
-        var first = findEarliestSegment(segments);
+        var first = findEarliestSegment(segments.filter(function (segment) {
+            return segment.tracks.some(function (track) { return !track.target || track.target === element; });
+        }));
         if (!first) {
             return;
         }
 
         for (trackIndex = 0; trackIndex < first.tracks.length; trackIndex++) {
+            if (first.tracks[trackIndex].target && first.tracks[trackIndex].target !== element) continue;
             applyTweenValue(element, first.tracks[trackIndex].key, first.tracks[trackIndex].from);
             markTweenKeyDirty(element, first.tracks[trackIndex].key);
         }
@@ -828,9 +861,19 @@ function advanceElementMotion(element, elapsedMs) {
 
 // ---- Tween.* 句柄的逐帧驱动 ----
 
+function applyHandleValues(handle) {
+    for (var elementIndex = 0; elementIndex < handle.elements.length; elementIndex++) {
+        var element = handle.elements[elementIndex];
+        var motion = element && targetMotion(element);
+        if (!motion || motion.handle !== handle) continue;
+        motion.lastElapsedMs = -1;
+        advanceMotion(motion, element, handle.timeMs);
+    }
+}
+
 // 宿主逐帧推进本条目所有句柄；被句柄驱动的 motion 由句柄写回元素。
 function advanceItemHandles(item, deltaMs) {
-    var handles = item.tweenHandles;
+    var handles = item.tweenHandles.slice();
     if (!handles || handles.length === 0) {
         return;
     }
@@ -838,6 +881,7 @@ function advanceItemHandles(item, deltaMs) {
     for (var index = 0; index < handles.length; index++) {
         var handle = handles[index];
         var before = handle.timeMs;
+        var wasPlaying = handle.state === "playing";
         advanceTweenHandle(handle, deltaMs);
         // 首次 play() 之前不写元素属性（M8 语义）。
         if (handle.state === "idle") {
@@ -850,17 +894,16 @@ function advanceItemHandles(item, deltaMs) {
 
         // 一条句柄可能作用在多个元件上（parallel 复用同一元件时不会，
         // 但组合子可能把不同元件的段并到一起）。
-        for (var elementIndex = 0; elementIndex < handle.elements.length; elementIndex++) {
-            var element = handle.elements[elementIndex];
-            if (!element || !element.motion || element.motion.handle !== handle) {
-                continue;
-            }
-
-            element.motion.lastElapsedMs = -1;
-            advanceMotion(element.motion, element, handle.timeMs);
-        }
+        applyHandleValues(handle);
 
         handle.needsFinalApply = false;
+        // 终值先落定，再调用原脚本的后续动画/游戏状态切换。
+        if (wasPlaying && handle.timeMs >= handle.durationMs && typeof handle.onComplete === "function") {
+            var previous = hostState.activeItem;
+            hostState.activeItem = item;
+            try { handle.onComplete.call(handle); }
+            finally { hostState.activeItem = previous; }
+        }
     }
 }
 
@@ -909,7 +952,8 @@ function clipSegments(segments, fromMs, toMs) {
                 key: track.key,
                 from: track.easing(localFrom, track.from, track.to - track.from, segment.durationMs),
                 to: track.easing(localTo, track.from, track.to - track.from, segment.durationMs),
-                easing: track.easing
+                easing: track.easing,
+                target: track.target
             });
         }
 
@@ -950,7 +994,7 @@ var Tween = {
     },
     // apply(object, dest)：不建句柄，立即把 dest 落到对象上
     // （原版 BetweenAS3.apply 是「duration 为 1 但立刻生效」的便利方法）。
-    // 只支持元素：宿主的一切可补间量都是元素属性。
+    // 普通对象与显示对象共用同一条属性写入路径。
     apply: function (object, dest) {
         if (!object || !dest || typeof dest !== "object") {
             return;
@@ -1127,15 +1171,16 @@ function buildFromTweenConfig(object, src, easing) {
 
 // Tween.from / Tween.to：用声明式配置建段，再交给句柄驱动。
 function createDrivenHandle(object, config, duration) {
-    var built = buildMotionSegments(config, null, object);
+    if (!object || typeof object !== "object") throw new Error("Tween 需要一个目标对象");
+    var built = buildMotionSegments(config, null, object, true);
     if (built.segments.length === 0) {
         throw new Error("Tween 需要至少一个可补间的属性");
     }
 
     var durationMs = motionTotalMs(built.segments);
-    // M8 的 duration 单位是秒；未给或非正数时用补间自身推导出的时长。
-    var declaredMs = toFiniteNumber(duration, 0) * 1000;
-    if (declaredMs > 0 && Math.abs(declaredMs - durationMs) > 1) {
+    // M8 的 duration 单位是秒；省略时推导时长，显式 0 在下一帧完成。
+    var declaredMs = duration === undefined ? durationMs : Math.max(1, toFiniteNumber(duration, 0) * 1000);
+    if (Math.abs(declaredMs - durationMs) > 0.001) {
         built.segments = mapSegments(built.segments, declaredMs / durationMs, 0);
         durationMs = declaredMs;
     }
