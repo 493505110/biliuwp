@@ -21,6 +21,7 @@ import {
     reportRuntimeError,
     releaseOrdinaryDanmaku,
     resetStageClock,
+    stageFrameOffsetMs,
     state,
     syncOrdinaryDanmakuSuppression
 } from "./core.js";
@@ -58,6 +59,10 @@ function isInWindow(item, now) {
 
 function registerItemElement(item, element, attach = true) {
     element.ownerItem = item;
+    // 正文中的初始动画随视频定位恢复；回调中的粒子从创建时起算，
+    // 使用连续舞台时钟，游戏切换 BGM 的 seek 不会让新粒子立即过期。
+    element.createdAtStageMs = item.executingScript ? null
+        : hostState.stagePlayingTimeMs + stageFrameOffsetMs();
     // 寿命初值 = 条目窗口剩余时间（未声明 tween 时就是这个值）。
     // 声明了 tween 的元素再由 tween 的 lifeTime 收紧，
     // 取 min(声明值, 窗口剩余)，见 applyElementLifeTime。
@@ -142,6 +147,7 @@ function runItemScriptWithAvm1Scope(item) {
             var scriptArgs = createScriptScope(item);
             hostState.activeItem = item;
             prepareOrdinaryDanmakuLayer();
+            item.executingScript = true;
             item.run.apply(null, scriptArgs);
             return;
         } catch (error) {
@@ -165,6 +171,7 @@ function runItemScriptWithAvm1Scope(item) {
             // 重跑一遍，留着会变成两份（与 seek 重建同一条清理路径）。
             releaseItemForRerun(item);
         } finally {
+            item.executingScript = false;
             hostState.activeItem = null;
             // clearEl / clearTimer 之类的清理要发生在脚本执行之后、
             // 下一帧推进之前，否则被清掉的元素还会被推进一帧。
@@ -286,6 +293,11 @@ function deactivateItem(item) {
     }
 }
 
+function elementElapsedMs(element, itemElapsed) {
+    return element.createdAtStageMs == null ? itemElapsed
+        : Math.max(0, hostState.stagePlayingTimeMs + stageFrameOffsetMs() - element.createdAtStageMs);
+}
+
 function advanceItem(item, now, logicalFrame) {
     var elapsed = now - item.startMs;
     // 粒子元件（Bitmap.createParticle）按帧重绘自己那块离屏画布。
@@ -334,6 +346,7 @@ function advanceItem(item, now, logicalFrame) {
         if (element.expired) {
             continue;
         }
+        var elementElapsed = elementElapsedMs(element, elapsed);
 
         // 被 Tween.* 句柄驱动的元素由句柄写回，不再按条目进度插值：
         // 否则两套时间轴会互相覆盖（先句柄后条目，句柄结果当场被冲掉）。
@@ -341,14 +354,14 @@ function advanceItem(item, now, logicalFrame) {
         // 只把该元素标成已失败，后续帧不再推进它。
         if (element.hasTween && !isMotionHandleDriven(element)) {
             try {
-                advanceElementMotion(element, elapsed);
+                advanceElementMotion(element, elementElapsed);
             } catch (error) {
                 element.failed = true;
                 failItem(item, error);
             }
         }
 
-        if (elapsed >= element.lifeTimeMs) {
+        if (elementElapsed >= element.lifeTimeMs) {
             releaseItemElement(item, index);
         }
     }
@@ -467,7 +480,7 @@ function rebuildItemElementsForSeek(item, now) {
     var hasLiveElement = false;
     for (var index = 0; index < item.elements.length; index++) {
         var element = item.elements[index];
-        if (!element.expired && elapsed < element.lifeTimeMs) {
+        if (!element.expired && elementElapsedMs(element, elapsed) < element.lifeTimeMs) {
             hasLiveElement = true;
             break;
         }
@@ -587,7 +600,7 @@ function hasPendingAnimation(now) {
                 continue;
             }
 
-            if (elapsed < element.motion.totalMs) {
+            if (elementElapsedMs(element, elapsed) < element.motion.totalMs) {
                 return true;
             }
         }

@@ -146,6 +146,7 @@ function createRetainedElement(kind) {
         mouseEnabled: true,
         mouseChildren: true,
         ownerItem: null,
+        createdAtStageMs: null,
         expired: false,
         // 逐属性记脏：元素被整体标脏（例如 insertItem 时）后，
         // 静态元素也不会因此被反复重绘。
@@ -1247,20 +1248,58 @@ function rgbCss(color) {
 var graphicsElements = new WeakMap();
 
 function createGraphics(element) {
+    function pathAt(x, y) {
+        return { kind: "poly", points: [x, y], segments: [] };
+    }
+
+    function appendSegment(segment, x, y) {
+        // 填充轮廓不能随 lineStyle 拆开；描边在样式改变处另起一段。
+        // 未 moveTo 的第一条线从 (0,0) 开始，与 Flash Graphics 一致。
+        if (!graphics.__path && graphics.__fill) {
+            graphics.__path = pathAt(graphics.__x, graphics.__y);
+            element.shapeItems.push({ kind: "fill", path: graphics.__path, style: graphics.__fill });
+        }
+        if (!graphics.__strokePath && graphics.__line) {
+            graphics.__strokePath = pathAt(graphics.__x, graphics.__y);
+            element.shapeItems.push({ kind: "line", path: graphics.__strokePath, style: graphics.__line });
+        }
+        [graphics.__path, graphics.__strokePath].forEach(function (path) {
+            if (!path) return;
+            path.points.push(x, y);
+            path.segments.push(segment.slice());
+            if (segment[0] === 3) {
+                path.curves = path.curves || [];
+                path.curves.push(segment.slice(1));
+            }
+        });
+        graphics.__x = x;
+        graphics.__y = y;
+        scheduleElementCache(element);
+    }
+
     var graphics = {
+        __x: 0,
+        __y: 0,
         copyFrom: function (source) {
             var owner = graphicsElements.get(source);
             if (!owner) throw new TypeError("copyFrom 需要 Graphics");
             element.shapeItems = JSON.parse(JSON.stringify(owner.shapeItems || []));
             graphics.__path = null;
+            graphics.__strokePath = null;
+            graphics.__fill = graphics.__line = null;
+            graphics.__x = graphics.__y = 0;
             scheduleElementCache(element);
         },
         clear: function () {
             element.shapeItems = [];
             element.painted = false;
+            graphics.__path = graphics.__strokePath = null;
+            graphics.__fill = graphics.__line = null;
+            graphics.__x = graphics.__y = 0;
             scheduleElementCache(element);
         },
         beginFill: function (color, alpha) {
+            graphics.__path = null;
             graphics.__fill = {
                 color: normalizeColor(color),
                 alpha: alpha === undefined || alpha === null ? 1 : toFiniteNumber(alpha, 1)
@@ -1268,6 +1307,7 @@ function createGraphics(element) {
         },
         endFill: function () {
             graphics.__fill = null;
+            graphics.__path = null;
         },
         // Flash 的 beginGradientFill(type, colors, alphas, ratios,
         // matrix, spreadMethod, interpolationMethod, focalPointRatio)。
@@ -1275,6 +1315,7 @@ function createGraphics(element) {
         // spreadMethod / interpolationMethod / focalPointRatio 本宿主
         // 未参与计算（canvas 的渐变不支持 spread，见文档 §3 的已知近似）。
         beginGradientFill: function (type, colors, alphas, ratios, matrix) {
+            graphics.__path = null;
             graphics.__fill = {
                 color: 0,
                 alpha: 1,
@@ -1290,6 +1331,7 @@ function createGraphics(element) {
         // Flash 的 lineGradientStyle：与 lineStyle 配对使用（先 lineStyle
         // 启用笔触，再换成渐变）。参数与 beginGradientFill 一致。
         lineGradientStyle: function (type, colors, alphas, ratios, matrix) {
+            graphics.__strokePath = null;
             graphics.__line = {
                 width: graphics.__line ? graphics.__line.width : 1,
                 color: 0,
@@ -1304,43 +1346,25 @@ function createGraphics(element) {
             };
         },
         lineStyle: function (thickness, color, alpha) {
-            graphics.__line = {
+            graphics.__strokePath = null;
+            graphics.__line = thickness === undefined ? null : {
                 width: toFiniteNumber(thickness, 1),
                 color: normalizeColor(color),
                 alpha: alpha === undefined || alpha === null ? 1 : toFiniteNumber(alpha, 1)
             };
         },
         moveTo: function (x, y) {
-            graphics.__path = {
-                kind: "poly",
-                points: [toFiniteNumber(x, 0), toFiniteNumber(y, 0)], segments: []
-            };
-            if (graphics.__line) {
-                element.shapeItems.push({ kind: "line", path: graphics.__path, style: graphics.__line });
-            }
-
-            element.shapeItems.push({ kind: "fill", path: graphics.__path, style: graphics.__fill });
+            graphics.__x = toFiniteNumber(x, 0);
+            graphics.__y = toFiniteNumber(y, 0);
+            graphics.__path = graphics.__strokePath = null;
         },
         lineTo: function (x, y) {
-            if (!graphics.__path || graphics.__path.kind !== "poly") {
-                return;
-            }
-
-            graphics.__path.points.push(toFiniteNumber(x, 0), toFiniteNumber(y, 0));
-            graphics.__path.segments.push([2, toFiniteNumber(x, 0), toFiniteNumber(y, 0)]);
+            x = toFiniteNumber(x, 0); y = toFiniteNumber(y, 0);
+            appendSegment([2, x, y], x, y);
         },
         curveTo: function (cx, cy, x, y) {
-            if (!graphics.__path || graphics.__path.kind !== "poly") {
-                return;
-            }
-
-            graphics.__path.curves = graphics.__path.curves || [];
-            graphics.__path.curves.push([
-                toFiniteNumber(cx, 0), toFiniteNumber(cy, 0),
-                toFiniteNumber(x, 0), toFiniteNumber(y, 0)
-            ]);
-            graphics.__path.points.push(toFiniteNumber(x, 0), toFiniteNumber(y, 0));
-            graphics.__path.segments.push([3, toFiniteNumber(cx, 0), toFiniteNumber(cy, 0), toFiniteNumber(x, 0), toFiniteNumber(y, 0)]);
+            x = toFiniteNumber(x, 0); y = toFiniteNumber(y, 0);
+            appendSegment([3, toFiniteNumber(cx, 0), toFiniteNumber(cy, 0), x, y], x, y);
         },
         drawRect: function (x, y, width, height) {
             element.shapeItems.push({
@@ -1668,17 +1692,22 @@ function clearItemDisplayListeners(item) {
     item.displayListeners = [];
 }
 
+// 旧作品通过 constructor 的 Flash 类名识别滚动弹幕（av2612400 的 Home 开关）。
+function ScrollComment() { }
+ScrollComment.toString = function () { return "[class ScrollComment]"; };
+
 // 在原生弹幕入屏前提供同一形状的显示对象；筛选不改动 commentList。
 function filterOrdinaryDanmaku(comment) {
     if (!hostState.visible || !hostState.rootElement.hasEventListener("added")) return true;
     var proxy = createTextElement(comment.txt, { color: comment.color, fontsize: comment.fontSize });
     ordinaryDanmakuProxies.add(proxy);
+    if ([1, 2, 3, 6].includes(comment.mode)) defineHiddenValue(proxy, "constructor", ScrollComment);
     proxy.selectable = true;
     proxy.filters = [];
     proxy.data = comment;
     try {
         attachElement(proxy, hostState.rootElement);
-        return proxy.visible !== false && proxy.treeParent !== null;
+        return proxy.visible !== false && toFiniteNumber(proxy.alpha, 1) > 0 && proxy.treeParent !== null;
     } finally {
         removeChildFromParent(proxy, true);
     }

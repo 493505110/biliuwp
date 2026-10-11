@@ -19,6 +19,23 @@ async function create() {
 async function run() {
     {
         const host = await create();
+        host.append([item('alpha', `$.root.addEventListener('added',function(e){
+            if(!e.target.selectable)return;
+            window.__class=String(e.target.constructor);
+            window.__enumerable=Object.keys(e.target).includes('constructor');
+            e.target.alpha=e.target.data.txt==='transparent'?0:0.5;
+        });`)]);
+        host.runFrames(1);
+        assert.equal(host.api.filterOrdinaryDanmaku({txt:'transparent',mode:1}), false);
+        assert.equal(host.sandbox.__class, '[class ScrollComment]');
+        assert.equal(host.sandbox.__enumerable, false, '类型信息不能进入脚本foreach');
+        assert.equal(host.api.filterOrdinaryDanmaku({txt:'partial',mode:1}), true,
+            '仅完全透明才阻止原生弹幕入屏');
+        assert.equal(host.errors().length, 0);
+        console.log('ok ScrollComment类名 / constructor不可枚举 / alpha归零筛选 / 半透明保留');
+    }
+    {
+        const host = await create();
         host.append([item('decoration', `
             var canvas=$.createCanvas({lifeTime:10});
             var text=$.createComment('decoration',{parent:canvas,lifeTime:10});

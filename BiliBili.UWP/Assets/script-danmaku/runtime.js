@@ -182,7 +182,7 @@ function scheduleItemTimeout(closure, delayMs) {
     }
 
     var handle = {
-        id: ++nextTimerId,
+        id: ++hostState.nextTimerId,
         ownerItem: item,
         timeoutId: 0,
         stopped: false
@@ -241,7 +241,7 @@ function scheduleItemTimer(closure, delayMs, oneShot, times) {
 
     var period = Math.max(1, toFiniteNumber(delayMs, 1000));
     var timer = {
-        id: ++nextTimerId,
+        id: ++hostState.nextTimerId,
         callback: closure,
         intervalMs: period,
         // times: 0 表示无限次；oneShot（timer()）固定为 1 次。
@@ -312,8 +312,6 @@ function restartItemTimer(timer, oneShot, times) {
     hostState.dirty = true;
     ensureRunning();
 }
-
-var nextTimerId = 0;
 
 function runItemTimers(item) {
     var timers = item.scheduledTimers;
@@ -390,6 +388,18 @@ function clearTimerById(id) {
     var itemList = allItems();
     for (var itemIndex = 0; itemIndex < itemList.length; itemIndex++) {
         var item = itemList[itemIndex];
+        for (var triggerIndex = item.triggers.length - 1; triggerIndex >= 0; triggerIndex--) {
+            var trigger = item.triggers[triggerIndex];
+            if (trigger.id !== id) continue;
+            // keyTrigger/commentTrigger 返回自动摘除监听的 timeout 句柄。
+            // 取消的是摘除计时，监听仍随条目或 clearTrigger 回收。
+            if (performance.now() - trigger.registeredAtMs >= trigger.timeoutMs) {
+                item.triggers.splice(triggerIndex, 1);
+            } else {
+                trigger.timeoutMs = Infinity;
+            }
+            found = true;
+        }
         for (var realIndex = item.realTimers.length - 1; realIndex >= 0; realIndex--) {
             if (item.realTimers[realIndex].id === id) {
                 stopRealTimeout(item.realTimers[realIndex]);

@@ -71,7 +71,7 @@ function registerItemTrigger(kind, callback, timeoutMs, up) {
     }
 
     var trigger = {
-        id: ++hostState.nextTriggerId,
+        id: ++hostState.nextTimerId,
         kind: kind,
         callback: callback,
         up: !!up,

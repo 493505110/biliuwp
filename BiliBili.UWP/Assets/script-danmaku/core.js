@@ -120,7 +120,8 @@ hostState.ordinaryDanmakuLayer = null;
 hostState.ordinaryDanmakuOverlay = null;
 hostState.ordinaryDanmakuOwners = new Set();
 hostState.ordinaryDanmakuSuppressed = false;
-hostState.nextTriggerId = 0;
+// timer / interval / 触发器的自动移除计时共用句柄空间，避免 clearTimeout 误取消其它计时器。
+hostState.nextTimerId = 0;
 // 舞台遮罩（M8 的 Player.setMask）：非空时整块画布裁剪到该元件的形状里。
 hostState.stageMaskElement = null;
 hostState.visible = true;
