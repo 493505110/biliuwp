@@ -40,14 +40,18 @@ jobs:
 
       - name: Build UWP ARM64 Appx
         run: |
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=ARM64 /p:UapAppxPackageBuildMode=SideloadOnly /p:AppxBundle=Never /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=appx_arm64.pfx /p:PackageCertificatePassword=BiliUwpARM64 /p:GenerateAppxPackageOnBuild=true /t:Build /v:minimal /nologo
+          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=ARM64 /p:AppxBundle=Never /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=appx_arm64.pfx /p:PackageCertificatePassword=BiliUwpARM64 /p:BuildAppxUploadPackageForUap=false /t:Build /v:minimal /nologo
 
       - name: Collect Output Files
         id: collect
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path "dist" -Force
-          Get-ChildItem -Path "BiliBili.UWP/AppPackages" -Recurse -Include *.appx,*.msix,*.msixbundle,*.cer | Copy-Item -Destination "dist"
+          $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.msix,*.msixbundle,*.appxbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' }
+          Write-Host "Found $($files.Count) package files."
+          foreach ($f in $files) {
+            Copy-Item $f.FullName -Destination "dist"
+          }
           Copy-Item "BiliBili-ARM64.cer" -Destination "dist"
           Get-ChildItem "dist"
 
