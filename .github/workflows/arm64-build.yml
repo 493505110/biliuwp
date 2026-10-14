@@ -29,10 +29,7 @@ jobs:
         shell: pwsh
         run: |
           $pfxPassword = ConvertTo-SecureString -String "BiliUwpARM64" -Force -AsPlainText
-          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=BiliBiliUWP-ARM64" \
-            -KeyUsage DigitalSignature -FriendlyName "BiliBili UWP ARM64 Build" \
-            -CertStoreLocation "Cert:\CurrentUser\My" \
-            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=zhou2008" -KeyUsage DigitalSignature -FriendlyName "BiliBili UWP ARM64 Build" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
           Export-PfxCertificate -Cert $cert -FilePath "BiliBili.UWP/appx_arm64.pfx" -Password $pfxPassword
           Export-Certificate -Cert $cert -FilePath "BiliBili-ARM64.cer"
           Write-Host "Self-signed certificate generated."
