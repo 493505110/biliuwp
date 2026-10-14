@@ -1,4 +1,4 @@
-﻿
+﻿﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.28803.352
@@ -21,6 +21,8 @@ Global
 		Release|ARM = Release|ARM
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
+		Debug|ARM64 = Debug|ARM64
+		Release|ARM64 = Release|ARM64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Debug|Any CPU.ActiveCfg = Debug|x86
@@ -93,6 +95,24 @@ Global
 		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Release|x64.Build.0 = Release|Any CPU
 		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Release|x86.ActiveCfg = Release|Any CPU
 		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Release|x86.Build.0 = Release|Any CPU
+		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Debug|ARM64.Build.0 = Debug|ARM64
+		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Debug|ARM64.Deploy.0 = Debug|ARM64
+		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Release|ARM64.ActiveCfg = Release|ARM64
+		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Release|ARM64.Build.0 = Release|ARM64
+		{B6506127-B7E6-4C7E-9FFA-73B90F5E8623}.Release|ARM64.Deploy.0 = Release|ARM64
+		{964D5BCC-C063-45CC-AEEA-89169E4A2E5E}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{964D5BCC-C063-45CC-AEEA-89169E4A2E5E}.Debug|ARM64.Build.0 = Debug|ARM64
+		{964D5BCC-C063-45CC-AEEA-89169E4A2E5E}.Release|ARM64.ActiveCfg = Release|ARM64
+		{964D5BCC-C063-45CC-AEEA-89169E4A2E5E}.Release|ARM64.Build.0 = Release|ARM64
+		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Debug|ARM64.Build.0 = Debug|ARM64
+		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Release|ARM64.ActiveCfg = Release|ARM64
+		{E3691422-CBFD-4DF9-827B-77D195731EEC}.Release|ARM64.Build.0 = Release|ARM64
+		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{98FDDB42-1E57-4432-88EF-14114EE44C3E}.Release|ARM64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -102,3 +122,4 @@ Global
 		SolutionGuid = {631FAB1A-4EBB-4E8E-AF78-E6162C32A50F}
 	EndGlobalSection
 EndGlobal
+
