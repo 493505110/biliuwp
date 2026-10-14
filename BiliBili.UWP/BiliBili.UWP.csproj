@@ -1337,10 +1337,7 @@
     </Page>
   </ItemGroup>
   <ItemGroup>
-    <SDKReference Include="Microsoft.VCLibs.120, Version=14.0" Condition="'$(Platform)' != 'ARM64'">
-      <Name>Microsoft Visual C++ 2013 Runtime Package for Windows Universal</Name>
-    </SDKReference>
-    <SDKReference Include="Microsoft.VCLibs, Version=14.0" Condition="'$(Platform)' == 'ARM64'">
+    <SDKReference Include="Microsoft.VCLibs, Version=14.0">
       <Name>Visual C++ 2015-2022 Runtime Package for Universal Windows Platform Apps</Name>
     </SDKReference>
     <SDKReference Include="WindowsMobile, Version=10.0.19041.0">
