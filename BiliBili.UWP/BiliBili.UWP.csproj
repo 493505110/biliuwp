@@ -1346,7 +1346,12 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BiliBili.Background\BiliBili.Background.csproj">
-      <Project>{e3691422-cbfd-4df9-827b-77d195731eec}</Project>
+      <Project>{e3691422-cbfd-4df9-827b-77d195731eec}  <Target Name="RemoveVCLibs120ForArm64" BeforeTargets="ResolveSDKReferences" Condition="'$(Platform)' == 'ARM64'">
+    <ItemGroup>
+      <SDKReference Remove="Microsoft.VCLibs.120, Version=14.0" />
+    </ItemGroup>
+  </Target>
+</Project>
       <Name>BackTask</Name>
     </ProjectReference>
     <ProjectReference Include="..\Libraries\NSDanmaku-Fork\NSDanmaku\NSDanmaku.csproj">
