@@ -2810,6 +2810,7 @@ export {
     M8Display,
     MATRIX3D_IDENTITY,
     applyElementBlendMode,
+    blendModeToComposite,
     applyElementMaskClip,
     attachElement,
     createMatrix3D,

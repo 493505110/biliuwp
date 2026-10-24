@@ -223,6 +223,35 @@ function drawProjected(target, source, bounds, matrix, projection) {
 
 var gpuProjector;
 var projectionBatch = null;
+var presentedCanvas = null;
+var presentationInvalidated = null;
+
+function hideProjectedPresentation() {
+    if (presentedCanvas) presentedCanvas.style.display = "none";
+    if (hostState.canvas) hostState.canvas.style.visibility = "visible";
+}
+
+function canPresentProjectedGPU() {
+    return gpuProjector === undefined || !!(gpuProjector && !gpuProjector.gl.isContextLost());
+}
+
+function isDirectProjectedBatch(target) {
+    return !!(projectionBatch && projectionBatch.target === target && projectionBatch.directPresentation);
+}
+
+function showProjectedPresentation() {
+    var canvas = gpuProjector.canvas;
+    presentedCanvas = canvas;
+    if (canvas.parentNode !== hostState.canvas.parentNode) hostState.canvas.parentNode.appendChild(canvas);
+    // 投影缓冲带 256 CSS 像素扩边；不能沿用 #stage canvas 的 width/height:100%。
+    Object.assign(canvas.style, {
+        position: "absolute", left: "-256px", top: "-256px",
+        width: (hostState.viewportWidth + 512) + "px",
+        height: (hostState.viewportHeight + 512) + "px",
+        pointerEvents: "none", display: "block"
+    });
+    hostState.canvas.style.visibility = "hidden";
+}
 // 原作两张可见区裁剪后的纹理合计约 68 MiB；64 MiB 会逐帧互相淘汰。
 // 仍保留有界预算，给这一工作集及较小图元留出空间。
 var PROJECTED_TEXTURE_BUDGET = 128 * 1024 * 1024;
@@ -338,13 +367,23 @@ function projectedTexture(renderer, source) {
     }
 }
 // 一个 3D 合成层只在遮罩/滤镜/混合边界回贴，避免每个字形触发 GPU→Canvas 同步。
-function beginProjectedBatch(target) {
+function beginProjectedBatch(target, directPresentation, onInvalidated) {
     if (projectionBatch) flushProjectedBatch(projectionBatch.target);
     var parent = projectionBatch;
-    projectionBatch = { target: target, count: 0, parent: parent };
+    projectionBatch = { target: target, count: 0, parent: parent,
+        directPresentation: !!directPresentation, presented: false };
+    if (directPresentation) presentationInvalidated = onInvalidated;
+    return projectionBatch;
 }
 function flushProjectedBatch(target) {
     if (!projectionBatch || projectionBatch.target !== target || !projectionBatch.count) return;
+    // 仅限完整舞台的单批次。保留 WebGL 自己的呈现表面，避免 GPU→2D→主画布回贴。
+    if (projectionBatch.directPresentation && !gpuProjector.gl.isContextLost()) {
+        showProjectedPresentation();
+        projectionBatch.presented = true;
+        projectionBatch.count = 0;
+        return;
+    }
     target.save(); target.globalAlpha = 1; target.globalCompositeOperation = "source-over";
     target.drawImage(gpuProjector.canvas, -256, -256, hostState.viewportWidth + 512, hostState.viewportHeight + 512);
     target.restore(); projectionBatch.count = 0;
@@ -360,6 +399,11 @@ function drawProjectedGPU(target, source, bounds, matrix, projection) {
         var gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true, antialias: true });
         gpuProjector = null;
         if (gl) {
+            canvas.addEventListener("webglcontextlost", function () {
+                hideProjectedPresentation();
+                // 静态/暂停画面也要重新调度，不能等下一次脚本改属性才回退。
+                if (presentationInvalidated) presentationInvalidated();
+            });
             function shader(type, code) {
                 var value = gl.createShader(type); gl.shaderSource(value, code); gl.compileShader(value);
                 if (!gl.getShaderParameter(value, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(value));
@@ -437,3 +481,4 @@ export { IDENTITY, multiply, localMatrix, worldMatrix, relativeMatrix, transform
     beginGeometryPass, endGeometryPass,
     transformedBounds, subtree3D, projectionFor, projectPoint, screenToLocal, drawProjected, projectedTextureRegion,
     beginProjectedBatch, flushProjectedBatch, endProjectedBatch };
+export { hideProjectedPresentation, canPresentProjectedGPU, isDirectProjectedBatch };
