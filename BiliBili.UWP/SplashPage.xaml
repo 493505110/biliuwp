@@ -23,8 +23,8 @@
                 <!--<Image Source="ms-appx:///HappyBirthDay.png"  Width="300"></Image>-->
             </StackPanel>
             <StackPanel VerticalAlignment="Bottom" Margin="0 30">
-                <ProgressRing Width="50" Height="50" IsActive="True" Margin="0 5" Foreground="Gray"></ProgressRing>
-                <TextBlock HorizontalAlignment="Center"  Foreground="Gray" Text="加载中..."></TextBlock>
+                <ProgressRing Width="50" Height="50" IsActive="True" Margin="0 5" Foreground="{ThemeResource Bili-FontColor-Light}"></ProgressRing>
+                <TextBlock HorizontalAlignment="Center"  Foreground="{ThemeResource Bili-FontColor-Light}" Text="加载中..."></TextBlock>
             </StackPanel>
         </Grid>
         

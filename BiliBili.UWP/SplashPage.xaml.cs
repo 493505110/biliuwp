@@ -40,17 +40,15 @@ namespace BiliBili.UWP
     {
         public SplashPage()
         {
-            this.InitializeComponent();
-            //夜间黑主题下启动页要一起变深色，否则从启动到主界面之间会先闪一下浅色
+            //先确定主题再加载 XAML，让背景和加载提示从首次资源解析起就使用正确配色。
             bool isDark = string.Equals(SettingHelper.Get_EffectiveTheme(), "Dark", StringComparison.Ordinal);
-            //取值与 App.xaml 的 Dark 字典一致：Bili-Background #FF1F1F1F、Bili-ForeColor #FF323232
-            var bg = isDark ? Color.FromArgb(255, 31, 31, 31) : new Color() { R = 233, G = 233, B = 233 };
-            var fg = isDark ? Colors.White : Colors.Black;
-            if (isDark)
-            {
-                //本页背景用的是 ThemeResource Bili-Background，指定 Dark 后才会解析成深色
-                RequestedTheme = ElementTheme.Dark;
-            }
+            RequestedTheme = isDark ? ElementTheme.Dark : ElementTheme.Light;
+            this.InitializeComponent();
+
+            //标题栏和状态栏直接沿用页面背景，避免重复维护颜色或漏掉 Alpha 通道。
+            var bg = ((SolidColorBrush)((Grid)Content).Background).Color;
+            var fg = isDark ? Color.FromArgb(255, 254, 254, 254) : Colors.Black;
+            var hoverBg = isDark ? Color.FromArgb(255, 50, 50, 50) : Colors.White;
 
             if (Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar"))
             {
@@ -58,17 +56,22 @@ namespace BiliBili.UWP
                 StatusBar statusBar = StatusBar.GetForCurrentView();
                 statusBar.ForegroundColor = fg;
                 statusBar.BackgroundColor = bg;
-                statusBar.BackgroundOpacity = 100;
+                statusBar.BackgroundOpacity = 1;
             }
 
             var titleBar = Windows.UI.ViewManagement.ApplicationView.GetForCurrentView().TitleBar;
             titleBar.BackgroundColor = bg;
-            titleBar.ForegroundColor = fg;//Colors.White纯白用不了。。。
-            titleBar.ButtonHoverBackgroundColor = isDark ? Color.FromArgb(255, 50, 50, 50) : Colors.White;
+            titleBar.ForegroundColor = fg;
+            titleBar.ButtonHoverBackgroundColor = hoverBg;
+            titleBar.ButtonHoverForegroundColor = fg;
+            titleBar.ButtonPressedBackgroundColor = hoverBg;
+            titleBar.ButtonPressedForegroundColor = fg;
             titleBar.ButtonBackgroundColor = bg;
-            titleBar.ButtonForegroundColor = Color.FromArgb(255, 254, 254, 254);
+            titleBar.ButtonForegroundColor = fg;
             titleBar.InactiveBackgroundColor = bg;
+            titleBar.InactiveForegroundColor = fg;
             titleBar.ButtonInactiveBackgroundColor = bg;
+            titleBar.ButtonInactiveForegroundColor = fg;
         }
         
         StartModel m;
