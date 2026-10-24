@@ -1,0 +1,45 @@
+; SQLite.Net.Platform.WinRT 3.1.1 imports sqlite3.dll by name.
+; ARM64 forwards that ABI to the SQLite implementation included with Windows 10.
+LIBRARY sqlite3
+EXPORTS
+    sqlite3_backup_finish=winsqlite3.sqlite3_backup_finish
+    sqlite3_backup_init=winsqlite3.sqlite3_backup_init
+    sqlite3_backup_pagecount=winsqlite3.sqlite3_backup_pagecount
+    sqlite3_backup_remaining=winsqlite3.sqlite3_backup_remaining
+    sqlite3_backup_step=winsqlite3.sqlite3_backup_step
+    sqlite3_bind_blob=winsqlite3.sqlite3_bind_blob
+    sqlite3_bind_double=winsqlite3.sqlite3_bind_double
+    sqlite3_bind_int=winsqlite3.sqlite3_bind_int
+    sqlite3_bind_int64=winsqlite3.sqlite3_bind_int64
+    sqlite3_bind_null=winsqlite3.sqlite3_bind_null
+    sqlite3_bind_parameter_index=winsqlite3.sqlite3_bind_parameter_index
+    sqlite3_bind_text16=winsqlite3.sqlite3_bind_text16
+    sqlite3_busy_timeout=winsqlite3.sqlite3_busy_timeout
+    sqlite3_changes=winsqlite3.sqlite3_changes
+    sqlite3_close=winsqlite3.sqlite3_close
+    sqlite3_column_blob=winsqlite3.sqlite3_column_blob
+    sqlite3_column_bytes=winsqlite3.sqlite3_column_bytes
+    sqlite3_column_count=winsqlite3.sqlite3_column_count
+    sqlite3_column_double=winsqlite3.sqlite3_column_double
+    sqlite3_column_int=winsqlite3.sqlite3_column_int
+    sqlite3_column_int64=winsqlite3.sqlite3_column_int64
+    sqlite3_column_name=winsqlite3.sqlite3_column_name
+    sqlite3_column_name16=winsqlite3.sqlite3_column_name16
+    sqlite3_column_text=winsqlite3.sqlite3_column_text
+    sqlite3_column_text16=winsqlite3.sqlite3_column_text16
+    sqlite3_column_type=winsqlite3.sqlite3_column_type
+    sqlite3_config=winsqlite3.sqlite3_config
+    sqlite3_errmsg16=winsqlite3.sqlite3_errmsg16
+    sqlite3_extended_errcode=winsqlite3.sqlite3_extended_errcode
+    sqlite3_finalize=winsqlite3.sqlite3_finalize
+    sqlite3_last_insert_rowid=winsqlite3.sqlite3_last_insert_rowid
+    sqlite3_libversion_number=winsqlite3.sqlite3_libversion_number
+    sqlite3_open=winsqlite3.sqlite3_open
+    sqlite3_open_v2=winsqlite3.sqlite3_open_v2
+    sqlite3_open16=winsqlite3.sqlite3_open16
+    sqlite3_prepare_v2=winsqlite3.sqlite3_prepare_v2
+    sqlite3_reset=winsqlite3.sqlite3_reset
+    sqlite3_sleep=winsqlite3.sqlite3_sleep
+    sqlite3_sourceid=winsqlite3.sqlite3_sourceid
+    sqlite3_step=winsqlite3.sqlite3_step
+    sqlite3_win32_set_directory=winsqlite3.sqlite3_win32_set_directory

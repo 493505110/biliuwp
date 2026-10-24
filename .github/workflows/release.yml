@@ -51,11 +51,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Restore NuGet
-        run: |
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /t:Restore /v:minimal /nologo
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x64 /t:Restore /v:minimal /nologo
-
       - name: Restore signing certificate (pfx)
         shell: bash
         env:
@@ -70,10 +65,18 @@ jobs:
         run: |
           echo "$CER_B64" | base64 -d > biliuwp-signing.cer
 
-      - name: Build UWP (Release x86+x64, signed)
+      - name: Build UWP (Release x86+x64+ARM64, signed)
+        shell: pwsh
+        env:
+          PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.APPX_SIGNING_PFX_PASSWORD }}
         run: |
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x64 /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
+          foreach ($platform in @('x86', 'x64', 'ARM64')) {
+            # 条件包引用随平台变化，必须先还原当前平台再构建。
+            msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /t:Restore /v:minimal /nologo
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /p:AppxBundle=Never /p:BuildAppxUploadPackageForUap=false /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= "/p:PackageCertificatePassword=$env:PACKAGE_CERTIFICATE_PASSWORD" /t:Build /v:minimal /nologo
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Locate installable packages
         id: packages
@@ -81,6 +84,11 @@ jobs:
         run: |
           $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
           if (-not $files) { throw 'No installable packages found under AppPackages' }
+          foreach ($platform in @('x86', 'x64', 'ARM64')) {
+            if (-not ($files | Where-Object { $_.Name -match "_$platform\.(appx|msix)$" })) {
+              throw "No installable $platform package found under AppPackages"
+            }
+          }
           # UWP MinVersion>=17763 默认产出 .msix,与 .appx 容器内部一致,重命名即可(微软官方确认)
           $renamed = @()
           foreach ($f in $files) {
@@ -91,11 +99,13 @@ jobs:
           $list = ($renamed | ForEach-Object { $_ -replace '\\','/' }) -join ','
           $cer = (Resolve-Path 'biliuwp-signing.cer').Path -replace '\\','/'
           "files=$list,$cer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          # 提取 x86/x64 文件名供 release body 安装命令引用(避免硬编码版本号)
+          # 提取各架构文件名供 release body 安装命令引用(避免硬编码版本号)
           $x86File = ($renamed | Where-Object { $_ -match '_x86\.appx$' } | Select-Object -First 1)
           $x64File = ($renamed | Where-Object { $_ -match '_x64\.appx$' } | Select-Object -First 1)
+          $arm64File = ($renamed | Where-Object { $_ -match '_ARM64\.appx$' } | Select-Object -First 1)
           if ($x86File) { "x86_file=$(Split-Path $x86File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
           if ($x64File) { "x64_file=$(Split-Path $x64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
+          if ($arm64File) { "arm64_file=$(Split-Path $arm64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
 
       - name: Extract changelog for this version
         id: changelog

@@ -49,7 +49,9 @@ namespace BiliBili.UWP.Helper
         }
 #endif
 
-        public static async Task<FFmpegDashSource> CreateAsync(string videoUrl, string audioUrl)
+        public static async Task<FFmpegDashSource> CreateAsync(string videoUrl, string audioUrl,
+            bool forceSoftwareDecode = true, string referer = "https://www.bilibili.com",
+            string userAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 Chrome/69.0.3497.100 Safari/537.36")
         {
 #if FFMPEG_INTEROP_SUPPORTED
             if (!IsHttpUrl(videoUrl))
@@ -74,9 +76,12 @@ namespace BiliBili.UWP.Helper
             try
             {
                 var config = new MediaSourceConfig();
-                config.Video.VideoDecoderMode = VideoDecoderMode.ForceFFmpegSoftwareDecoder;
-                config.FFmpegOptions["referer"] = "https://www.bilibili.com";
-                config.FFmpegOptions["user_agent"] = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 Chrome/69.0.3497.100 Safari/537.36";
+                if (forceSoftwareDecode)
+                {
+                    config.Video.VideoDecoderMode = VideoDecoderMode.ForceFFmpegSoftwareDecoder;
+                }
+                config.FFmpegOptions["referer"] = referer ?? "https://www.bilibili.com";
+                config.FFmpegOptions["user_agent"] = userAgent ?? "Mozilla/5.0";
                 config.FFmpegOptions["reconnect"] = 1;
                 config.FFmpegOptions["reconnect_streamed"] = 1;
                 config.FFmpegOptions["reconnect_on_network_error"] = 1;

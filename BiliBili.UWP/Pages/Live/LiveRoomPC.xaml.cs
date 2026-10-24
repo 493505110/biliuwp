@@ -1273,7 +1273,7 @@ namespace BiliBili.UWP.Pages.Live
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private async void media_MediaFailed(object sender, VLC.MediaFailedRoutedEventArgs e)
+        private async void media_MediaFailed(object sender, BiliBili.UWP.Controls.LiveMediaFailedEventArgs e)
         {
             mediaLoading.Visibility = Visibility.Collapsed;
             loadPlayurling = false;
@@ -1564,14 +1564,14 @@ namespace BiliBili.UWP.Pages.Live
             {
                 media.Stop();
                 media.Source = null;
-                media.MediaSource = null;
+
                 LoadRoundUrl();
             }
             else
             {
                 media.Stop();
                 media.Source = null;
-                media.MediaSource = null;
+
                 media.Source = playUrls[now + 1].url;
             }
 
@@ -1589,7 +1589,8 @@ namespace BiliBili.UWP.Pages.Live
                 if (Debug_Data.Visibility == Visibility.Collapsed)
                 {
                     uint w, h = 0;
-                    media.MediaPlayer.size(0, out w, out h);
+                    w = media.VideoWidth;
+                    h = media.VideoHeight;
                     Debug_Data.Visibility = Visibility.Visible;
                     txt_VideoData.Text = $"地址:\r\n{media.Source}\r\n硬件加速:{media.HardwareAcceleration}\r\n分辨率:{w}*{h}\r\n当前清晰度:{(cb_quality.SelectedItem as quality_description_item).desc}({(cb_quality.SelectedItem as quality_description_item).qn})";
                 }

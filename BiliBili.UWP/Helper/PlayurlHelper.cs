@@ -5,7 +5,6 @@ using BiliBili.UWP.Modules.Playback;
 using BiliBili.UWP.Pages;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using SYEngine;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -168,7 +167,7 @@ namespace BiliBili.UWP.Helper
             try
             {
                 List<string> urls = new List<string>();
-                var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                var playList = new LegacyPlaybackPlaylist();
                 string url2 = string.Format(
                     "https://bangumi.bilibili.com/player/web_api/v2/playurl?cid={1}&appkey={0}&otype=json&type=&quality={2}&module=bangumi&season_type={4}&qn={2}&ts={3}", ApiHelper.WebVideoKey.Appkey, model.Mid, qn, ApiHelper.GetTimeSpan_2, model.season_type);
                 url2 += "&sign=" + ApiHelper.GetSign(url2, ApiHelper.WebVideoKey);
@@ -182,7 +181,7 @@ namespace BiliBili.UWP.Helper
                         urls.Add(item.url);
                         playList.Append(item.url, 0, item.length / 1000);
                     }
-                    playList.NetworkConfigs = CreatePlaylistNetworkConfigs("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
+                    playList.SetNetworkHeaders("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
                     return new ReturnPlayModel()
                     {
                         playlist = playList,
@@ -207,7 +206,7 @@ namespace BiliBili.UWP.Helper
             try
             {
                 List<string> urls = new List<string>();
-                var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                var playList = new LegacyPlaybackPlaylist();
                 string url2 = string.Format(
                     "https://api.bilibili.com/pgc/player/web/playurl?cid={1}&appkey={0}&otype=json&type=&quality={2}&module=bangumi&season_type={4}&qn={2}&ts={3}&fourk=1&fnver=0&fnval=4048", ApiHelper.WebVideoKey.Appkey, model.Mid, qn, ApiHelper.GetTimeSpan_2, model.season_type);
                 if (ApiHelper.IsLogin())
@@ -248,7 +247,7 @@ namespace BiliBili.UWP.Helper
             try
             {
                 List<string> urls = new List<string>();
-                var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                var playList = new LegacyPlaybackPlaylist();
                 string url2 = string.Format(
                     $"https://api.bilibili.com/pgc/player/web/playurl?avid={ model.Aid}&cid={model.Mid}&qn={qn}&type=&otype=json&ep_id={model.episode_id}&&module=bangumi&access_key={ApiHelper.access_key}");
                 //url2 += "&sign=" + ApiHelper.GetSign_VIDEO(url2);
@@ -263,7 +262,7 @@ namespace BiliBili.UWP.Helper
                         urls.Add(item["url"].ToString());
                         playList.Append(item["url"].ToString(), 0, 0);
                     }
-                    playList.NetworkConfigs = CreatePlaylistNetworkConfigs("https://www.bilibili.com");
+                    playList.SetNetworkHeaders("https://www.bilibili.com");
                     return new ReturnPlayModel()
                     {
                         playlist = playList,
@@ -289,7 +288,7 @@ namespace BiliBili.UWP.Helper
         {
             try
             {
-                var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                var playList = new LegacyPlaybackPlaylist();
                 List<string> urls = new List<string>();
                 string rnd = ApiHelper.GetTimeSpan.ToString();
                
@@ -320,7 +319,7 @@ namespace BiliBili.UWP.Helper
                             playList.Append(item["url"].ToString(), item["size"].ToInt32(), item["length"].ToInt32() / 1000);
                             urls.Add(item["url"].ToString());
                         }
-                        playList.NetworkConfigs = CreatePlaylistNetworkConfigs("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
+                        playList.SetNetworkHeaders("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
                         returnPlayModel.playlist = playList;
                         returnPlayModel.urls = urls;
                         return returnPlayModel;
@@ -369,13 +368,13 @@ namespace BiliBili.UWP.Helper
                 if (m.code == 0)
                 {
                     List<string> urls = new List<string>();
-                    var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                    var playList = new LegacyPlaybackPlaylist();
                     foreach (var item in m.durl)
                     {
                         urls.Add(item.url);
                         playList.Append(item.url, 0, item.length / 1000);
                     }
-                    playList.NetworkConfigs = CreatePlaylistNetworkConfigs(referer);
+                    playList.SetNetworkHeaders(referer);
                     return new ReturnPlayModel()
                     {
                         playlist = playList,
@@ -509,7 +508,7 @@ namespace BiliBili.UWP.Helper
             try
             {
                 List<string> urls = new List<string>();
-                var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                var playList = new LegacyPlaybackPlaylist();
                 string url2 = string.Format(
                     $"https://www.biliplus.com//BPplayurl.php?cid={model.Mid}&otype=json");
                 //url2 += "&sign=" + ApiHelper.GetSign_VIDEO(url2);
@@ -529,7 +528,7 @@ namespace BiliBili.UWP.Helper
                         urls.Add(item["url"].ToString());
                         playList.Append(item["url"].ToString(), item["size"].ToInt32(), item["length"].ToInt32() / 1000);
                     }
-                    playList.NetworkConfigs = CreatePlaylistNetworkConfigs("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
+                    playList.SetNetworkHeaders("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
                     return new ReturnPlayModel()
                     {
                         playlist = playList,
@@ -674,13 +673,13 @@ namespace BiliBili.UWP.Helper
                 FlvPlyaerUrlModel m = JsonConvert.DeserializeObject<FlvPlyaerUrlModel>(re);
                 if (m.code == 0)
                 {
-                    var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.NetworkHttp);
+                    var playList = new LegacyPlaybackPlaylist();
                     foreach (var item in m.data.durl)
                     {
                         urls.Add(item.url);
                         playList.Append(item.url, 0, item.length / 1000);
                     }
-                    playList.NetworkConfigs = CreatePlaylistNetworkConfigs("https://www.bilibili.com/video/av" + aid + "/");
+                    playList.SetNetworkHeaders("https://www.bilibili.com/video/av" + aid + "/");
 
                     return new ReturnPlayModel()
                     {
@@ -1334,17 +1333,6 @@ namespace BiliBili.UWP.Helper
                 ? segmentBase?.index_range
                 : segmentBase.indexRange;
         }
-
-        private static PlaylistNetworkConfigs CreatePlaylistNetworkConfigs(string referer)
-        {
-            SYEngine.PlaylistNetworkConfigs config = new SYEngine.PlaylistNetworkConfigs();
-            config.DownloadRetryOnFail = true;
-            config.HttpCookie = string.Empty;
-            config.UniqueId = string.Empty;
-            config.HttpUserAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36";
-            config.HttpReferer = referer;
-            return config;
-        }
     }
     class RUModel
     {
@@ -1640,14 +1628,15 @@ namespace BiliBili.UWP.Helper
         /// </summary>
         VLC,
         Dash,
-        FFmpegDash
+        FFmpegDash,
+        FFmpeg
     }
     public class ReturnPlayModel
     {
         public IMediaSource mediaSource { get; set; }
         public FFmpegDashSource ffmpegDashSource { get; set; }
         public UsePlayMode usePlayMode { get; set; }
-        public SYEngine.Playlist playlist { get; set; }
+        public LegacyPlaybackPlaylist playlist { get; set; }
         public string url { get; set; }
 
         public string from { get; set; }

@@ -100,7 +100,7 @@ namespace BiliBili.UWP
         /// <param name="e">有关启动请求和过程的详细信息。</param>
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
-            SYEngine.Core.Initialize();
+            LegacyPlayback.Initialize();
 
             RegisterExceptionHandlingSynchronizationContext();
 #if DEBUG
@@ -224,7 +224,7 @@ namespace BiliBili.UWP
             var rootFrame = Window.Current.Content as Frame;
             if (rootFrame == null)
             {
-                SYEngine.Core.Initialize();
+                LegacyPlayback.Initialize();
                 rootFrame = new Frame();
                 rootFrame.NavigationFailed += OnNavigationFailed;
                 Window.Current.Content = rootFrame;

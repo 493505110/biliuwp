@@ -547,7 +547,7 @@ namespace BiliBili.UWP.Pages
             _systemMediaTransportControls = null;
             stack_Comment.Children.Clear();
             mediaElement.Stop();
-            mediaElement.MediaSource = null;
+            mediaElement.Source = null;
             danmu.ClearAll();
             //简介弹层里的 WebView2 不会随页面销毁自动关闭，不 Close 会留下 Chromium 进程
             try
@@ -1851,7 +1851,8 @@ namespace BiliBili.UWP.Pages
                 {
                     uint w, h = 0;
 
-                    mediaElement.MediaPlayer.size(0, out w, out h);
+                    w = mediaElement.VideoWidth;
+                    h = mediaElement.VideoHeight;
                     Debug_Data.Visibility = Visibility.Visible;
                     txt_VideoData.Text = $"地址:{mediaElement.Source}\r\n硬件加速:{mediaElement.HardwareAcceleration}\r\n分辨率:{ w}*{ h}\r\n当前清晰度:{nowQn}";
                 }
@@ -1916,7 +1917,7 @@ namespace BiliBili.UWP.Pages
         //    return s;
         //}
 
-        private async void mediaElement_MediaFailed_1(object sender, VLC.MediaFailedRoutedEventArgs e)
+        private async void mediaElement_MediaFailed_1(object sender, BiliBili.UWP.Controls.LiveMediaFailedEventArgs e)
         {
             await this.Dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
             {

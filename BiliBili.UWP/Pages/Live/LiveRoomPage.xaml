@@ -10,7 +10,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d"
-    xmlns:vlc="using:VLC"
+    xmlns:playback="using:BiliBili.UWP.Controls"
     SizeChanged="Page_SizeChanged"
     >
     <Page.Resources>
@@ -139,9 +139,9 @@
 
             </Grid.RowDefinitions>
             <Grid x:Name="grid_NotFull" SizeChanged="grid_NotFull_SizeChanged" >
-                <vlc:MediaElement  MediaEnded="mediaElement_MediaEnded" RightTapped="mediaElement_RightTapped" MediaFailed="mediaElement_MediaFailed_1" Tapped="mediaElement_Tapped" Volume="{Binding Path=Value, ElementName=slider_V, Mode=OneWay}"  CurrentStateChanged="mediaElement_CurrentStateChanged"  x:Name="mediaElement" AutoPlay="True">
+                <playback:LiveMediaElement  MediaEnded="mediaElement_MediaEnded" RightTapped="mediaElement_RightTapped" MediaFailed="mediaElement_MediaFailed_1" Tapped="mediaElement_Tapped" Volume="{Binding Path=Value, ElementName=slider_V, Mode=OneWay}"  CurrentStateChanged="mediaElement_CurrentStateChanged"  x:Name="mediaElement" AutoPlay="True">
 
-                </vlc:MediaElement>
+                </playback:LiveMediaElement>
 
                 <danmu:Danmaku x:Name="danmu"
                                Opacity="{Binding ElementName=slider_DanmuTran,Path=Value,Mode=OneWay}"

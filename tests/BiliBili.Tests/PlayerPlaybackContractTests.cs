@@ -324,7 +324,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(strategy, "SettingHelper.Get_ForceVideo()");
             StringAssert.Contains(strategy, "DASH + FFmpeg 软解");
             StringAssert.Contains(strategy, "DASH + 系统决定");
-            StringAssert.Contains(strategy, "传统流 + SYEngine");
+            StringAssert.Contains(strategy, "\"传统流 + \" + LegacyPlayback.BackendName");
         }
 
         [TestMethod]

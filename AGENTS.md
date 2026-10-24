@@ -7,13 +7,13 @@
 - 使用 **Visual Studio 2019+**，安装 UWP 工作负载和 **Windows SDK 10.0.19041.0**。
 - 主应用 `BiliBili.UWP` 的 `TargetPlatformMinVersion` 为 `10.0.17763.0`，这是 WinUI 2.8/WebView2 的最低要求；`BiliBili.Background` 仍声明为 `10.0.16299.0`。
 - 打开 `BiliBili.sln`，还原 NuGet 包并生成解决方案。涉及网页登录或安全验证时，运行环境还需安装 WebView2 Runtime。
-- 主目标为 `BiliBili.UWP`（`AppContainerExe`）。解决方案的 `Any CPU` 主应用配置映射到 `x86`，不要把它理解为真正的 AnyCPU 主程序产物；解决方案平台只有 `Any CPU`、`ARM`、`x64`、`x86`，没有 `ARM64`。
+- 主目标为 `BiliBili.UWP`（`AppContainerExe`）。解决方案的 `Any CPU` 主应用配置映射到 `x86`，不要把它理解为真正的 AnyCPU 主程序产物；解决方案平台为 `Any CPU`、`ARM`、`ARM64`、`x64`、`x86`。
 - 主应用的 `Release|x86`、`Release|ARM`、`Release|x64` 启用 `.NET Native toolchain`，依赖反射的代码在 Release 下可能有不同表现；`Debug|x64` 显式关闭该工具链。
 - 工程启用了 AppX 包签名并引用 `BiliBili.UWP/BiliBili.UWP_TemporaryKey.pfx`。PFX 被 `.gitignore` 排除；新环境缺少证书时，应在 Visual Studio 中创建或选择本地测试证书，不要提交私钥文件。
 - Git 子模块 `Libraries/NSDanmaku-Fork` 是解决方案中 `NSDanmaku` 项目的来源，克隆时必须带子模块（CI 使用 `submodules: recursive`）。
 - 测试项目为 `tests/BiliBili.Tests`(net8.0 + MSTest)，已加入 `BiliBili.sln`，并通过 `<Compile Include="..\..\BiliBili.UWP\..." Link="Production\...">` 直接编译生产源码，夹具位于 `tests/BiliBili.Tests/Fixtures`。它只覆盖不依赖 UWP 运行时的纯逻辑（含 `Modules\Playback\` 下的播放纯逻辑与 `Modules\BiliJumpAiParser.cs`），不能替代页面级验证。
 - `.github/workflows/` 有 `ci.yml`（推送 master / PR 时构建 `Debug|x86` 主项目并运行单元测试）、`nightly.yml`（定时构建并发布 nightly 标签）和 `release.yml`（`v*` 标签触发）。仓库仍无 lint 或格式化配置。XML 解析、静态检查和 `git diff --check` 只能作为补充，不能替代 Visual Studio 构建和实际页面验证。
-- 正式发版只构建 `Release|x86` 与 `Release|x64`，并附上 `biliuwp-signing.cer`；**不产出 ARM 包**（csproj 里的 ARM 配置只服务于本地调试）。
+- 正式发版构建 `Release|x86`、`Release|x64` 与 `Release|ARM64`，使用同一份证书签名并附上 `biliuwp-signing.cer`；**不产出 ARM32 包**（csproj 里的 ARM 配置只服务于本地调试）。ARM64 随 `release.yml` 发版，不单独触发 CI；ARM64 的 SQLite 转发 DLL 需要 Visual Studio C++ 链接器。各平台必须先还原再构建，避免条件包引用共用的 `project.assets.json` 串用。
 - `release.yml` 发版时有两条硬约束：manifest 的 `Identity Version` 必须与 tag 一致；**Release 正文直接从 `CHANGELOG.md` 抽取 `## x.y.z` 段落**（跳过版本标题行），段落缺失或标题不匹配就会产出空正文。打 tag 前先补 CHANGELOG。
 - 不要使用 `dotnet build` 构建该旧式 UWP 工程。需要命令行自动化时只能使用 Visual Studio 自带的 MSBuild；最终验证仍以 Visual Studio 的生成、部署和运行结果为准。
 - 需要命令行快速验证编译时，用 VS 自带的 MSBuild 跑 `Debug|x64`（该配置显式关闭 .NET Native，且不占用 VS 调试用的 `x86` obj）：

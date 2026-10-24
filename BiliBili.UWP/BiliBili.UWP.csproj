@@ -108,7 +108,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|ARM64'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\ARM64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP;FFMPEG_INTEROP_SUPPORTED</DefineConstants>
+    <DefineConstants>DEBUG;TRACE;NETFX_CORE;WINDOWS_UWP;FFMPEG_INTEROP_SUPPORTED;ARM64</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>ARM64</PlatformTarget>
@@ -118,7 +118,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|ARM64'">
     <OutputPath>bin\ARM64\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;FFMPEG_INTEROP_SUPPORTED</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;FFMPEG_INTEROP_SUPPORTED;ARM64</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -435,6 +435,8 @@
     <Compile Include="Helper\DynamicJObject.cs" />
     <Compile Include="Helper\ExceptionHandler.cs" />
     <Compile Include="Helper\FFmpegDashSource.cs" />
+    <Compile Include="Helper\LegacyPlayback.cs" />
+    <Compile Include="Controls\LiveMediaElement.cs" />
     <Compile Include="Helper\LogHelper.cs" />
     <Compile Include="Helper\CredentialVault.cs" />
     <Compile Include="Helper\DanmakuViewport.cs" />
@@ -1397,13 +1399,13 @@
     <PackageReference Include="SQLite.Net-PCL">
       <Version>3.1.1</Version>
     </PackageReference>
-    <PackageReference Include="SQLite.uwp">
+    <PackageReference Include="SQLite.uwp" Condition="'$(Platform)' != 'ARM64'">
       <Version>3.31.0</Version>
     </PackageReference>
-    <PackageReference Include="SYEngine.uwp">
+    <PackageReference Include="SYEngine.uwp" Condition="'$(Platform)' != 'ARM64'">
       <Version>1.0.7</Version>
     </PackageReference>
-    <PackageReference Include="VLC.MediaElement">
+    <PackageReference Include="VLC.MediaElement" Condition="'$(Platform)' != 'ARM64'">
       <Version>3.1.0.1</Version>
     </PackageReference>
     <PackageReference Include="ZXing.Net">
@@ -1414,6 +1416,25 @@
     <VisualStudioVersion>14.0</VisualStudioVersion>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
+  <ItemGroup Condition="'$(Platform)' == 'ARM64'">
+    <Content Include="$(IntermediateOutputPath)Native\sqlite3.dll">
+      <Link>sqlite3.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <None Include="Native\SqliteArm64.def" />
+  </ItemGroup>
+  <Target Name="BuildArm64SqliteForwarder" BeforeTargets="ResolveReferences"
+          Condition="'$(Platform)' == 'ARM64'"
+          Inputs="$(MSBuildProjectDirectory)\Native\SqliteArm64.def;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Native\sqlite3.dll">
+    <PropertyGroup Condition="Exists('$(VSInstallRoot)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt')">
+      <_SqliteVCToolsVersion>$([System.IO.File]::ReadAllText('$(VSInstallRoot)\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt').Trim())</_SqliteVCToolsVersion>
+      <_SqliteLinker>$(VSInstallRoot)\VC\Tools\MSVC\$(_SqliteVCToolsVersion)\bin\Hostx64\x64\link.exe</_SqliteLinker>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_SqliteLinker)')" Text="ARM64 SQLite requires the Visual Studio C++ linker." />
+    <MakeDir Directories="$(IntermediateOutputPath)Native" />
+    <Exec Command="&quot;$(_SqliteLinker)&quot; /NOLOGO /DLL /NOENTRY /NODEFAULTLIB /APPCONTAINER /MACHINE:ARM64 /DEF:&quot;$(MSBuildProjectDirectory)\Native\SqliteArm64.def&quot; /OUT:&quot;$(MSBuildProjectDirectory)\$(IntermediateOutputPath)Native\sqlite3.dll&quot;" />
+  </Target>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
@@ -1421,10 +1442,6 @@
   <Target Name="AfterBuild">
   </Target>
   -->
-  <Target Name="RemoveVCLibs120ForArm64" BeforeTargets="ResolveSDKReferences" Condition="'$(Platform)' == 'ARM64'">
-    <ItemGroup>
-      <SDKReference Remove="Microsoft.VCLibs.120, Version=14.0" />
-    </ItemGroup>
-  </Target>
+
 </Project>
 

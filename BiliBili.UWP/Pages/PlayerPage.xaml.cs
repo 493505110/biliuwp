@@ -37,7 +37,6 @@ using NSDanmaku.Helper;
 using BiliBili.UWP.Controls;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.Graphics.Imaging;
-using SYEngine;
 using System.Diagnostics;
 using BiliBili.UWP.Modules;
 using BiliBili.UWP.Modules.Detail;
@@ -1231,7 +1230,7 @@ namespace BiliBili.UWP.Pages
             //}
             settingFlag = true;
 
-            SYEngine.Core.ForceSoftwareDecode = SettingHelper.Get_ForceVideo();
+            LegacyPlayback.ForceSoftwareDecode = SettingHelper.Get_ForceVideo();
 
             DanDis_Get();
             DMZZBDS = SettingHelper.Get_DMZZ();
@@ -2458,7 +2457,7 @@ namespace BiliBili.UWP.Pages
         {
             if (!SettingHelper.Get_UseDASH())
             {
-                return "传统流 + SYEngine";
+                return "传统流 + " + LegacyPlayback.BackendName;
             }
 
             return SettingHelper.Get_ForceVideo()
@@ -2471,11 +2470,14 @@ namespace BiliBili.UWP.Pages
             string status;
             switch (result?.usePlayMode)
             {
+                case UsePlayMode.FFmpeg:
+                    status = LegacyPlayback.ForceSoftwareDecode ? "请求软解 (FFmpeg)" : "系统决定 (FFmpeg)";
+                    break;
                 case UsePlayMode.FFmpegDash:
                     status = "软解 (FFmpeg)";
                     break;
                 case UsePlayMode.SYEngine:
-                    status = SYEngine.Core.ForceSoftwareDecode
+                    status = LegacyPlayback.ForceSoftwareDecode
                         ? "请求软解 (SYEngine)"
                         : "系统决定 (SYEngine)";
                     break;
@@ -2526,13 +2528,12 @@ namespace BiliBili.UWP.Pages
                 }
                 else if (result.playlist != null)
                 {
-                    var playlistUri = await result.playlist.SaveAndGetFileUriAsync();
+                    source = await result.playlist.CreateMediaSourceAsync(result);
                     if (!IsPlaybackRequestCurrent(requestId, item))
                     {
                         result.ffmpegDashSource?.Dispose();
                         return false;
                     }
-                    source = MediaSource.CreateFromUri(playlistUri);
                 }
 
                 if (source == null || !IsPlaybackRequestCurrent(requestId, item) || mediaPlayer == null)
@@ -3421,12 +3422,9 @@ namespace BiliBili.UWP.Pages
 
         private async Task<MediaStreamSource> PlayLocalVideo(List<string> paths)
         {
-            var playList = new SYEngine.Playlist(SYEngine.PlaylistTypes.LocalFile);
-
             MediaComposition composition = new MediaComposition();
             foreach (var item in paths)
             {
-                playList.Append(item, 0, 0);
                 var file = await StorageFile.GetFileFromPathAsync(item);
                 var clip = await MediaClip.CreateFromFileAsync(file);
                 composition.Clips.Add(clip);
@@ -5332,7 +5330,7 @@ namespace BiliBili.UWP.Pages
             }
 
             SettingHelper.Set_ForceVideo(sw_ForceVideo.IsOn);
-            SYEngine.Core.ForceSoftwareDecode = sw_ForceVideo.IsOn;
+            LegacyPlayback.ForceSoftwareDecode = sw_ForceVideo.IsOn;
             Utils.ShowMessageToast("更改清晰度或重新加载生效");
         }
 
