@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copy to BiliBili.UWP.csproj.user only when local package signing is needed.
+     Merge this PropertyGroup if the .user file already exists. Never commit the PFX or its password. -->
+<Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <AppxPackageSigningEnabled>true</AppxPackageSigningEnabled>
+    <!-- Relative to BiliBili.UWP.csproj; replace with your own certificate path. -->
+    <PackageCertificateKeyFile>local-signing.pfx</PackageCertificateKeyFile>
+  </PropertyGroup>
+</Project>

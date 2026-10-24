@@ -17,12 +17,9 @@
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
-    <PackageCertificateKeyFile>
-    </PackageCertificateKeyFile>
     <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
     <AppxBundle>Auto</AppxBundle>
     <AppxBundlePlatforms>x86|x64|ARM64</AppxBundlePlatforms>
-    <PackageCertificateThumbprint></PackageCertificateThumbprint>
     <RuntimeIdentifiers>win10-arm;win10-arm-aot;win10-x86;win10-x86-aot;win10-x64;win10-x64-aot;win10-arm64;win10-arm64-aot</RuntimeIdentifiers>
     <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
     <AppInstallerUpdateFrequency>0</AppInstallerUpdateFrequency>
@@ -30,7 +27,7 @@
     <GenerateTestArtifacts>True</GenerateTestArtifacts>
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
     <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-    <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
+    <!-- UWP targets enable signing when a certificate is supplied; keep personal settings in .csproj.user. -->
     <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
@@ -1339,9 +1336,6 @@
     </Page>
   </ItemGroup>
   <ItemGroup>
-    <SDKReference Include="Microsoft.VCLibs, Version=14.0">
-      <Name>Visual C++ 2015-2022 Runtime Package for Universal Windows Platform Apps</Name>
-    </SDKReference>
     <SDKReference Include="WindowsMobile, Version=10.0.19041.0">
       <Name>Windows Mobile Extensions for the UWP</Name>
     </SDKReference>
@@ -1417,12 +1411,18 @@
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
   <ItemGroup Condition="'$(Platform)' == 'ARM64'">
-    <Content Include="$(IntermediateOutputPath)Native\sqlite3.dll">
-      <Link>sqlite3.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <None Include="Native\SqliteArm64.def" />
   </ItemGroup>
+  <!-- Generated content must be added during the build, not linked into the VS project tree. -->
+  <Target Name="IncludeArm64SqliteForwarder" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="BuildArm64SqliteForwarder" Condition="'$(Platform)' == 'ARM64'">
+    <ItemGroup>
+      <Content Include="$(IntermediateOutputPath)Native\sqlite3.dll">
+        <TargetPath>sqlite3.dll</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
   <Target Name="BuildArm64SqliteForwarder" BeforeTargets="ResolveReferences"
           Condition="'$(Platform)' == 'ARM64'"
           Inputs="$(MSBuildProjectDirectory)\Native\SqliteArm64.def;$(MSBuildProjectFullPath)"

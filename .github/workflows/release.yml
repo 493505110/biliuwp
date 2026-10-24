@@ -74,7 +74,7 @@ jobs:
             # 条件包引用随平台变化，必须先还原当前平台再构建。
             msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /t:Restore /v:minimal /nologo
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /p:AppxBundle=Never /p:BuildAppxUploadPackageForUap=false /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= "/p:PackageCertificatePassword=$env:PACKAGE_CERTIFICATE_PASSWORD" /t:Build /v:minimal /nologo
+            msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /p:AppxBundle=Never /p:BuildAppxUploadPackageForUap=false /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= "/p:PackageCertificatePassword=$env:PACKAGE_CERTIFICATE_PASSWORD" /t:Build /v:minimal /nologo
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 

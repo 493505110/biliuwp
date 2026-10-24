@@ -9,7 +9,8 @@
 - 打开 `BiliBili.sln`，还原 NuGet 包并生成解决方案。涉及网页登录或安全验证时，运行环境还需安装 WebView2 Runtime。
 - 主目标为 `BiliBili.UWP`（`AppContainerExe`）。解决方案的 `Any CPU` 主应用配置映射到 `x86`，不要把它理解为真正的 AnyCPU 主程序产物；解决方案平台为 `Any CPU`、`ARM`、`ARM64`、`x64`、`x86`。
 - 主应用的 `Release|x86`、`Release|ARM`、`Release|x64` 启用 `.NET Native toolchain`，依赖反射的代码在 Release 下可能有不同表现；`Debug|x64` 显式关闭该工具链。
-- 工程启用了 AppX 包签名并引用 `BiliBili.UWP/BiliBili.UWP_TemporaryKey.pfx`。PFX 被 `.gitignore` 排除；新环境缺少证书时，应在 Visual Studio 中创建或选择本地测试证书，不要提交私钥文件。
+- 公共工程不绑定个人证书，使用 UWP SDK 默认签名规则：未配置证书时不签名，提供证书后可签名。未签名包可用于编译验证，不作为常规侧载安装包分发。普通 CI 不签名；正式版与 nightly 必须通过命令行显式启用签名，并使用 Actions Secrets 中的发版证书。
+- 本地签名配置放在被 Git 忽略的 `BiliBili.UWP/BiliBili.UWP.csproj.user`：将同目录的 `BiliBili.UWP.csproj.user.example` 复制为该文件并替换 PFX 路径；已有 `.user` 时只合并签名属性，不覆盖调试配置。也可用 `PackageCertificateThumbprint` 选择证书存储中带私钥的证书，代替 `PackageCertificateKeyFile`。证书主体须与 manifest 的 `Identity Publisher` 一致；PFX 密码通过本机构建环境的 `PackageCertificatePassword` 环境变量或本地 `.user` 同名属性提供。PFX 也被忽略，不要将个人证书路径、指纹、私钥或密码提交到共享 `.csproj`。
 - Git 子模块 `Libraries/NSDanmaku-Fork` 是解决方案中 `NSDanmaku` 项目的来源，克隆时必须带子模块（CI 使用 `submodules: recursive`）。
 - 测试项目为 `tests/BiliBili.Tests`(net8.0 + MSTest)，已加入 `BiliBili.sln`，并通过 `<Compile Include="..\..\BiliBili.UWP\..." Link="Production\...">` 直接编译生产源码，夹具位于 `tests/BiliBili.Tests/Fixtures`。它只覆盖不依赖 UWP 运行时的纯逻辑（含 `Modules\Playback\` 下的播放纯逻辑与 `Modules\BiliJumpAiParser.cs`），不能替代页面级验证。
 - `.github/workflows/` 有 `ci.yml`（推送 master / PR 时构建 `Debug|x86` 主项目并运行单元测试）、`nightly.yml`（定时构建并发布 nightly 标签）和 `release.yml`（`v*` 标签触发）。仓库仍无 lint 或格式化配置。XML 解析、静态检查和 `git diff --check` 只能作为补充，不能替代 Visual Studio 构建和实际页面验证。
