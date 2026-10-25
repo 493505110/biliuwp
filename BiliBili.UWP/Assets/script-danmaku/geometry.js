@@ -2,12 +2,41 @@
 import { FLASH_PROJECTION_WIDTH, hostState, toFiniteNumber } from "./core.js";
 
 var IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+var TRANSFORM_SCALARS = ["x", "y", "z", "scaleX", "scaleY", "scaleZ", "rotation", "rotationX", "rotationY"];
+var MATRIX_MEMBERS = ["a", "b", "c", "d", "tx", "ty"];
+
+function hasFiniteTransform(element) {
+    if (!geometryPass) return finiteTransformValues(element.props);
+    var finite = geometryPass.finite.get(element);
+    if (finite === undefined) {
+        finite = finiteTransformValues(element.props);
+        geometryPass.finite.set(element, finite);
+    }
+    return finite;
+}
+
+function finiteTransformValues(p) {
+    // 重复时间的脚本关键帧可能产生NaN；只抑制这一帧的绘制，不修改脚本值。
+    // 不能让localMatrix的默认值把无效缩放恢复成1，令未来图层提前出现。
+    for (var i = 0; i < TRANSFORM_SCALARS.length; i++) {
+        var value = p[TRANSFORM_SCALARS[i]];
+        if (value !== undefined && !isFinite(value)) return false;
+    }
+    if (p.matrix3D) {
+        var data = p.matrix3D.rawData;
+        return !!(data && data.length === 16 && typeof data.every === "function" && data.every(isFinite));
+    }
+    if (p.matrix) {
+        for (i = 0; i < MATRIX_MEMBERS.length; i++) if (!isFinite(p.matrix[MATRIX_MEMBERS[i]])) return false;
+    }
+    return true;
+}
 
 // 只在绘制期间复用；脚本更新和输入回调始终读取当前变换。
 // Matrix/rawData 可被脚本原地修改，不能跨帧按对象身份缓存。
 var geometryPass = null;
 function beginGeometryPass() {
-    geometryPass = { world: new WeakMap() };
+    geometryPass = { world: new WeakMap(), finite: new WeakMap() };
 }
 function endGeometryPass() { geometryPass = null; }
 
@@ -482,3 +511,4 @@ export { IDENTITY, multiply, localMatrix, worldMatrix, relativeMatrix, transform
     transformedBounds, subtree3D, projectionFor, projectPoint, screenToLocal, drawProjected, projectedTextureRegion,
     beginProjectedBatch, flushProjectedBatch, endProjectedBatch };
 export { hideProjectedPresentation, canPresentProjectedGPU, isDirectProjectedBatch };
+export { hasFiniteTransform };

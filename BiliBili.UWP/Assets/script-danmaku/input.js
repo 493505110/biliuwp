@@ -1,6 +1,6 @@
 // 播放器转发的鼠标输入：不让透明 WebView2 抢占 UWP 控制栏的命中测试。
 import { hostState, state, reportRuntimeError, syncOrdinaryDanmakuSuppression } from "./core.js";
-import { isUsedAsMask } from "./display.js";
+import { isUsedAsMask, isElementVisible } from "./display.js";
 import { displayObjectBounds, traceElementClipPath } from "./renderer.js";
 import { screenToLocal } from "./geometry.js";
 import { ensureRunning, prepareItemsForComment, recoverItemFromCallbackError } from "./lifecycle.js";
@@ -31,7 +31,7 @@ function releasePointerElement(element) {
 }
 
 function active(element) {
-    if (!element || element.expired || element.failed || element.props.visible === false
+    if (!element || element.failed || !isElementVisible(element)
         || element.props.alpha <= 0 || element.enabled === false) return false;
     var item = element.ownerItem;
     return !item || (item.activated && !item.failed && !item.removed);

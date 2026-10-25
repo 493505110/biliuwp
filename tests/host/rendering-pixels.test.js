@@ -755,6 +755,46 @@ test('P69 白色透明渐变省略恒等内发光后，与CPU完整滤镜链保�
     } finally {await host.close();}
 });
 
+test('P70 非有限变换和alpha暂时隐藏2D子树，恢复数值后显示期间修改的内容且不残留', async p => {
+    await p.script('var group=$.createCanvas({lifeTime:20,x:100,y:100});'
+        +'var box=$.createShape({lifeTime:20,parent:group});box.graphics.beginFill(0xff0000);'
+        +'box.graphics.drawRect(0,0,40,40);box.graphics.endFill();window.__group=group;window.__box=box;');
+    for(const [key,value] of [['scaleX','NaN'],['scaleY','Infinity'],['rotation','-Infinity'],['x','NaN'],['alpha','NaN']]) {
+        await p.update('__group.'+key+'='+value+';');
+        assert.equal((await p.pixel(120,120))[3],0,key+'无效时旧像素必须清除');
+        assert.equal((await p.pixel(20,20))[3],0,'不能按默认变换绘制到原点');
+        await p.update('__box.graphics.clear();__box.graphics.beginFill(0x00ff00);__box.graphics.drawRect(0,0,40,40);__box.graphics.endFill();');
+        const normal=key==='x'?100:key==='rotation'?0:1;
+        await p.update('__group.'+key+'='+normal+';');
+        assert.deepEqual(await p.pixel(120,120),[0,255,0,255],key+'恢复后必须使用最新内容');
+    }
+    await p.update('var m=__group.transform.matrix;m.tx=NaN;__group.y=101;');
+    assert.equal((await p.pixel(120,120))[3],0,'原地修改的无效2D矩阵也不得显示');
+    await p.update('var m=__group.transform.matrix;m.tx=200;__group.transform.matrix=m;');
+    assert.deepEqual(await p.pixel(220,120),[0,255,0,255]);
+    assert.equal((await p.pixel(120,120))[3],0);
+});
+
+test('P71 非有限3D矩阵隐藏投影子树，恢复后WebGL与Canvas后备均正常绘制', async p => {
+    const host=await createBrowserHost();
+    try {
+        const fallback=await host.page(800,600,1,true);
+        try {
+            for(const probe of [p,fallback]) {
+                await probe.script('var group=$.createCanvas({lifeTime:20,x:400,y:300,rotationY:20});'
+                    +'var box=$.createShape({lifeTime:20,parent:group});box.graphics.beginFill(0xff0000);'
+                    +'box.graphics.drawRect(0,0,40,40);box.graphics.endFill();window.__group=group;window.__box=box;');
+                assert.ok((await probe.pixel(410,310))[3]>0);
+                await probe.update('var m=__group.transform.matrix3D;m.rawData[12]=NaN;__group.transform.matrix3D=m;');
+                assert.equal((await probe.pixel(410,310))[3],0);
+                await probe.update('var m=__group.transform.matrix3D;m.rawData[12]=400;__group.transform.matrix3D=m;');
+                assert.ok((await probe.pixel(410,310))[3]>0,'恢复后须重建投影');
+            }
+            assert.deepEqual(fallback.errors,[]);
+        } finally {await fallback.page.close();}
+    } finally {await host.close();}
+});
+
 async function run() {
     const host = await createBrowserHost();
     try {

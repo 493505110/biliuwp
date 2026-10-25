@@ -252,6 +252,43 @@ test('av2669196 原样脚本55秒歌词正常展开，65秒双发光不重复上
     console.log('av2669196 65秒60帧上传字节：'+bytes);
 });
 
+test('av2669196 原样脚本102秒歌词不被未来方块遮住，124秒歌词不提前出现', async p => {
+    await p.page.setViewportSize({width:1280,height:720});
+    const directory=path.join(__dirname,'fixtures/real');
+    const fixtures=fs.readdirSync(directory).filter(n=>n.endsWith('.js')).sort().map(n=>({
+        id:n,stime:0,duration:333,lang:'js',code:fs.readFileSync(path.join(directory,n),'utf8')
+    }));
+    assert.equal(fixtures.length,11);
+    await p.page.evaluate(fixtures=>{
+        scriptDanmakuHost.reset(100,true,1,true);scriptDanmakuHost.append(fixtures);__step(0);
+    },fixtures);
+    let frame=0;
+    async function advance(second) {
+        const target=Math.round((second-100)*60);
+        while(frame<target) {
+            const count=Math.min(60,target-frame);
+            await p.page.evaluate(({frame,count})=>{for(let i=1;i<=count;i++)__stepTo((frame+i)*1000/60);},{frame,count});
+            frame+=count;
+        }
+    }
+    async function bright(x,y,width,height) {
+        return p.page.evaluate(({x,y,width,height})=>{
+            const c=document.querySelector('#stage canvas'),data=c.getContext('2d').getImageData(x,y,width,height).data;
+            let count=0;
+            for(let i=0;i<data.length;i+=4)if(data[i]>150&&data[i+1]>150&&data[i+2]>150&&data[i+3]>100)count++;
+            return count;
+        },{x,y,width,height});
+    }
+    await advance(102);
+    assert.ok(await bright(500,330,280,90)>250,'102秒歌词须可见，不能被未来出现的方块盖住');
+    await advance(124);
+    assert.ok(await bright(550,400,180,28)<20,'124秒不能提前显示126.677秒才开始的歌词');
+    // DynamicSourceLayer 会重映射时间；128秒已越过内部127.177秒的交接。
+    await advance(128);
+    const restored=await bright(550,400,180,28);
+    assert.ok(restored>100,'关键帧恢复有限值后，后续歌词必须重新显示：'+restored);
+});
+
 test('绘制缓存不跨脚本读操作或帧保留旧的祖先矩阵', async p => {
     await p.script('var group=$.createCanvas({lifeTime:20,x:50});' + shape + 'group.addChild(box);window.__group=group;window.__root=$.root;');
     const values = await p.page.evaluate(() => {

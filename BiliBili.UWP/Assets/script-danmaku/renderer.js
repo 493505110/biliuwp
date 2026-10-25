@@ -622,7 +622,7 @@ function effectSourceBounds(element) {
     var rectangles = own ? [own] : [];
     for (var i = 0; i < element.childList.length; i++) {
         var child = element.childList[i];
-        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
         var bounds = effectSourceBounds(child);
         if (!bounds) continue;
         var pad = filterPadding(child.props.filters);
@@ -697,7 +697,7 @@ function computeCompositeBounds(element, fresh) {
     if (own) rectangles.push(own);
     for (var i = 0; i < element.childList.length; i++) {
         var child = element.childList[i];
-        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
         var cachedLeaf = fresh && !child.childList.length && !child.needsCache && child.cacheBounds;
         var bounds = fresh ? (child.childList.length ? computeCompositeBounds(child, true) : cachedLeaf || elementLocalBounds(child))
             : (child.childList.length ? child.compositeFullBounds || child.compositeBounds : child.cacheBounds);
@@ -800,7 +800,7 @@ function rebuildComposite(element) {
 }
 
 function blitElement(target, element) {
-    if (!element || element.expired || element.props.visible === false) {
+    if (!element || !isElementVisible(element) || element.props.alpha <= 0) {
         return;
     }
 
@@ -923,7 +923,7 @@ function clearSurface() {
 // （缩放 → 旋转 → 平移，与 applyElementTransform 同序）投到页面坐标，
 // 取外接矩形。旋转时外接矩形会变大，宁可多擦一点也不能留残影。
 function computeElementCanvasRect(element) {
-    if (!element.painted || element.props.visible === false || element.expired) {
+    if (!element.painted || !isElementVisible(element)) {
         return null;
     }
 
@@ -1514,7 +1514,7 @@ function overlappingRects(rects, rect) {
 }
 
 function paintDirtyElements() {
-    if (presentationOwner && (presentationOwner.expired || presentationOwner.props.visible === false
+    if (presentationOwner && (!isElementVisible(presentationOwner)
         || presentationOwner.props.alpha <= 0 || !hostState.rootElement.childList.includes(presentationOwner))) {
         resetDirectPresentation();
     }
@@ -1609,7 +1609,7 @@ function maskCoversViewport(mask) {
 }
 
 function canPresentProjectedTree(element) {
-    if (element.expired || element.props.visible === false || element.props.alpha <= 0
+    if (!isElementVisible(element) || element.props.alpha <= 0
         || isUsedAsMask(element) || nearClippedElements.has(element)) return true;
     var p = element.props;
     var needsIsolation = p.scrollRect || (p.mask && !maskCoversViewport(p.mask))
@@ -1683,7 +1683,7 @@ function behindNearPlane(element) {
 
 // 3D 子树保留每个叶子的世界矩阵，统一投影后再合成，避免先压成 2D 丢失 z。
 function prepareProjected(element) {
-    if (element.props.visible === false || element.props.alpha <= 0) {
+    if (!isElementVisible(element) || element.props.alpha <= 0) {
         var hiddenDirty = isElementDirty(element) || element.compositeDirty;
         element.propertyDirty = {}; element.compositeDirty = false;
         return hiddenDirty;
@@ -1737,7 +1737,7 @@ function prepareProjected(element) {
 }
 
 function projectedSubtreeBounds(element) {
-    if (nearClippedElements.has(element)) return null;
+    if (!isElementVisible(element) || element.props.alpha <= 0 || nearClippedElements.has(element)) return null;
     var rectangles = [], bounds = element.projectedPlanar ? element.compositeBounds : element.cacheBounds;
     if (bounds) {
         var matrix = worldMatrix(element), projection = projectionFor(element);
@@ -1754,7 +1754,7 @@ function projectedSubtreeBounds(element) {
     }
     for (var i = 0; !element.projectedPlanar && i < element.childList.length; i++) {
         var child = element.childList[i];
-        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
         var rect = projectedSubtreeBounds(child);
         if (rect) rectangles.push(rect);
     }
@@ -1789,7 +1789,7 @@ function drawProjectedNode(target, element, alpha, skipEffects) {
 }
 
 function drawProjectedContent(target, element, alpha, skipEffects) {
-    if (element.expired || element.props.visible === false || element.props.alpha <= 0 || isUsedAsMask(element)) return;
+    if (!isElementVisible(element) || element.props.alpha <= 0 || isUsedAsMask(element)) return;
     if (nearClippedElements.has(element)) return;
     var groupEffects = !element.projectedPlanar && element.childList.length && (element.props.colorTransform || (element.props.filters && element.props.filters.length));
     if (groupEffects && !skipEffects) {
@@ -1851,7 +1851,7 @@ function rebuildProjectedComposite(element, directPresentation) {
 
 // 返回 true 表示该元素这一帧需要重新合成到画布上。
 function prepareElement(element) {
-    if (element.props.visible === false || element.props.alpha <= 0) {
+    if (!isElementVisible(element) || element.props.alpha <= 0) {
         var hiddenDirty = isElementDirty(element) || element.compositeDirty;
         element.propertyDirty = {}; element.compositeDirty = false;
         return hiddenDirty;

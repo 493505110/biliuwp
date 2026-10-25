@@ -36,6 +36,19 @@ test('按钮 onclick 恰好执行一次，暂停时回调新建元件仍归属�
     assert.equal(h.errors().length,0);
 });
 
+test('无效变换和alpha的元素及其子树不抢点击，恢复后立即可交互', async () => {
+    const h=await create('var group=$.createCanvas({x:100,y:100,lifeTime:10});'
+        +'var box=$.createShape({parent:group,lifeTime:10});box.graphics.beginFill(0xffffff);'
+        +'box.graphics.drawRect(0,0,80,40);box.graphics.endFill();box.addEventListener("click",function(){});window.__group=group;window.__box=box;');
+    assert.equal(tap(h,120,120,false),true);
+    for(const key of ['scaleX','alpha']) {
+        h.sandbox.__group[key]=NaN;
+        assert.equal(tap(h,120,120,false),false,'无效的父节点不能让子节点成为目标');
+        h.sandbox.__group[key]=1;
+        assert.equal(tap(h,120,120,false),true,'有效值恢复后无需重建脚本');
+    }
+});
+
 test('鼠标事件、冒泡、坐标与取消冒泡', async () => {
     const h=await create(shape+`window.__events=[];
         ['mouseOver','mouseMove','mouseDown','mouseUp','mouseOut'].forEach(function(t){box.addEventListener(t,function(e){window.__events.push([t,e.localX,e.localY,e.buttonDown]);});});

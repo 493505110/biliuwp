@@ -42,7 +42,7 @@ import {
     resolveDeclaredLifeTimeMs
 } from "./tween.js";
 
-import { localMatrix, relativeMatrix, transformPoint, worldMatrix, transformedBounds, screenToLocal } from "./geometry.js";
+import { localMatrix, relativeMatrix, transformPoint, worldMatrix, transformedBounds, screenToLocal, hasFiniteTransform } from "./geometry.js";
 import { releasePointerElement } from "./input.js";
 
 // ---- 保留元素 ----
@@ -381,7 +381,8 @@ function markAllDirty() {
 // 元素在主画布上的可见性：隐藏元素同样要擦掉它在主画布上的旧像素，
 // 否则 visible=false 之后画面里永远留着它的最后一帧。
 function isElementVisible(element) {
-    return !element.expired && element.props.visible !== false;
+    return !element.expired && element.props.visible !== false
+        && isFinite(element.props.alpha) && hasFiniteTransform(element);
 }
 
 function isElementDirty(element) {

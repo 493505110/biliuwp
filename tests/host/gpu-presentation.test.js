@@ -99,6 +99,12 @@ async function boundaries(host) {
         ['unknown-blend-alias', '__box.blendMode="legacy-unknown";', true],
         ['multiply-fallback', '__box.blendMode="multiply";', false],
         ['normal-blend-again', '__box.blendMode="normal";', true],
+        ['invalid-scale', '__box.scaleX=NaN;', false],
+        ['scale-recovered', '__box.scaleX=1;', true],
+        ['invalid-alpha', '__box.alpha=NaN;', false],
+        ['alpha-recovered', '__box.alpha=1;', true],
+        ['invalid-matrix', 'var m=__box.transform.matrix3D;m.rawData[12]=NaN;__box.transform.matrix3D=m;', false],
+        ['matrix-recovered', 'var m=__box.transform.matrix3D;m.rawData[12]=400;__box.transform.matrix3D=m;', true],
         ['alpha', '__box.alpha=0.5;', true],
         ['hidden', 'scriptDanmakuHost.visible(false);', false],
         // 显式触发一次重绘，避免把旧路径静态画面恢复后的空白当作正确参考。
