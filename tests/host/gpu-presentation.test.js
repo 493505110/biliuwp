@@ -13,6 +13,17 @@ overlay.graphics.beginFill(0x00ff00);overlay.graphics.drawRect(0,0,30,30);overla
 var mask=$.createShape({lifeTime:600,x:400,y:300,visible:false});
 mask.graphics.beginFill(0xffffff);mask.graphics.drawRect(0,0,50,80);mask.graphics.endFill();window.__mask=mask;`;
 
+// 与 C# ReplaceAsync 相同：先暂停 reset，再建立普通弹幕桥接，最后开始播放。
+async function script(p, code) {
+    await p.page.evaluate(code => {
+        scriptDanmakuHost.reset(0, false, 1, true);
+        scriptDanmakuHost.setOrdinaryDanmakuBridge(7);
+        scriptDanmakuHost.append([{ id: 'presentation', stime: 0, duration: 600, lang: 'js', code }]);
+        scriptDanmakuHost.setState(0, true, 1);
+        __step(0);
+    }, code);
+}
+
 async function state(p) {
     return p.page.evaluate(async () => {
         const { hostState } = await import('/script-danmaku/core.js');
@@ -99,7 +110,7 @@ async function boundaries(host) {
     for (const direct of [false, true]) {
         const p = await host.page(800, 600, 1, false, direct);
         try {
-            await p.script(setup);
+            await script(p, setup);
             for (const [name, code, expected] of steps) {
                 if (code === null) {
                     await p.page.evaluate(() => {
@@ -124,7 +135,7 @@ async function boundaries(host) {
 async function contextLoss(host) {
     const p = await host.page(800, 600, 1, false, true);
     try {
-        await p.script(setup);
+        await script(p, setup);
         await p.page.evaluate(() => { scriptDanmakuHost.setState(0, false, 1); __step(34); });
         assert.equal((await state(p)).direct, true);
         await p.page.evaluate(async () => {
@@ -148,7 +159,7 @@ async function contextLoss(host) {
 async function staticResume(host) {
     const p = await host.page(800, 600, 1, false, true);
     try {
-        await p.script(setup);
+        await script(p, setup);
         await p.update('scriptDanmakuHost.visible(false);');
         assert.deepEqual(await visiblePixel(p, 430, 330), [0, 0, 0, 0]);
         await p.update('scriptDanmakuHost.visible(true);');
@@ -170,7 +181,7 @@ async function staticResume(host) {
 async function unavailableGPU(host) {
     const p = await host.page(800, 600, 1, true, true);
     try {
-        await p.script(setup);
+        await script(p, setup);
         assert.deepEqual(await state(p), { direct: false, gpuVisible: false });
         assert.deepEqual(await visiblePixel(p, 430, 330), [255, 0, 0, 255]);
         await healthy(p);
@@ -184,7 +195,7 @@ async function dpi(host) {
         for (const direct of [false, true]) {
             const p = await host.page(width, height, 1, false, direct, ratio);
             try {
-                await p.script(`var box=$.createShape({lifeTime:600,x:400,y:300,z:20,rotationY:20,alpha:0.5});box.graphics.beginFill(0xff3300);box.graphics.drawRect(0,0,${size},${size});box.graphics.endFill();`);
+                await script(p, `var box=$.createShape({lifeTime:600,x:400,y:300,z:20,rotationY:20,alpha:0.5});box.graphics.beginFill(0xff3300);box.graphics.drawRect(0,0,${size},${size});box.graphics.endFill();`);
                 if (direct) {
                     assert.equal((await state(p)).direct, expected, 'DPI ' + ratio);
                     await samePicture(p, reference, 'DPI ' + ratio);
@@ -199,13 +210,116 @@ async function dpi(host) {
 async function invalidMask(host) {
     const p = await host.page(800, 600, 1, false, true);
     try {
-        await p.script(setup);
+        await script(p, setup);
         await p.update('__mask.graphics.clear();__mask.graphics.beginFill(0xffffff);__mask.graphics.drawRect(0,0,0,80);__mask.graphics.endFill();__mask.visible=true;__box.mask=__mask;');
         assert.equal((await state(p)).direct, false);
         assert.deepEqual(await visiblePixel(p, 430, 330), [0, 0, 0, 0]);
         await healthy(p);
     } finally { await p.page.close(); }
     console.log('ok 退化矩形遮罩不会被误判为覆盖整个视口');
+}
+
+async function emptyContainers(host) {
+    const steps = [
+        ['empty-3d-sibling', '', true],
+        ['empty-before-owner', '__box.parent.setChildIndex(__empty,0);', true],
+        ['nested-content', '__overlay.visible=true;', false],
+        ['nested-hidden', '__overlay.visible=false;', true],
+        ['bridge-empty', '__box.parent.getChildByName("__biliuwpOverlay").addChild(__overlay);', true],
+        ['bridge-content', '__overlay.visible=true;', false],
+        ['bridge-hidden', '__overlay.visible=false;', true],
+        ['remove-empty', '__empty.parent.removeChild(__empty);', true]
+    ];
+    const references = new Map();
+    for (const direct of [false, true]) {
+        const p = await host.page(800, 600, 1, false, direct);
+        try {
+            await script(p, setup + 'window.__empty=$.createCanvas({lifeTime:600,z:20,rotationY:10});'
+                + 'var inner=$.createCanvas({lifeTime:600});__empty.addChild(inner);inner.addChild(overlay);');
+            for (const [name, code, expected] of steps) {
+                if (code) await p.update(code);
+                if (direct) {
+                    assert.equal((await state(p)).direct, expected, name);
+                    await samePicture(p, references.get(name), name);
+                } else references.set(name, await screenshot(p));
+            }
+            await healthy(p);
+        } finally { await p.page.close(); }
+    }
+    console.log('ok 空桥接和嵌套/3D容器不阻止直呈，添加可见内容后回退且不丢图');
+}
+
+async function linearCandidateScan(host) {
+    const reads = [];
+    for (const count of [128, 256]) {
+        const p = await host.page(800, 600, 1, false, true);
+        try {
+            await script(p, `for(var i=0;i<${count};i++){
+                var box=$.createShape({lifeTime:600,z:-20000});
+                box.graphics.beginFill(0xffffff);box.graphics.drawRect(0,0,10,10);box.graphics.endFill();
+            }`);
+            reads.push(await p.page.evaluate(async () => {
+                const { hostState } = await import('/script-danmaku/core.js');
+                let alphaReads = 0;
+                for (const element of hostState.rootElement.childList) {
+                    Object.defineProperty(element.props, 'alpha', {
+                        configurable: true, get() { alphaReads++; return 1; }
+                    });
+                }
+                // 统计实际属性读取而非墙钟时间；顶层数量翻倍不能引发四倍扫描。
+                for (let frame = 0; frame < 3; frame++) {
+                    for (const element of hostState.rootElement.childList) element.x += 1;
+                    __step(34);
+                }
+                return alphaReads;
+            }));
+            assert.equal((await state(p)).direct, false);
+            assert.deepEqual(await visiblePixel(p, 430, 330), [0, 0, 0, 0]);
+            await healthy(p);
+        } finally { await p.page.close(); }
+    }
+    assert.ok(reads[0] > 0 && reads[1] <= reads[0] * 2.5, JSON.stringify(reads));
+    console.log('ok 顶层3D节点翻倍保持线性资格检查，alpha读取 ' + reads.join(' → '));
+}
+
+async function realSceneViewport(host) {
+    const directory = path.join(__dirname, 'fixtures/real');
+    const fixtures = fs.readdirSync(directory).filter(n => n.endsWith('.js')).sort().map(n => ({
+        id: n, stime: 0, duration: 333, lang: 'js', code: fs.readFileSync(path.join(directory, n), 'utf8')
+    }));
+    for (const ratio of [1, 1.25, 2]) {
+        const references = new Map();
+        for (const direct of [false, true]) {
+            const p = await host.page(1280, 720, 1, false, direct, ratio);
+            try {
+                await p.page.evaluate(fixtures => {
+                    scriptDanmakuHost.reset(5, false, 1, true);
+                    scriptDanmakuHost.setOrdinaryDanmakuBridge(7);
+                    scriptDanmakuHost.append(fixtures);
+                    scriptDanmakuHost.setState(5, true, 1);
+                    __step(0);
+                }, fixtures);
+                for (const [width, height] of [[1280,720], [1920,1048], [800,600]]) {
+                    await p.page.setViewportSize({width, height});
+                    await p.page.waitForFunction(({width, height, ratio}) => {
+                        const canvas = document.querySelector('#stage canvas');
+                        return canvas.width === Math.round(width * ratio) && canvas.height === Math.round(height * ratio);
+                    }, {width, height, ratio}, {polling: 10});
+                    await p.update('scriptDanmakuHost.resize();__step(34);');
+                    const scale = Math.min(width / 1280, height / 720);
+                    const x = (width - 1280 * scale) / 2 + 1280 * scale * 0.9;
+                    const y = (height - 720 * scale) / 2 + 720 * scale * 0.9;
+                    const pixel = await visiblePixel(p, Math.floor(x * ratio), Math.floor(y * ratio));
+                    assert.ok(pixel[3] > 128, `5s 背景未覆盖适配后的右下区域 ${width}x${height} DPI ${ratio}: ${pixel}`);
+                    const label = `${width}x${height}`;
+                    if (direct) await samePicture(p, references.get(label), '5s resize ' + label + ' DPI ' + ratio);
+                    else references.set(label, await screenshot(p));
+                }
+                await healthy(p);
+            } finally { await p.page.close(); }
+        }
+    }
+    console.log('ok DECORATOR 5秒子级遮罩覆盖缩放后的画面，窗口放大/缩小及100%/125%/200% DPI一致');
 }
 
 async function realScene(host, startPosition = 36, frames = [30, 31, 60, 90, 91, 120, 150, 151, 180]) {
@@ -219,7 +333,11 @@ async function realScene(host, startPosition = 36, frames = [30, 31, 60, 90, 91,
         const p = await host.page(1280, 720, 1, false, direct);
         try {
             await p.page.evaluate(({ fixtures, startPosition }) => {
-                scriptDanmakuHost.reset(startPosition, true, 1, true); scriptDanmakuHost.append(fixtures); __step(0);
+                scriptDanmakuHost.reset(startPosition, false, 1, true);
+                scriptDanmakuHost.setOrdinaryDanmakuBridge(7);
+                scriptDanmakuHost.append(fixtures);
+                scriptDanmakuHost.setState(startPosition, true, 1);
+                __step(0);
             }, { fixtures, startPosition });
             await p.page.evaluate(() => {
                 window.__copies = 0;
@@ -254,12 +372,15 @@ async function realScene(host, startPosition = 36, frames = [30, 31, 60, 90, 91,
 (async () => {
     const host = await createBrowserHost();
     try {
+        await realSceneViewport(host);
         await boundaries(host);
         await contextLoss(host);
         await staticResume(host);
         await unavailableGPU(host);
         await dpi(host);
         await invalidMask(host);
+        await emptyContainers(host);
+        await linearCandidateScan(host);
         await realScene(host);
         await realScene(host, 90, [30, 31, 60]);
         await realScene(host, 110, [30, 31, 60]);

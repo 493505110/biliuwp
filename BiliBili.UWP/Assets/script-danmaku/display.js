@@ -42,7 +42,7 @@ import {
     resolveDeclaredLifeTimeMs
 } from "./tween.js";
 
-import { localMatrix, transformPoint, worldMatrix, transformedBounds, screenToLocal } from "./geometry.js";
+import { localMatrix, relativeMatrix, transformPoint, worldMatrix, transformedBounds, screenToLocal } from "./geometry.js";
 import { releasePointerElement } from "./input.js";
 
 // ---- 保留元素 ----
@@ -802,16 +802,16 @@ function blendModeToComposite(value) {
 // 实现要点：这里不能用「save → 施加遮罩元件的变换 → clip → restore」，
 // 因为 restore 会把刚建立的裁剪一起去掉（canvas 的裁剪区在状态栈里）。
 // 而且 blitElement 的调用方可能已经压了变换。所以改为**把遮罩元件的
-// 变换烘进路径坐标**：用 maskLocalToParent 把遮罩元件的每个点换算到
-// 它所在的父子空间，再用当前（父）坐标系直接 clip。
+// 变换烘进路径坐标**：把遮罩元件的每个点换算到被遮罩元素的父坐标系，
+// 再用当前坐标系直接 clip。遮罩可能是子节点或位于另一棵子树。
 function applyElementMaskClip(target, element) {
     var masker = element.props.mask;
     if (!masker || masker.expired || masker.props.visible === false) {
         return false;
     }
 
-    var map = createMaskPointMapper(masker);
-    if (!traceElementClipPath(target, masker, map)) {
+    var map = createMaskPointMapper(masker, element.treeParent);
+    if (!map || !traceElementClipPath(target, masker, map)) {
         return false;
     }
 
@@ -819,11 +819,10 @@ function applyElementMaskClip(target, element) {
     return true;
 }
 
-// 遮罩元件的局部坐标 → 父坐标（与 applyElementTransform 同序：
-// 缩放 → matrix → 旋转 → 平移）。
-function createMaskPointMapper(masker) {
-    var matrix = localMatrix(masker);
-    return function (x, y) { return transformPoint(matrix, x, y, 0); };
+// 不能只取遮罩的局部矩阵：子级遮罩还须继承被遮罩容器的缩放和位移。
+function createMaskPointMapper(masker, targetParent) {
+    var matrix = relativeMatrix(masker, targetParent);
+    return matrix ? function (x, y) { return transformPoint(matrix, x, y, 0); } : null;
 }
 
 // Flash 的 DisplayObjectContainer 显示列表查询。

@@ -40,6 +40,7 @@ import { filterPadding, applyEffects } from "./effects.js";
 var directPresentationEnabled = true;
 var directlyPresentedElements = new WeakSet();
 var presentationOwner = null;
+var directPresentationCandidate = null;
 
 function resetDirectPresentation() {
     hideProjectedPresentation();
@@ -1511,6 +1512,7 @@ function paintDirtyElements() {
     try {
         hostState.rasterFrame++;
         var topLevel = hostState.rootElement.childList;
+        directPresentationCandidate = findDirectPresentationCandidate(topLevel);
         var damage = hostState.pendingEraseRects;
         hostState.pendingEraseRects = [];
         var index;
@@ -1542,6 +1544,7 @@ function paintDirtyElements() {
         }
         return painted;
     } finally {
+        directPresentationCandidate = null;
         endGeometryPass();
     }
 }
@@ -1629,13 +1632,28 @@ function isPresentationPixelAligned(element) {
     });
 }
 
+function hasPresentationContent(element) {
+    if (!isElementVisible(element) || element.props.alpha <= 0 || isUsedAsMask(element)) return false;
+    // 桥接代理和空 Sprite 不绘制自身；按当前显示树判断，避免依赖上一帧的缓存。
+    if (element.kind !== "group"
+        && (element.kind !== "shape" || (element.shapeItems && element.shapeItems.length))) return true;
+    return element.childList.some(hasPresentationContent);
+}
+
+function findDirectPresentationCandidate(topLevel) {
+    if (!directPresentationEnabled || !canPresentProjectedGPU() || hostState.stageMaskElement) return null;
+    var candidate = null;
+    // 每个绘制帧只选一次；第二个有内容的顶层节点出现后即可确定需要回退。
+    for (var index = 0; index < topLevel.length; index++) {
+        if (!hasPresentationContent(topLevel[index])) continue;
+        if (candidate) return null;
+        candidate = topLevel[index];
+    }
+    return candidate;
+}
+
 function shouldPresentProjectedDirectly(element) {
-    if (!directPresentationEnabled || !canPresentProjectedGPU() || hostState.stageMaskElement
-        || element.treeParent !== hostState.rootElement) return false;
-    var visible = hostState.rootElement.childList.filter(function (e) {
-        return !e.expired && e.props.visible !== false && e.props.alpha > 0 && !isUsedAsMask(e);
-    });
-    return visible.length === 1 && visible[0] === element
+    return element === directPresentationCandidate
         && isPresentationPixelAligned(element) && canPresentProjectedTree(element);
 }
 
@@ -1802,7 +1820,8 @@ function drawProjectedContent(target, element, alpha, skipEffects) {
 }
 
 function rebuildProjectedComposite(element, directPresentation) {
-    resetDirectPresentation();
+    // 空的 3D 兄弟节点也会准备投影缓存，不能清掉另一个节点的直呈记录。
+    if (directPresentation || presentationOwner === element) resetDirectPresentation();
     var bounds = projectedSubtreeBounds(element);
     var surface = bounds && screenSurface(element, bounds, "projectedCanvas");
     element.projectedComposite = true;

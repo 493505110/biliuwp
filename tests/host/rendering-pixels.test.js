@@ -706,6 +706,21 @@ test('P67 浮点FBO不完整时保留常规GPU模糊，后续更新也不回读C
     assert.ok(Math.abs((await p.pixel(200,210))[3]-3)<=1);
 });
 
+test('P68 子级遮罩继承被遮罩容器的缩放与位移，移动后不残留', async p => {
+    await p.script('var outer=$.createCanvas({lifeTime:20,x:40,y:30,scaleX:1.25,scaleY:1.25});'
+        + 'var group=$.createCanvas({lifeTime:20,parent:outer,x:100,y:50,scaleX:2,scaleY:1.5});'
+        + 'group.graphics.beginFill(0x00ff00);group.graphics.drawRect(0,0,100,80);group.graphics.endFill();'
+        + 'var mask=$.createShape({lifeTime:20,parent:group,x:10,y:10});'
+        + 'mask.graphics.beginFill(0xffffff);mask.graphics.drawRect(0,0,50,40);mask.graphics.endFill();'
+        + 'group.mask=mask;window.__group=group;');
+    assert.deepEqual(await p.pixel(220,140),[0,255,0,255]);
+    assert.equal((await p.pixel(180,140))[3],0);
+    assert.equal((await p.pixel(320,140))[3],0);
+    await p.update('__group.x+=80;');
+    assert.equal((await p.pixel(220,140))[3],0);
+    assert.deepEqual(await p.pixel(320,140),[0,255,0,255]);
+});
+
 async function run() {
     const host = await createBrowserHost();
     try {

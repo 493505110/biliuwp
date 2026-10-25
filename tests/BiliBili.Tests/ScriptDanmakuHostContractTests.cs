@@ -520,7 +520,7 @@ namespace BiliBili.Tests
 
             // 4) 元素级 mask：作用域是元素子树，不是整块画布（与 Player.setMask 区分开）。
             StringAssert.Contains(source, "function applyElementMaskClip(target, element) {");
-            StringAssert.Contains(source, "function createMaskPointMapper(masker) {");
+            StringAssert.Contains(source, "function createMaskPointMapper(masker, targetParent) {");
             StringAssert.Contains(source, "function retainMaskReference(maskElement) {");
             StringAssert.Contains(source, "element.maskUseCount");
             // 遮罩元件的变换烘进路径坐标：不能靠 canvas 的 save/restore 压变换
