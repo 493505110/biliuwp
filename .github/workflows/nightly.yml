@@ -40,7 +40,8 @@ jobs:
           latest_tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name' 2>/dev/null || echo "none")
           release_sha="none"
           if [ "$latest_tag" != "none" ] && [ -n "$latest_tag" ]; then
-            release_sha=$(gh api "repos/${{ github.repository }}/git/ref/tags/$latest_tag" --jq '.object.sha' 2>/dev/null || echo "none")
+            # commits 接口会将附注标签和轻量标签都解析为提交 SHA，避免拿标签对象 SHA 与 HEAD 比较。
+            release_sha=$(gh api "repos/${{ github.repository }}/commits/$latest_tag" --jq '.sha' 2>/dev/null || echo "none")
           fi
           echo "latest_release=$latest_tag release_sha=$release_sha"
           if [ "$release_sha" != "none" ] && [ "${{ github.sha }}" = "$release_sha" ]; then
