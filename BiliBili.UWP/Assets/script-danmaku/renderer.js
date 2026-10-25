@@ -1309,6 +1309,16 @@ function matrixValues(value) {
         toFiniteNumber(value.d, 1), toFiniteNumber(value.tx, 0), toFiniteNumber(value.ty, 0)];
 }
 
+function matrixMatchesProperties(values, props) {
+    // matrix getter 返回可原地修改的对象；快照相同不代表标量仍与它同步。
+    // Akari 每帧 identity() 后再写回相同的 x/scale，必须先复位这些标量。
+    return !values || (!props.matrix3D && !props.z && !props.rotationX && !props.rotationY
+        && props.x === values[4] && props.y === values[5]
+        && props.scaleX === Math.sqrt(values[0] * values[0] + values[1] * values[1])
+        && props.scaleY === Math.sqrt(values[2] * values[2] + values[3] * values[3])
+        && props.rotation === Math.atan2(values[1], values[0]) * 180 / Math.PI);
+}
+
 function colorTransformValues(value) {
     if (!value) return null;
     return [toFiniteNumber(value.redMultiplier, 1), toFiniteNumber(value.greenMultiplier, 1),
@@ -1362,7 +1372,7 @@ function createElementTransform(element) {
         set: function (value) {
             var next = matrixValues(value);
             if (sameTransformValues(next, matrixSnapshot) && sameTransformValues(next, matrixValues(element.props.matrix))
-                && (!next || !element.props.matrix3D)) return;
+                && matrixMatchesProperties(next, element.props)) return;
             matrixSnapshot = next;
             setPropertyInternal(element, "matrix", value, true);
             markPropertyDirty(element, "matrix"); hostState.dirty = true;

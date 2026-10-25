@@ -1508,6 +1508,14 @@ test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读
             + 'box.transform.matrix = mx;'
             + 'window.__afterOps = [box.transform.matrix.a, box.transform.matrix.d,'
             + ' box.transform.matrix.tx, box.transform.matrix.ty].join(",");'
+            // av2669196：每帧原地复位矩阵后，重复的标量赋值也必须落到矩阵。
+            + 'var glyph=$.createShape({lifeTime:10});'
+            + 'for(var frame=0;frame<3;frame++){'
+            + ' var gm=glyph.transform.matrix;gm.identity();glyph.transform.matrix=gm;'
+            + ' glyph.x=200;glyph.y=150;glyph.scaleX=0.5;glyph.scaleY=0.5;'
+            + '}'
+            + 'window.__glyphTransform=[glyph.x,glyph.y,glyph.transform.matrix.tx,'
+            + 'glyph.transform.matrix.ty,glyph.transform.matrix.a,glyph.transform.matrix.d].join(",");'
             // matrix3D：可赋值（含 null）、可读回，读回值要能被 clone/append
             + 'box.transform.matrix3D = null;'
             + 'window.__m3dNull = box.transform.matrix3D;'
@@ -1535,6 +1543,7 @@ test('D18 元素 transform：matrix 与 props.matrix 同一份、matrix3D 可读
     assert.equal(host.sandbox.__matrixIsProps, true, 'transform.matrix 必须与 props.matrix 是同一份对象');
     assert.equal(host.sandbox.__afterIdentity, '1,0,0,1,0,0', 'identity() 应重置为单位矩阵');
     assert.equal(host.sandbox.__afterOps, '2,3,10,18', 'scale 同时缩放平移（Flash Matrix）');
+    assert.equal(host.sandbox.__glyphTransform, '200,150,200,150,0.5,0.5', '原地复位不能吞掉重复的位置和缩放');
     assert.equal(host.sandbox.__m3dNull, null, 'matrix3D 赋 null 后应读回 null（不报错）');
     assert.equal(host.sandbox.__m3dSame, true, 'matrix3D 应原样存回');
     // 先平移再绕 X 轴转 90°：平移也被旋转为 (10,-30,20)。

@@ -271,11 +271,20 @@ test('P35 GPU与CPU滤镜在分数核宽、quality、inner/knockout和颜色变�
                 shape+'box.filters=[$.createBlurFilter(65.5,128,1)];',
                 shape+'box.filters=[$.createBlurFilter(255,2,1)];'
             ];
-            for(const code of codes){
+            const chains=[
+                shape+'box.filters=[$.createGlowFilter(0xff0000,0.5,8,4,2,1,true,false),$.createGlowFilter(0x00ff00,0.5,12,8,2,1,false,false)];',
+                shape+'box.filters=[$.createBlurFilter(5,3,1),$.createGlowFilter(0xff0000,0.5,8,4,2,1,true,false),$.createBlurFilter(3,5,1)];box.transform.colorTransform=$.createColorTransform(0.5,1,1,0.5);'
+            ];
+            for(const code of codes.concat(chains)){
                 await p.script(code);await fallback.script(code);
                 for(const point of [[96,120],[99,120],[100,120],[103,120],[120,120],[120,99],[140,120]]){
                     const actual=await p.pixel(...point), expected=await fallback.pixel(...point);
-                    assert.ok(actual.every((v,i)=>Math.abs(v-expected[i])<=3),JSON.stringify({point,actual,expected}));
+                    // 连续滤镜避免中间Canvas反预乘；低alpha处比较实际合成颜色，
+                    // 不把1级预乘舍入放大成未合成RGB的多级误差。
+                    const matches=chains.includes(code)
+                        ? Math.abs(actual[3]-expected[3])<=2 && actual.slice(0,3).every((v,i)=>Math.abs(v*actual[3]-expected[i]*expected[3])/255<=2)
+                        : actual.every((v,i)=>Math.abs(v-expected[i])<=3);
+                    assert.ok(matches,JSON.stringify({point,actual,expected}));
                 }
             }
             assert.deepEqual(fallback.errors,[]);
@@ -719,6 +728,31 @@ test('P68 子级遮罩继承被遮罩容器的缩放与位移，移动后不残�
     await p.update('__group.x+=80;');
     assert.equal((await p.pixel(220,140))[3],0);
     assert.deepEqual(await p.pixel(320,140),[0,255,0,255]);
+});
+
+test('P69 白色透明渐变省略恒等内发光后，与CPU完整滤镜链保持相同覆盖率和颜色', async p => {
+    const host=await createBrowserHost();
+    try {
+        const fallback=await host.page(800,600,1,true);
+        try {
+            const code='var group=$.createCanvas({lifeTime:20,x:100,y:100});'
+                +'var box=$.createShape({lifeTime:20,parent:group});var m=$.createMatrix();m.createGradientBox(40,40,0,0,0);'
+                +'box.graphics.beginGradientFill("linear",[0xffffff,0xffffff],[0.2,0.8],[0,255],m);'
+                +'box.graphics.drawRect(0,0,40,40);box.graphics.endFill();'
+                +'group.filters=[$.createGlowFilter(0xffffff,1,33,33,2,2,true,false),$.createGlowFilter(0xff0000,0.7,12,8,2,1)];';
+            await p.script(code);
+            // 白色乘2后夹取仍为白色，但CPU参考带非恒等颜色变换，走完整内发光。
+            await fallback.script(code+'box.transform.colorTransform=$.createColorTransform(2,1,1,1);');
+            for(const point of [[94,120],[99,120],[100,120],[105,120],[120,120],[135,120],[140,120],[145,120]]) {
+                const actual=await p.pixel(...point),expected=await fallback.pixel(...point);
+                assert.ok(Math.abs(actual[3]-expected[3])<=2
+                    &&actual.slice(0,3).every((v,i)=>Math.abs(v*actual[3]-expected[i]*expected[3])/255<=2),
+                    JSON.stringify({point,actual,expected}));
+            }
+            assert.ok((await p.pixel(120,120))[3]>0,'对照不能是两张空图');
+            assert.deepEqual(fallback.errors,[]);
+        } finally {await fallback.page.close();}
+    } finally {await host.close();}
 });
 
 async function run() {
