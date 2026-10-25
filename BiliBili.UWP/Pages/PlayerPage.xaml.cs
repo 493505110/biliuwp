@@ -1343,6 +1343,7 @@ namespace BiliBili.UWP.Pages
 
         string DMZZBDS = "";
         bool hidePointerFlag = false;
+        bool isPlaybackRateFlyoutOpen;
         int DanmuNum = 0;
         bool mergeDanmu = false;
         // 弹幕位置类型掩码的本地副本：ShowDanmaku 每条弹幕都要判定，避免高频读 LocalSettings
@@ -1960,11 +1961,15 @@ namespace BiliBili.UWP.Pages
 
         private void Timer_Date_Tick(object sender, object e)
         {
-            if (_PointerHideTime >= 50 && !hidePointerFlag)
+            // 倍速浮层中的滑块交互不会持续触发页面的 PointerMoved。
+            if (!isPlaybackRateFlyoutOpen)
             {
-                Window.Current.CoreWindow.PointerCursor = null;
+                if (_PointerHideTime >= 50 && !hidePointerFlag)
+                {
+                    Window.Current.CoreWindow.PointerCursor = null;
+                }
+                _PointerHideTime++;
             }
-            _PointerHideTime++;
 
             try
             {
@@ -5025,6 +5030,20 @@ namespace BiliBili.UWP.Pages
             danmu.DanmakuArea = sw_DanmuNotSubtitle.IsOn ? 0.5 : 1.0;
             SettingHelper.Set_DanmuNotSubtitle(sw_DanmuNotSubtitle.IsOn);
 
+        }
+
+        private void PlaybackRateFlyout_Opening(object sender, object e)
+        {
+            isPlaybackRateFlyoutOpen = true;
+            Window.Current.CoreWindow.PointerCursor = new CoreCursor(CoreCursorType.Arrow, 0);
+            _PointerHideTime = 1;
+        }
+
+        private void PlaybackRateFlyout_Closed(object sender, object e)
+        {
+            isPlaybackRateFlyoutOpen = false;
+            Window.Current.CoreWindow.PointerCursor = new CoreCursor(CoreCursorType.Arrow, 0);
+            _PointerHideTime = 1;
         }
 
         private void slider_Rate_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

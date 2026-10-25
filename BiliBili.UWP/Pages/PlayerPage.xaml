@@ -286,7 +286,7 @@
                                     </ComboBox>
                                 </c:DanmakuMTC.QuityContent>
                                 <c:DanmakuMTC.PlaybackRateFlyout>
-                                    <Flyout Placement="Top">
+                                    <Flyout Placement="Top" Opening="PlaybackRateFlyout_Opening" Closed="PlaybackRateFlyout_Closed">
                                         <StackPanel Width="240" RequestedTheme="Dark">
                                             <Grid>
                                                 <TextBlock FontSize="16" Foreground="White">视频倍速</TextBlock>
