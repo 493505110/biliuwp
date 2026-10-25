@@ -7,7 +7,8 @@ on:
       timezone: Asia/Shanghai
 
 concurrency:
-  group: nightly-${{ github.ref }}
+  # 所有分支共用 nightly 标签和版本序列，必须串行发布。
+  group: nightly
   cancel-in-progress: false
 
 jobs:
@@ -61,6 +62,151 @@ jobs:
             echo "New commits detected (prev=$prev) — building"
           fi
 
+      - name: Set nightly package version
+        id: version
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          function Read-PackageVersion([string] $value) {
+            if ($value -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw "Invalid package version: $value" }
+            $version = [version]::Parse($value)
+            if ($version.Major -eq 0 -or ($value.Split('.') | Where-Object { [long]$_ -gt 65535 })) {
+              throw "Package version is outside the supported range: $value"
+            }
+            return $version
+          }
+
+          $manifestPath = Join-Path $env:GITHUB_WORKSPACE 'BiliBili.UWP/Package.appxmanifest'
+          $manifest = [System.Xml.XmlDocument]::new()
+          $manifest.PreserveWhitespace = $true
+          $manifest.Load($manifestPath)
+          $sourceVersion = Read-PackageVersion $manifest.Package.Identity.Version
+          if ($sourceVersion.Revision -ne 0) { throw 'The source manifest must use revision 0 for formal releases.' }
+          $baseVersion = $sourceVersion
+          $revision = 1
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $repoApi = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY"
+          $previousRelease = $null
+          try {
+            $previousRelease = Invoke-RestMethod -Uri "$repoApi/releases/tags/nightly" -Headers $headers
+          } catch {
+            if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+            # 只有 release 和标签均不存在时才视为首次发布；残留标签意味着历史状态异常。
+            $tagExists = $true
+            try {
+              $null = Invoke-RestMethod -Uri "$repoApi/git/ref/tags/nightly" -Headers $headers
+            } catch {
+              if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+              $tagExists = $false
+            }
+            if ($tagExists) { throw 'The nightly tag exists but its release is missing; cannot determine the previous package version.' }
+          }
+
+          if ($null -ne $previousRelease) {
+            $versions = @()
+            $page = 1
+            do {
+              $assets = @(Invoke-RestMethod -Uri "$repoApi/releases/$($previousRelease.id)/assets?per_page=100&page=$page" -Headers $headers)
+              foreach ($asset in $assets) {
+                if ($asset.name -notmatch '\.(appx|msix|appxbundle|msixbundle)$') { continue }
+                if ($asset.state -ne 'uploaded' -or $asset.size -le 0 -or
+                    $asset.name -notmatch '_(?<version>\d+\.\d+\.\d+\.\d+)_(?:x86|x64|ARM64)(?:_[^/]*)?\.(?:appx|msix|appxbundle|msixbundle)$') {
+                  throw "Cannot read the version of nightly package: $($asset.name)"
+                }
+                $versions += (Read-PackageVersion $Matches.version).ToString()
+              }
+              $page++
+            } while ($assets.Count -eq 100)
+            $versions = @($versions | Select-Object -Unique)
+            if ($versions.Count -ne 1) { throw 'Nightly packages must contain exactly one consistent version.' }
+            $previousVersion = Read-PackageVersion $versions[0]
+            $previousBase = [version]::new($previousVersion.Major, $previousVersion.Minor, $previousVersion.Build, 0)
+            if ($baseVersion -lt $previousBase) { throw "Source version $baseVersion is older than published nightly $previousVersion." }
+            if ($baseVersion -eq $previousBase) {
+              if ($previousVersion.Revision -eq 65535) { throw 'Nightly revision has reached 65535; increase the source manifest base version.' }
+              $revision = $previousVersion.Revision + 1
+            }
+            Write-Host "Previous nightly package version: $previousVersion"
+          }
+
+          $packageVersion = "$($baseVersion.Major).$($baseVersion.Minor).$($baseVersion.Build).$revision"
+          # 仅修改本次 runner 的工作副本，三个架构共用同一个版本，不提交 manifest。
+          $manifest.Package.Identity.SetAttribute('Version', $packageVersion)
+          $manifest.Save($manifestPath)
+          "package_version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Nightly package version: $packageVersion"
+
+      - name: Generate nightly changelog from Git commits
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $latest = $null
+          try {
+            $release = Invoke-RestMethod -Uri "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/latest" -Headers $headers
+            $latest = $release.tag_name
+            if ([string]::IsNullOrWhiteSpace($latest)) { throw 'Latest release has no tag name.' }
+          } catch {
+            if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          $range = 'HEAD'
+          $baseline = '全部提交历史（尚无正式版）'
+          if ($latest) {
+            $baseCommit = git rev-parse --verify --quiet "refs/tags/$latest^{commit}"
+            if ($LASTEXITCODE -ne 0) { throw "Cannot resolve the latest release tag: $latest" }
+            git merge-base --is-ancestor $baseCommit HEAD
+            if ($LASTEXITCODE -ne 0) { throw "Latest release $latest is not an ancestor of this build." }
+            $range = "$baseCommit..HEAD"
+            $baseline = "相对正式版 $latest"
+          }
+          $commits = @(git rev-list $range --)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate Git commits for the nightly changelog.' }
+          $items = @()
+          foreach ($commit in $commits) {
+            $message = (git -c i18n.logOutputEncoding=utf-8 show --no-patch '--format=%h%x00%s%x00%b' $commit) -join "`n"
+            if ($LASTEXITCODE -ne 0) { throw "Cannot read Git commit: $commit" }
+            $parts = $message.Split([char]0, 3)
+            if ($parts.Count -ne 3) { throw "Invalid Git commit message: $commit" }
+            # 应用内日志只识别单行条目，将提交正文合入条目并去掉署名尾注。
+            $details = @($parts[2] -split '\r?\n' | ForEach-Object { $_.Trim() } |
+              Where-Object { $_ -and $_ -notmatch '^(Co-Authored-By|Signed-off-by):' } |
+              ForEach-Object { $_ -replace '^[-*]\s+', '' })
+            $item = "- $($parts[0]) $($parts[1])"
+            if ($details.Count -gt 0) { $item += '：' + ($details -join '；') }
+            $items += $item
+          }
+          if ($items.Count -eq 0) { $items = @('- 本次重新构建，无新增提交。') }
+          $date = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([datetime]::UtcNow, 'China Standard Time').ToString('yyyy-MM-dd')
+          $encoding = [System.Text.UTF8Encoding]::new($false)
+          $changelogPath = Join-Path $env:GITHUB_WORKSPACE 'CHANGELOG.md'
+          $history = [System.IO.File]::ReadAllText($changelogPath) -replace '\A# 更新日志\s*', ''
+          $nightlyLog = @('# 更新日志', '', "## $env:NIGHTLY_PACKAGE_VERSION Nightly ($date)") + $items + @('', $history)
+          # 只在 runner 中生成打包用日志，仓库中的正式版 CHANGELOG.md 保持原样。
+          [System.IO.File]::WriteAllText($changelogPath, ($nightlyLog -join "`n"), $encoding)
+          $releaseBody = @(
+            '**Nightly 自动构建(自签名证书)**', '',
+            "- 提交: $env:GITHUB_SHA",
+            "- 包版本: $env:NIGHTLY_PACKAGE_VERSION",
+            '- 配置: Release x86 + x64 + ARM64,自签名证书,启用 .NET Native',
+            '- 固定标签 nightly,每次构建覆盖更新', '',
+            "**更新日志（$baseline，共 $($commits.Count) 个提交）**", ''
+          ) + $items
+          [System.IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE 'nightly-release-notes.md'), ($releaseBody -join "`n"), $encoding)
+          Write-Host "Generated nightly changelog from $($commits.Count) commits ($baseline)."
+
       - name: Setup .NET
         if: steps.check.outputs.skip != 'true'
         uses: actions/setup-dotnet@v4
@@ -80,12 +226,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Restore NuGet
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /t:Restore /v:minimal /nologo
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x64 /t:Restore /v:minimal /nologo
-
       - name: Restore signing certificate (pfx)
         if: steps.check.outputs.skip != 'true'
         shell: bash
@@ -102,19 +242,49 @@ jobs:
         run: |
           echo "$CER_B64" | base64 -d > biliuwp-signing.cer
 
-      - name: Build UWP (Release x86+x64, signed)
+      - name: Build UWP (Release x86+x64+ARM64, signed)
         if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.APPX_SIGNING_PFX_PASSWORD }}
         run: |
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x86 /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
-          msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release /p:Platform=x64 /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= '/p:PackageCertificatePassword=${{ secrets.APPX_SIGNING_PFX_PASSWORD }}' /t:Build /v:minimal /nologo
+          foreach ($platform in @('x86', 'x64', 'ARM64')) {
+            # 条件包引用随平台变化，必须先还原当前平台再构建。
+            msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /t:Restore /v:minimal /nologo
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            msbuild BiliBili.UWP/BiliBili.UWP.csproj /p:Configuration=Release "/p:Platform=$platform" /p:AppxBundle=Never /p:BuildAppxUploadPackageForUap=false /p:AppxPackageSigningEnabled=true /p:PackageCertificateKeyFile=appx.pfx /p:PackageCertificateThumbprint= "/p:PackageCertificatePassword=$env:PACKAGE_CERTIFICATE_PASSWORD" /t:Build /v:minimal /nologo
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Locate installable packages
         id: packages
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
+        env:
+          EXPECTED_PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
         run: |
           $files = Get-ChildItem -Path . -Recurse -Include *.appx,*.appxbundle,*.msix,*.msixbundle -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'AppPackages' -and $_.FullName -notmatch 'Dependencies' }
           if (-not $files) { throw 'No installable packages found under AppPackages' }
+          foreach ($platform in @('x86', 'x64', 'ARM64')) {
+            if (-not ($files | Where-Object { $_.Name -match "_$platform\.(appx|msix)$" })) {
+              throw "No installable $platform package found under AppPackages"
+            }
+          }
+          # 检查包内实际版本，避免发布文件名正确但内容仍使用旧版本的安装包。
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($file in $files) {
+            $archive = [System.IO.Compression.ZipFile]::OpenRead($file.FullName)
+            try {
+              $entry = $archive.GetEntry('AppxManifest.xml')
+              if ($null -eq $entry) { throw "Missing AppxManifest.xml in $($file.Name)" }
+              $reader = [System.IO.StreamReader]::new($entry.Open())
+              try { [xml]$packageManifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+              if ($packageManifest.Package.Identity.Version -ne $env:EXPECTED_PACKAGE_VERSION -or
+                  $file.Name -notmatch "_$([regex]::Escape($env:EXPECTED_PACKAGE_VERSION))_") {
+                throw "Unexpected package version in $($file.Name); expected $env:EXPECTED_PACKAGE_VERSION"
+              }
+            } finally { $archive.Dispose() }
+          }
           # UWP MinVersion>=17763 默认产出 .msix,与 .appx 容器内部一致,重命名即可(微软官方确认)
           $renamed = @()
           foreach ($f in $files) {
@@ -125,33 +295,13 @@ jobs:
           $list = ($renamed | ForEach-Object { $_ -replace '\\','/' }) -join ','
           $cer = (Resolve-Path 'biliuwp-signing.cer').Path -replace '\\','/'
           "files=$list,$cer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          # 提取 x86/x64 文件名供 release body 安装命令引用(避免硬编码版本号)
+          # 提取各架构文件名供 release body 安装命令引用(避免硬编码版本号)
           $x86File = ($renamed | Where-Object { $_ -match '_x86\.appx$' } | Select-Object -First 1)
           $x64File = ($renamed | Where-Object { $_ -match '_x64\.appx$' } | Select-Object -First 1)
+          $arm64File = ($renamed | Where-Object { $_ -match '_ARM64\.appx$' } | Select-Object -First 1)
           if ($x86File) { "x86_file=$(Split-Path $x86File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
           if ($x64File) { "x64_file=$(Split-Path $x64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
-
-      - name: Get commits since latest release
-        id: commits
-        if: steps.check.outputs.skip != 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # 找最新正式版(非 prerelease 非 draft):releases/latest 端点语义明确,不依赖列表排序
-          latest=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name' 2>/dev/null || echo "none")
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
-          if [ "$latest" != "null" ] && [ -n "$latest" ] && git rev-parse -q --verify "$latest" >/dev/null 2>&1; then
-            count=$(git rev-list --count "$latest..HEAD")
-            list=$(git log --oneline "$latest..HEAD" | head -20)
-            echo "count=$count" >> "$GITHUB_OUTPUT"
-            echo "list<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$list" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
-          else
-            echo "count=0" >> "$GITHUB_OUTPUT"
-            echo "list=" >> "$GITHUB_OUTPUT"
-          fi
+          if ($arm64File) { "arm64_file=$(Split-Path $arm64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
 
       - name: Reset nightly release & tag
         if: steps.check.outputs.skip != 'true'
@@ -178,15 +328,7 @@ jobs:
         with:
           tag_name: nightly
           name: Nightly Build
-          body: |
-            **Nightly 自动构建(自签名证书)**
-
-            - 提交: `${{ github.sha }}`
-            - 配置: Release x86 + x64,自签名证书,启用 .NET Native
-            - 固定标签 `nightly`,每次构建覆盖更新
-
-            **相对正式版 ${{ steps.commits.outputs.latest }} 领先 ${{ steps.commits.outputs.count }} 个提交：**
-            ${{ steps.commits.outputs.list }}
+          body_path: nightly-release-notes.md
           files: ${{ steps.packages.outputs.files }}
           prerelease: true
           fail_on_unmatched_files: true
