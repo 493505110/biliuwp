@@ -1,6 +1,7 @@
 ﻿using BiliBili.UWP.Helper;
 using BiliBili.UWP.Modules;
 using BiliBili.UWP.Modules.LiveModels;
+using BiliBili.UWP.Modules.Playback;
 using BiliBili.UWP.Pages.User;
 using Microsoft.Toolkit.Uwp.UI.Extensions;
 using NSDanmaku.Model;
@@ -43,6 +44,7 @@ namespace BiliBili.UWP.Pages.Live
         public LiveRoomPC()
         {
             this.InitializeComponent();
+            media.SourceChanged += media_SourceChanged;
             this.Loaded += delegate { this.Focus(FocusState.Programmatic); };
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
             MessageCenter.Logined += MessageCenter_Logined;
@@ -115,6 +117,7 @@ namespace BiliBili.UWP.Pages.Live
         Account account;
         //加载播放地址中
         bool loadPlayurling = true;
+        private readonly PlaybackRequestGate liveUrlRequestGate = new PlaybackRequestGate();
         //打开弹幕
         bool openDanmu = true;
         //加载设置中
@@ -172,6 +175,7 @@ namespace BiliBili.UWP.Pages.Live
 
         protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
         {
+            liveUrlRequestGate.Invalidate();
             ReleaseSystemMediaTransportControls();
             if (e.NavigationMode == NavigationMode.Back||e.SourcePageType==typeof(BlankPage))
             {
@@ -355,10 +359,18 @@ namespace BiliBili.UWP.Pages.Live
         /// <param name="quality">清晰度</param>
         private async Task LoadPlayUrl(int quality = 0)
         {
+            int request = liveUrlRequestGate.Begin();
+            int requestedRoomId = roomId;
             loadPlayurling = true;
             try
             {
-                var playUrl = await liveRoom.GetRoomPlayurl(roomId, quality);
+                var playUrl = await liveRoom.GetRoomPlayurl(requestedRoomId, quality);
+                if (!IsLiveUrlRequestCurrent(request, requestedRoomId)) return;
+                if (playUrl.data?.requires_web_playback == true)
+                {
+                    await ShowDrmPlaybackAsync(request, requestedRoomId);
+                    return;
+                }
                 if (!playUrl.success || playUrl.data == null || playUrl.data.durl == null || playUrl.data.durl.Count == 0)
                 {
                     mediaLoading.Visibility = Visibility.Collapsed;
@@ -368,11 +380,11 @@ namespace BiliBili.UWP.Pages.Live
 
                 durls = playUrl.data.durl;
                 ConfigureLiveMediaOptions();
-                media.Source = durls[0].url;
                 cb_quality.ItemsSource = playUrl.data.quality_description;
                 cb_line.ItemsSource = playUrl.data.durl;
                 cb_line.SelectedIndex = 0;
                 cb_quality.SelectedIndex = playUrl.data.quality_description.FindIndex(x => x.qn == playUrl.data.current_qn);
+                media.SetSources(durls.Select(x => x.url), durls[0].url);
             }
             catch (Exception ex)
             {
@@ -382,16 +394,24 @@ namespace BiliBili.UWP.Pages.Live
             }
             finally
             {
-                loadPlayurling = false;
+                if (liveUrlRequestGate.IsCurrent(request)) loadPlayurling = false;
             }
         }
 
         private async Task ChangeQuality(int quality)
         {
+            int request = liveUrlRequestGate.Begin();
+            int requestedRoomId = roomId;
             loadPlayurling = true;
             try
             {
-                var playUrl = await liveRoom.GetRoomPlayurl(roomId, quality);
+                var playUrl = await liveRoom.GetRoomPlayurl(requestedRoomId, quality);
+                if (!IsLiveUrlRequestCurrent(request, requestedRoomId)) return;
+                if (playUrl.data?.requires_web_playback == true)
+                {
+                    await ShowDrmPlaybackAsync(request, requestedRoomId);
+                    return;
+                }
                 if (!playUrl.success || playUrl.data == null || playUrl.data.durl == null || playUrl.data.durl.Count == 0)
                 {
                     Utils.ShowMessageToast(playUrl.message ?? "清晰度切换失败");
@@ -400,9 +420,9 @@ namespace BiliBili.UWP.Pages.Live
 
                 durls = playUrl.data.durl;
                 ConfigureLiveMediaOptions();
-                media.Source = durls[0].url;
                 cb_line.ItemsSource = playUrl.data.durl;
                 cb_line.SelectedIndex = 0;
+                media.SetSources(durls.Select(x => x.url), durls[0].url);
             }
             catch (Exception ex)
             {
@@ -411,8 +431,23 @@ namespace BiliBili.UWP.Pages.Live
             }
             finally
             {
-                loadPlayurling = false;
+                if (liveUrlRequestGate.IsCurrent(request)) loadPlayurling = false;
             }
+        }
+
+        private bool IsLiveUrlRequestCurrent(int request, int requestedRoomId)
+        {
+            return liveUrlRequestGate.IsCurrent(request) && roomId == requestedRoomId && Frame?.Content == this;
+        }
+
+        private Task ShowDrmPlaybackAsync(int request, int requestedRoomId)
+        {
+            media.Source = null;
+            durls = null;
+            cb_line.ItemsSource = null;
+            cb_quality.ItemsSource = null;
+            mediaLoading.Visibility = Visibility.Collapsed;
+            return LivePlaybackDialog.ShowDrmAsync(requestedRoomId, () => IsLiveUrlRequestCurrent(request, requestedRoomId));
         }
 
         private void ConfigureLiveMediaOptions()
@@ -428,9 +463,17 @@ namespace BiliBili.UWP.Pages.Live
         /// </summary>
         private async void LoadRoundUrl()
         {
+            int request = liveUrlRequestGate.Begin();
+            int requestedRoomId = roomId;
             try
             {
-                var m = await liveRoom.GetRoundPlayurl(roomId);
+                var m = await liveRoom.GetRoundPlayurl(requestedRoomId);
+                if (!IsLiveUrlRequestCurrent(request, requestedRoomId)) return;
+                if (m.data?.requires_web_playback == true)
+                {
+                    await ShowDrmPlaybackAsync(request, requestedRoomId);
+                    return;
+                }
                 if (m.success)
                 {
                     txt_Title.Text = "[轮播]" + m.data.title;
@@ -1008,11 +1051,18 @@ namespace BiliBili.UWP.Pages.Live
         /// <param name="e"></param>
         private void cb_line_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (loadPlayurling)
+            if (loadPlayurling || durls == null || cb_line.SelectedIndex < 0 || cb_line.SelectedIndex >= durls.Count)
             {
                 return;
             }
-            media.Source = durls[cb_line.SelectedIndex].url;
+            var selectedSource = durls[cb_line.SelectedIndex].url;
+            if (selectedSource != media.Source) media.SetSources(durls.Select(x => x.url), selectedSource);
+        }
+
+        private void media_SourceChanged(object sender, RoutedEventArgs e)
+        {
+            int index = durls?.FindIndex(x => x.url == media.Source) ?? -1;
+            if (index >= 0) cb_line.SelectedIndex = index;
         }
         /// <summary>
         /// 清晰度切换

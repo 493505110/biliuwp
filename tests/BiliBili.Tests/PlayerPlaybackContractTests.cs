@@ -401,10 +401,10 @@ namespace BiliBili.Tests
             StringAssert.Contains(ffmpegFactory, "config.FFmpegOptions[\"referer\"]");
             StringAssert.Contains(ffmpegFactory, "config.FFmpegOptions[\"user_agent\"]");
 
-            StringAssert.Contains(ffmpegFactory, "FFmpegInteropLogging.SetLogLevel(LogLevel.Error);");
+            StringAssert.Contains(ffmpegFactory, "FFmpegInteropLogging.SetLogLevel(LogLevel.Warning);");
             StringAssert.Contains(ffmpegFactory, "FFmpegInteropLogging.SetLogProvider(logProvider);");
             StringAssert.Contains(ffmpegFactory, "FFmpegInteropLogging.SetDefaultLogProvider();");
-            StringAssert.Contains(ffmpegFactory, "FFmpeg DASH 原生日志");
+            StringAssert.Contains(ffmpegFactory, "FFmpeg 播放源原生日志");
 
             var dashFactory = ReadMethod(
                 "BiliBili.UWP/Helper/PlayurlHelper.cs",

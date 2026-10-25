@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\LivePlaybackSources.cs" Link="Production\LivePlaybackSources.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\LivePlaybackFallback.cs" Link="Production\LivePlaybackFallback.cs" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.18" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="MSTest.TestAdapter" Version="3.6.4" />

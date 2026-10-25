@@ -432,8 +432,11 @@
     <Compile Include="Helper\DynamicJObject.cs" />
     <Compile Include="Helper\ExceptionHandler.cs" />
     <Compile Include="Helper\FFmpegDashSource.cs" />
+    <Compile Include="Helper\LivePlaybackDialog.cs" />
     <Compile Include="Helper\LegacyPlayback.cs" />
     <Compile Include="Controls\LiveMediaElement.cs" />
+    <Compile Include="Modules\Playback\LivePlaybackSources.cs" />
+    <Compile Include="Modules\Playback\LivePlaybackFallback.cs" />
     <Compile Include="Helper\LogHelper.cs" />
     <Compile Include="Helper\CredentialVault.cs" />
     <Compile Include="Helper\DanmakuViewport.cs" />
@@ -1398,9 +1401,6 @@
     </PackageReference>
     <PackageReference Include="SYEngine.uwp" Condition="'$(Platform)' != 'ARM64'">
       <Version>1.0.7</Version>
-    </PackageReference>
-    <PackageReference Include="VLC.MediaElement" Condition="'$(Platform)' != 'ARM64'">
-      <Version>3.1.0.1</Version>
     </PackageReference>
     <PackageReference Include="ZXing.Net">
       <Version>0.16.5</Version>

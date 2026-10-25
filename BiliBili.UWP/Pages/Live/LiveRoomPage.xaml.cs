@@ -41,6 +41,7 @@ using Windows.Storage.Pickers;
 using Windows.Storage.AccessCache;
 using BiliBili.UWP.Modules;
 using BiliBili.UWP.Modules.LiveModels;
+using BiliBili.UWP.Modules.Playback;
 using BiliBili.UWP.Pages.User;
 
 // “空白页”项模板在 http://go.microsoft.com/fwlink/?LinkId=234238 上有介绍
@@ -53,10 +54,12 @@ namespace BiliBili.UWP.Pages
     public sealed partial class LiveRoomPage : Page
     {
         LiveRoom liveRoom;
+        private readonly PlaybackRequestGate liveUrlRequestGate = new PlaybackRequestGate();
         SystemMediaTransportControls _systemMediaTransportControls;
         public LiveRoomPage()
         {
             this.InitializeComponent();
+            mediaElement.SourceChanged += mediaElement_SourceChanged;
 
             liveRoom = new LiveRoom();
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
@@ -532,6 +535,7 @@ namespace BiliBili.UWP.Pages
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
+            liveUrlRequestGate.Invalidate();
             base.OnNavigatedFrom(e);
             if (dispRequest != null)
             {
@@ -724,6 +728,7 @@ namespace BiliBili.UWP.Pages
         string nowQn = "";
         private async void GetPlayUrl(int qn = 0)
         {
+            int request = liveUrlRequestGate.Begin();
             try
             {
                 playUrlloading = true;
@@ -737,7 +742,14 @@ namespace BiliBili.UWP.Pages
                 mediaElement.HardwareAcceleration = SettingHelper.Get_ForceVideo();
                 pr_Load.Visibility = Visibility.Visible;
                 string cid = _roomid;
-                var playResult = await liveRoom.GetRoomPlayurl(Convert.ToInt32(cid), qn);
+                int requestedRoomId = Convert.ToInt32(cid);
+                var playResult = await liveRoom.GetRoomPlayurl(requestedRoomId, qn);
+                if (!IsLiveUrlRequestCurrent(request, requestedRoomId)) return;
+                if (playResult.data?.requires_web_playback == true)
+                {
+                    await ShowDrmPlaybackAsync(request, requestedRoomId);
+                    return;
+                }
                 if (!playResult.success)
                 {
                     Utils.ShowMessageToast(playResult.message, 3000);
@@ -775,6 +787,9 @@ namespace BiliBili.UWP.Pages
                     }
                     cb_Source.ItemsSource = ls;
                     cb_Source.SelectedIndex = 0;
+                    mediaElement.Options["http-referrer"] = "https://live.bilibili.com/" + _roomid;
+                    mediaElement.Options["http-user-agent"] = "Mozilla/5.0 BiliDroid/1.12.0 (bbcallen@gmail.com)";
+                    mediaElement.SetSources(ls.Select(x => x.url), ls[0].url);
                 }
 
                 // string playUrl = Regex.Match(results, "<url>(.*?)</url>").Groups[1].Value;
@@ -794,9 +809,27 @@ namespace BiliBili.UWP.Pages
             }
             finally
             {
-                playUrlloading = false;
-                pr_Load.Visibility = Visibility.Collapsed;
+                if (liveUrlRequestGate.IsCurrent(request))
+                {
+                    playUrlloading = false;
+                    pr_Load.Visibility = Visibility.Collapsed;
+                }
             }
+        }
+
+        private bool IsLiveUrlRequestCurrent(int request, int requestedRoomId)
+        {
+            return liveUrlRequestGate.IsCurrent(request) && int.TryParse(_roomid, out var currentRoomId)
+                && currentRoomId == requestedRoomId && Frame?.Content == this;
+        }
+
+        private Task ShowDrmPlaybackAsync(int request, int requestedRoomId)
+        {
+            mediaElement.Source = null;
+            cb_Source.ItemsSource = null;
+            cb_Quality.ItemsSource = null;
+            pr_Load.Visibility = Visibility.Collapsed;
+            return LivePlaybackDialog.ShowDrmAsync(requestedRoomId, () => IsLiveUrlRequestCurrent(request, requestedRoomId));
         }
         public class LiveQualityModel
         {
@@ -822,10 +855,18 @@ namespace BiliBili.UWP.Pages
 
         private async void SetRoundPlayUrl()
         {
+            int request = liveUrlRequestGate.Begin();
             try
             {
                 pr_Load.Visibility = Visibility.Visible;
-                var result = await liveRoom.GetRoundPlayurl(Convert.ToInt32(_roomid));
+                int requestedRoomId = Convert.ToInt32(_roomid);
+                var result = await liveRoom.GetRoundPlayurl(requestedRoomId);
+                if (!IsLiveUrlRequestCurrent(request, requestedRoomId)) return;
+                if (result.data?.requires_web_playback == true)
+                {
+                    await ShowDrmPlaybackAsync(request, requestedRoomId);
+                    return;
+                }
                 if (result.success && result.data.data.durl.Count > 0)
                 {
                     mediaElement.Source = result.data.data.durl[0].url;
@@ -843,7 +884,7 @@ namespace BiliBili.UWP.Pages
             }
             finally
             {
-                pr_Load.Visibility = Visibility.Collapsed;
+                if (liveUrlRequestGate.IsCurrent(request)) pr_Load.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -1018,12 +1059,22 @@ namespace BiliBili.UWP.Pages
 
         private void cb_Source_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (cb_Source.SelectedItem == null)
+            if (playUrlloading || cb_Source.SelectedItem == null)
             {
                 return;
             }
             string playUrl = (cb_Source.SelectedItem as LiveUrlListModel).url;
-            mediaElement.Source = playUrl;
+            if (playUrl != mediaElement.Source && cb_Source.ItemsSource is IEnumerable<LiveUrlListModel> urls)
+                mediaElement.SetSources(urls.Select(x => x.url), playUrl);
+        }
+
+        private void mediaElement_SourceChanged(object sender, RoutedEventArgs e)
+        {
+            if (cb_Source.ItemsSource is IEnumerable<LiveUrlListModel> urls)
+            {
+                int index = urls.ToList().FindIndex(x => x.url == mediaElement.Source);
+                if (index >= 0) cb_Source.SelectedIndex = index;
+            }
         }
 
 

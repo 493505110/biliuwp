@@ -1,14 +1,13 @@
 using BiliBili.UWP.Helper;
+using BiliBili.UWP.Modules.Playback;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Windows.Media.Playback;
+using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
-#if ARM64
-using Windows.Media.Playback;
-using Windows.UI.Core;
-#endif
 
 namespace BiliBili.UWP.Controls
 {
@@ -18,19 +17,17 @@ namespace BiliBili.UWP.Controls
         public LiveMediaFailedEventArgs(string message) { ErrorMessage = message; }
     }
 
-    // 保留直播页的操作接口，ARM64 使用有原生实现的 FFmpegInteropX。
+    // 保留直播页的操作接口，各平台统一使用 MediaPlayer 和 FFmpegInteropX。
     public sealed class LiveMediaElement : UserControl
     {
         public event RoutedEventHandler CurrentStateChanged;
         public event RoutedEventHandler MediaEnded;
         public event EventHandler<LiveMediaFailedEventArgs> MediaFailed;
-#if ARM64
+        public event RoutedEventHandler SourceChanged;
         public IDictionary<string, object> Options { get; } = new Dictionary<string, object>();
-#else
-        public IDictionary<string, object> Options => player.Options;
-#endif
         private string source;
-#if ARM64
+        private List<string> sources = new List<string>();
+        private LivePlaybackFallback fallback;
         private readonly MediaPlayerElement element = new MediaPlayerElement { AreTransportControlsEnabled = false };
         private MediaPlayer player;
         private FFmpegDashSource ffmpegSource;
@@ -40,13 +37,9 @@ namespace BiliBili.UWP.Controls
         private bool playRequested;
         private bool isMuted;
         private MediaElementState currentState = MediaElementState.Closed;
-#else
-        private readonly VLC.MediaElement player = new VLC.MediaElement();
-#endif
 
         public LiveMediaElement()
         {
-#if ARM64
             Content = element;
             Loaded += (s, e) =>
             {
@@ -58,12 +51,6 @@ namespace BiliBili.UWP.Controls
                 unloaded = true;
                 Stop();
             };
-#else
-            Content = player;
-            player.CurrentStateChanged += (s, e) => CurrentStateChanged?.Invoke(this, e);
-            player.MediaEnded += (s, e) => MediaEnded?.Invoke(this, e);
-            player.MediaFailed += (s, e) => MediaFailed?.Invoke(this, new LiveMediaFailedEventArgs(e.ErrorMessage));
-#endif
         }
 
         public string Source
@@ -71,15 +58,16 @@ namespace BiliBili.UWP.Controls
             get => source;
             set
             {
-                source = value;
-#if ARM64
-                playRequested = AutoPlay;
-                StartSource();
-#else
-                player.Source = value;
-                if (value == null) player.MediaSource = null;
-#endif
+                SetSources(string.IsNullOrEmpty(value) ? new string[0] : new[] { value }, value);
             }
+        }
+
+        public void SetSources(IEnumerable<string> urls, string selectedSource)
+        {
+            sources = new List<string>(urls);
+            source = selectedSource;
+            playRequested = AutoPlay;
+            StartSource();
         }
 
         public static readonly DependencyProperty VolumeProperty = DependencyProperty.Register(
@@ -94,61 +82,28 @@ namespace BiliBili.UWP.Controls
         private static void OnVolumeChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
         {
             var control = (LiveMediaElement)sender;
-#if ARM64
             if (control.player != null) control.player.Volume = Math.Max(0, Math.Min(1, control.Volume / 100));
-#else
-            control.player.Volume = (int)control.Volume;
-#endif
         }
 
-#if ARM64
         public bool AutoPlay { get; set; } = true;
         public bool HardwareAcceleration { get; set; } = true;
-#else
-        public bool AutoPlay
-        {
-            get => player.AutoPlay;
-            set => player.AutoPlay = value;
-        }
-
-        public bool HardwareAcceleration
-        {
-            get => player.HardwareAcceleration;
-            set => player.HardwareAcceleration = value;
-        }
-#endif
 
         public bool IsMuted
         {
-#if ARM64
             get => isMuted;
             set { isMuted = value; if (player != null) player.IsMuted = value; }
-#else
-            get => player.IsMuted;
-            set => player.IsMuted = value;
-#endif
         }
 
         public MediaElementState CurrentState
         {
-#if ARM64
             get => currentState;
-#else
-            get => player.CurrentState;
-#endif
         }
 
         public uint VideoWidth
         {
             get
             {
-#if ARM64
                 return player?.PlaybackSession.NaturalVideoWidth ?? 0;
-#else
-                uint width, height;
-                player.MediaPlayer.size(0, out width, out height);
-                return width;
-#endif
             }
         }
 
@@ -156,42 +111,34 @@ namespace BiliBili.UWP.Controls
         {
             get
             {
-#if ARM64
                 return player?.PlaybackSession.NaturalVideoHeight ?? 0;
-#else
-                uint width, height;
-                player.MediaPlayer.size(0, out width, out height);
-                return height;
-#endif
             }
         }
 
         public void Play()
         {
-#if ARM64
             playRequested = true;
             if (player?.Source != null) player.Play();
             else if (!opening) StartSource();
-#else
-            player.Play();
-#endif
         }
 
         public void Pause()
         {
-#if ARM64
             playRequested = false;
             player?.Pause();
-#else
-            player.Pause();
-#endif
         }
 
         public void Stop()
         {
-#if ARM64
             ++sourceVersion;
             opening = false;
+            fallback = null;
+            ReleasePlayer();
+            SetState(MediaElementState.Stopped);
+        }
+
+        private void ReleasePlayer()
+        {
             if (player != null)
             {
                 var oldPlayer = player;
@@ -203,35 +150,47 @@ namespace BiliBili.UWP.Controls
             }
             ffmpegSource?.Dispose();
             ffmpegSource = null;
-            SetState(MediaElementState.Stopped);
-#else
-            player.Stop();
-#endif
         }
 
-#if ARM64
         private void StartSource()
         {
             Stop();
             if (!unloaded && !string.IsNullOrEmpty(source))
             {
-                opening = true;
-                _ = LoadSourceAsync(source, sourceVersion);
+                fallback = new LivePlaybackFallback(sources, source);
+                _ = LoadSourceAsync(fallback, sourceVersion);
             }
         }
 
-        private async Task LoadSourceAsync(string url, int version)
+        private bool IsCurrent(LivePlaybackFallback request, int version)
+        {
+            return version == sourceVersion && !unloaded && fallback == request;
+        }
+
+        private async Task LoadSourceAsync(LivePlaybackFallback request, int version)
         {
             FFmpegDashSource createdSource = null;
             try
             {
+                if (!IsCurrent(request, version)) return;
+                opening = true;
                 SetState(MediaElementState.Opening);
+#if !FFMPEG_INTEROP_SUPPORTED
+                throw new PlatformNotSupportedException("当前架构不支持 FFmpegInteropX 直播播放，请使用 x86、x64 或 ARM64 版本");
+#else
                 Options.TryGetValue("http-referrer", out var referer);
                 Options.TryGetValue("http-user-agent", out var userAgent);
-                createdSource = await FFmpegDashSource.CreateAsync(
-                    url, null, !HardwareAcceleration, referer?.ToString(), userAgent?.ToString());
-                if (version != sourceVersion || unloaded) return;
-                if (createdSource == null) throw new InvalidOperationException("无法创建直播播放源");
+                var softwareDecode = !HardwareAcceleration;
+                createdSource = await request.OpenNextAsync(
+                    url => FFmpegDashSource.CreateAsync(url, null, softwareDecode,
+                        referer?.ToString(), userAgent?.ToString(), isLive: true),
+                    () => IsCurrent(request, version),
+                    url =>
+                    {
+                        source = url;
+                        SourceChanged?.Invoke(this, new RoutedEventArgs());
+                    });
+                if (!IsCurrent(request, version) || createdSource == null) return;
                 if (player == null)
                 {
                     player = new MediaPlayer { AutoPlay = false };
@@ -257,8 +216,14 @@ namespace BiliBili.UWP.Controls
                     });
                     player.MediaFailed += async (s, e) => await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                     {
-                        if (player == currentPlayer && player.Source != null)
-                            MediaFailed?.Invoke(this, new LiveMediaFailedEventArgs(e.ErrorMessage));
+                        if (player != currentPlayer || player.Source == null || !IsCurrent(request, version)) return;
+                        var error = new LivePlaybackException("播放直播源失败（" + e.Error + "，HRESULT=0x"
+                            + (e.ExtendedErrorCode?.HResult ?? unchecked((int)0x80004005)).ToString("X8") + "）\r\n"
+                            + FFmpegDashSource.RedactQueryString(e.ErrorMessage ?? "未知错误"), e.ExtendedErrorCode);
+                        request.ReportFailure(error);
+                        LogHelper.WriteLog(error.Message, LogType.ERROR);
+                        ReleasePlayer();
+                        _ = LoadSourceAsync(request, version);
                     });
                     element.SetMediaPlayer(player);
                 }
@@ -268,19 +233,30 @@ namespace BiliBili.UWP.Controls
                 createdSource = null;
                 player.Source = ffmpegSource.CreateVideoPlaybackItem();
                 if (playRequested) player.Play();
+#endif
             }
             catch (Exception ex)
             {
-                if (version == sourceVersion && !unloaded)
+                if (IsCurrent(request, version))
                 {
                     Stop();
-                    MediaFailed?.Invoke(this, new LiveMediaFailedEventArgs(ex.Message));
+                    var message = ex.Message + "\r\nHRESULT=0x" + ex.HResult.ToString("X8");
+                    LogHelper.WriteLog(message, LogType.ERROR);
+                    MediaFailed?.Invoke(this, new LiveMediaFailedEventArgs(message));
                 }
             }
             finally
             {
                 createdSource?.Dispose();
-                if (version == sourceVersion) opening = false;
+                if (IsCurrent(request, version)) opening = false;
+            }
+        }
+
+        private sealed class LivePlaybackException : Exception
+        {
+            public LivePlaybackException(string message, Exception inner) : base(message, inner)
+            {
+                HResult = inner?.HResult ?? unchecked((int)0x80004005);
             }
         }
 
@@ -290,6 +266,5 @@ namespace BiliBili.UWP.Controls
             currentState = state;
             CurrentStateChanged?.Invoke(this, new RoutedEventArgs());
         }
-#endif
     }
 }

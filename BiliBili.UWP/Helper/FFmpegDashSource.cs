@@ -34,10 +34,8 @@ namespace BiliBili.UWP.Helper
 
                 lock (messages)
                 {
-                    if (messages.Count < 20)
-                    {
-                        messages.Add(RedactQueryString(message));
-                    }
+                    if (messages.Count == 20) messages.RemoveAt(0);
+                    messages.Add(RedactQueryString(message));
                 }
             }
         }
@@ -51,7 +49,8 @@ namespace BiliBili.UWP.Helper
 
         public static async Task<FFmpegDashSource> CreateAsync(string videoUrl, string audioUrl,
             bool forceSoftwareDecode = true, string referer = "https://www.bilibili.com",
-            string userAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 Chrome/69.0.3497.100 Safari/537.36")
+            string userAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 Chrome/69.0.3497.100 Safari/537.36",
+            bool isLive = false)
         {
 #if FFMPEG_INTEROP_SUPPORTED
             if (!IsHttpUrl(videoUrl))
@@ -70,6 +69,7 @@ namespace BiliBili.UWP.Helper
             bool logProviderSet = false;
             FFmpegMediaSource createdVideoSource = null;
             FFmpegMediaSource createdAudioSource = null;
+            string stage = "初始化播放源";
             // FFmpegInteropX 日志设置为进程级全局状态,并发创建会互相摘掉对方的日志提供器,
             // 用锁串行化"日志设置+源创建",确保原生日志可追溯
             await createLock.WaitAsync();
@@ -85,24 +85,32 @@ namespace BiliBili.UWP.Helper
                 config.FFmpegOptions["reconnect"] = 1;
                 config.FFmpegOptions["reconnect_streamed"] = 1;
                 config.FFmpegOptions["reconnect_on_network_error"] = 1;
+                if (isLive)
+                {
+                    // 单条线路的网络等待必须有界，才能尝试其他 CDN 或 HLS 源。
+                    config.FFmpegOptions["rw_timeout"] = 10000000L;
+                    config.FFmpegOptions["reconnect_max_retries"] = 1;
+                    config.FFmpegOptions["reconnect_delay_max"] = 2;
+                }
 
-                FFmpegInteropLogging.SetLogLevel(LogLevel.Error);
+                FFmpegInteropLogging.SetLogLevel(LogLevel.Warning);
                 FFmpegInteropLogging.SetLogProvider(logProvider);
                 logProviderSet = true;
+                stage = isLive ? "打开直播源" : "打开视频源";
                 createdVideoSource = await FFmpegMediaSource.CreateFromUriAsync(videoUrl, config);
                 if (createdVideoSource == null)
                 {
-                    return null;
+                    throw new InvalidOperationException("无法创建视频播放源");
                 }
                 if (!withAudio)
                 {
                     return new FFmpegDashSource(createdVideoSource, null);
                 }
+                stage = "打开音频源";
                 createdAudioSource = await FFmpegMediaSource.CreateFromUriAsync(audioUrl, config);
                 if (createdAudioSource == null)
                 {
-                    createdVideoSource.Dispose();
-                    return null;
+                    throw new InvalidOperationException("无法创建音频播放源");
                 }
                 return new FFmpegDashSource(createdVideoSource, createdAudioSource);
             }
@@ -114,12 +122,13 @@ namespace BiliBili.UWP.Helper
                     nativeLog = string.Join(" | ", nativeLogs);
                 }
                 LogHelper.WriteLog(
-                    "FFmpeg DASH 原生日志（HRESULT=0x" + ex.HResult.ToString("X8") + "）: " +
+                    "FFmpeg 播放源原生日志（" + stage + "，HRESULT=0x" + ex.HResult.ToString("X8") + "）: " +
                     (string.IsNullOrWhiteSpace(nativeLog) ? "<empty>" : nativeLog),
                     LogType.ERROR);
                 createdAudioSource?.Dispose();
                 createdVideoSource?.Dispose();
-                throw;
+                throw new SourceException(stage + "失败（HRESULT=0x" + ex.HResult.ToString("X8") + "）\r\n"
+                    + RedactQueryString(ex.Message) + (string.IsNullOrWhiteSpace(nativeLog) ? string.Empty : "\r\n" + nativeLog), ex);
             }
             finally
             {
@@ -141,14 +150,22 @@ namespace BiliBili.UWP.Helper
                 && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
         }
 
-        private static string RedactQueryString(string message)
+        private sealed class SourceException : Exception
+        {
+            public SourceException(string message, Exception inner) : base(message, inner)
+            {
+                HResult = inner.HResult;
+            }
+        }
+#endif
+
+        internal static string RedactQueryString(string message)
         {
             var queryIndex = message.IndexOf('?');
             return queryIndex < 0
                 ? message.Trim()
                 : message.Substring(0, queryIndex + 1).Trim() + "<redacted>";
         }
-#endif
 
         public MediaPlaybackItem CreateVideoPlaybackItem()
         {

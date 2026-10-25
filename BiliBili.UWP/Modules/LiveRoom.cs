@@ -3,6 +3,7 @@ using BiliBili.UWP.Api;
 using BiliBili.UWP.Api.Live;
 using BiliBili.UWP.Models;
 using BiliBili.UWP.Modules.LiveModels;
+using BiliBili.UWP.Modules.Playback;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -348,69 +349,29 @@ namespace BiliBili.UWP.Modules
                         durl = new List<Durl>(),
                         quality_description = play?["g_qn_desc"]?.ToObject<List<quality_description_item>>() ?? new List<quality_description_item>()
                     };
-                    var streams = play?["stream"] as JArray;
-                    if (streams != null)
+                    var sources = LivePlaybackSources.FromPlayInfo(play, quality);
+                    if (sources.Urls.Count == 0 && !sources.RequiresWebPlayback
+                        && root["data"]?.Value<int?>("live_status") != 0)
                     {
-                        var preferredCodecs = new List<JToken>();
-                        var fallbackCodecs = new List<JToken>();
-                        foreach (var stream in streams)
+                        // 常规响应可能只暴露未推流的明文源；没有可播源时再检查加密源元数据。
+                        var metadataResponse = await LiveRoomAPI.GetRoomPlayInfo(roomid, quality, includeDrmMetadata: true).Request();
+                        var metadataRoot = metadataResponse.GetJObject();
+                        if (metadataResponse.status && metadataRoot?.Value<int?>("code") == 0)
                         {
-                            var isHttpFlv = string.Equals(stream.Value<string>("protocol_name"), "http_stream", StringComparison.OrdinalIgnoreCase);
-                            var formats = stream["format"] as JArray;
-                            if (formats == null) continue;
-                            foreach (var format in formats)
-                            {
-                                var isFlv = string.Equals(format.Value<string>("format_name"), "flv", StringComparison.OrdinalIgnoreCase);
-                                var codecs = format["codec"] as JArray;
-                                if (codecs == null) continue;
-                                foreach (var codec in codecs)
-                                {
-                                    if (!string.Equals(codec.Value<string>("codec_name"), "avc", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        continue;
-                                    }
-                                    if (isHttpFlv && isFlv)
-                                    {
-                                        preferredCodecs.Add(codec);
-                                    }
-                                    else
-                                    {
-                                        fallbackCodecs.Add(codec);
-                                    }
-                                }
-                            }
-                        }
-
-                        var codecsToUse = preferredCodecs.Count > 0 ? preferredCodecs : fallbackCodecs;
-                        int currentQuality = quality > 0 ? quality : 10000;
-                        int line = 1;
-                        foreach (var codec in codecsToUse)
-                        {
-                            m.current_qn = codec.Value<int?>("current_qn") ?? currentQuality;
-                            var baseUrl = codec.Value<string>("base_url") ?? string.Empty;
-                            var urlInfos = codec["url_info"] as JArray;
-                            if (urlInfos == null) continue;
-                            foreach (var urlInfo in urlInfos)
-                            {
-                                var url = BuildLiveStreamUrl(urlInfo, baseUrl);
-                                if (string.IsNullOrEmpty(url) || m.durl.Any(x => x.url == url))
-                                {
-                                    continue;
-                                }
-                                m.durl.Add(new Durl
-                                {
-                                    url = url,
-                                    display = "线路" + line++
-                                });
-                            }
+                            var inspected = LivePlaybackSources.FromPlayInfo(metadataRoot["data"]?["playurl_info"]?["playurl"], quality);
+                            if (inspected.RequiresWebPlayback) sources = inspected;
                         }
                     }
+                    m.current_qn = sources.Quality;
+                    m.requires_web_playback = sources.RequiresWebPlayback;
+                    m.durl = sources.Urls.Select((url, index) => new Durl { url = url, display = "线路" + (index + 1) }).ToList();
                     if (m.durl.Count == 0)
                     {
                         return new ReturnModel<LivePlayUrlsModel>
                         {
                             success = false,
-                            message = "未获取到可用的直播流"
+                            message = m.requires_web_playback ? LivePlaybackSources.DrmMessage : "未获取到可用的直播流",
+                            data = m
                         };
                     }
                     return new ReturnModel<LivePlayUrlsModel>()
@@ -436,23 +397,6 @@ namespace BiliBili.UWP.Modules
             }
         }
 
-        private static string BuildLiveStreamUrl(JToken urlInfo, string baseUrl)
-        {
-            var host = urlInfo?.Value<string>("host") ?? string.Empty;
-            var extra = urlInfo?.Value<string>("extra") ?? string.Empty;
-            if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(baseUrl))
-            {
-                return string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(extra) || baseUrl.EndsWith("?") || baseUrl.EndsWith("&"))
-            {
-                return host + baseUrl + extra;
-            }
-
-            return host + baseUrl + (baseUrl.Contains("?") ? "&" : "?") + extra;
-        }
-
 
         public async Task<ReturnModel<RoundModel>> GetRoundPlayurl(int roomid)
         {
@@ -462,7 +406,8 @@ namespace BiliBili.UWP.Modules
                 return new ReturnModel<RoundModel>
                 {
                     success = false,
-                    message = play.message
+                    message = play.message,
+                    data = new RoundModel { requires_web_playback = play.data?.requires_web_playback == true }
                 };
             }
             return new ReturnModel<RoundModel>
@@ -1770,6 +1715,7 @@ namespace BiliBili.UWP.Modules
 
         public class LivePlayUrlsModel
         {
+            public bool requires_web_playback { get; set; }
             /// <summary>
             /// Durl
             /// </summary>
@@ -1913,6 +1859,7 @@ namespace BiliBili.UWP.Modules
 
         public class RoundModel
         {
+            public bool requires_web_playback { get; set; }
             /// <summary>
             /// Cid
             /// </summary>

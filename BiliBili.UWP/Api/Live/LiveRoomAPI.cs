@@ -181,14 +181,16 @@ namespace BiliBili.UWP.Api.Live
             };
         }
 
-        public static ApiModel GetRoomPlayInfo(int roomId, int quality)
+        public static ApiModel GetRoomPlayInfo(int roomId, int quality, bool includeDrmMetadata = false)
         {
             var requestedQuality = quality > 0 ? quality : 10000;
             return new ApiModel
             {
                 method = HttpMethod.GET,
                 baseUrl = RoomPlayInfoUrl,
-                parameter = "room_id=" + roomId + "&protocol=0,1&format=0,1,2&codec=0&qn=" + requestedQuality + "&platform=web&ptype=8&web_location=444.8",
+                // DRM 能力参数仅用于诊断，不代表客户端可以播放对应的加密源。
+                parameter = "room_id=" + roomId + "&protocol=0,1&format=0,1,2&codec=0&qn=" + requestedQuality + "&platform=web&ptype=8&web_location=444.8"
+                    + (includeDrmMetadata ? "&supported_drms=0,1,2,3" : string.Empty),
                 headers = GetWebHeaders(),
                 useWbi = true
             };

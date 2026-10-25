@@ -1623,11 +1623,8 @@ namespace BiliBili.UWP.Helper
         /// 使用Html5播放器播放，暂时无效
         /// </summary>
         Html5,
-        /// <summary>
-        /// 使用VLC播放
-        /// </summary>
-        VLC,
-        Dash,
+        // 保留原有数值，3 为已移除的历史播放模式。
+        Dash = 4,
         FFmpegDash,
         FFmpeg
     }

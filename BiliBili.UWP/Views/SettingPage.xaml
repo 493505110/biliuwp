@@ -858,8 +858,7 @@
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextSelectionEnabled="True"  TextWrapping="Wrap">BililiveRecorder(https://github.com/Bililive/BililiveRecorder)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">you-get(https://github.com/soimort/you-get)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">SYEngine(https://github.com/amamiya/SYEngine)</TextBlock>
-                        <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">VLC.MediaElement(https://github.com/kakone/VLC.MediaElement)</TextBlock>
-                        <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">VLC(https://code.videolan.org/videolan/vlc-winrt)</TextBlock>
+                        <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">FFmpegInteropX(https://github.com/ffmpeginteropx/FFmpegInteropX)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">AppStudio.Uwp(https://github.com/wasteam/waslibs)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">bilijump-ai(https://github.com/qingmeng1/bilijump-ai)</TextBlock>
                         <TextBlock Foreground="Gray" VerticalAlignment="Center" IsTextScaleFactorEnabled="True" TextWrapping="Wrap">bas(https://github.com/Bilibili/bas)</TextBlock>
