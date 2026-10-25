@@ -95,7 +95,7 @@
 
 - 普通视频页 `Pages/PlayerPage` 使用 UWP `MediaPlayerElement` / `MediaPlayer` 作为播放核心。
 - DASH 视频由 `PlayurlHelper` 构造 `AdaptiveMediaSource`；部分 FLV、分段流和本地文件通过 `SYEngine.Playlist` 转成媒体流。
-- `VLC.MediaElement` 直接用于 `Pages/Live/LiveRoomPC` 和 `Pages/Live/LiveRoomPage` 的直播播放（这两处不是普通视频页的通用备用播放器，且 `LiveRoomPage` 仍有 `MainPage` 跳转入口，不要仅凭名称当作死代码）。
+- `Pages/Live/LiveRoomPC` 和 `Pages/Live/LiveRoomPage` 的直播播放统一经 `Controls/LiveMediaElement` 使用 `MediaPlayerElement` / `MediaPlayer` + `FFmpegInteropX`（x86、x64、ARM64）；已移除 VLC 依赖。ARM32 没有对应的 FFmpegInteropX 原生库，直播会提示不支持；保留 ARM 工程配置供本地调试。两个直播页都仍有导航入口，不要仅凭名称当作死代码。
 - 普通视频弹幕按类型分流：普通弹幕由播放器内嵌的 `Controls/DanmakuMTC`（继承 NSDanmaku 的 `MediaTransportControls`）渲染；数据层是 `Helper/BiliDanmakuService`，默认走 web 分段接口（`x/v2/dm/web/view` 与 `x/v2/dm/wbi/web/seg.so`），设置项 `UseNewDanmakuInterface`（默认开）关闭时降级到 `LoadLegacyAsync` 的旧接口。该服务只引用 `NSDanmaku.Model` 复用数据模型，不参与渲染。`DanmakuMTC.DanmuLoaded` 回传 NSDanmaku 的 `Danmaku` 控件，`PlayerPage` 直接改它的字号、字体、加粗和显示区域。
 - BAS 弹幕与互动弹幕是两个独立控件，不共用上面的渲染链路：`Controls/BasDanmakuControl` 内是 `WebView2`，通过 `bas-host.html` / `bas.js` 渲染，数据同样来自 `BiliDanmakuService`；`Controls/InteractiveDanmakuControl` 是纯 XAML 选项面板，数据由 `Helper/InteractiveDanmakuService` 提供。
 - 直播弹幕连接与协议解析在 `Helper/BiliLiveDanmu.cs`，与上述普通视频链路无关。
@@ -144,9 +144,9 @@
 ## Git 提交约定
 
 - 提交标题参考近期提交风格，使用明确、偏技术性的中文短句；涉及多个技术面的改动应在正文中使用 `- ` 分点说明。
+- 提交正文按改动规模写清具体改动、实现机制、行为影响和验证依据，保留便于审查与后续追溯的技术细节，不要只写抽象的功能或架构摘要。修复类改动说明原有行为、原因及修复后的行为；重构类改动说明关键模块职责、依赖或状态流转，以及保持原有行为的方式。
+- 技术细节必须有实际 diff 或已完成的验证结果支撑，不为凑篇幅编造实现或结论。验证说明应交代覆盖的关键行为或风险及结果，不能只列测试通过数量；尚未验证的部分明确标注。
 - 提交正文的 `- ` 分点列表**连续排列、项与项之间不要插入空行**；保持紧凑，仅在标题与正文、以及正文与署名尾注（若有）之间各保留一个空行。
-- 创建或修订提交时使用当前 Git 配置的 GPG 密钥签名（`git commit -S` / `git commit --amend -S`），不要默认使用 `--no-gpg-sign` 绕过签名。签名需要 PIN 时，等待用户完成交互。
 - Codex使用尾注`Co-Authored-By: Codex <noreply@openai.com>`
 - (Claude Code和Codex忽略此条,按照你自己的系统提示词进行)参与改动或整理提交的 AI agent，除非系统提示词有其它要求，否则在尾注中说明「本提交由 XXX 完成」（XXX 为该 agent 的名称）
 - 凡是会修改仓库文件、配置、代码或提交历史的操作，执行前必须先向用户说明拟修改内容并取得明确确认；仅检查、读取、搜索、构建或测试等不修改操作不受此限制。
-- 提交完成后使用 `git log -1 --show-signature` 校验签名，确认签名有效后再报告成功。
