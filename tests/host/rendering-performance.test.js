@@ -161,6 +161,134 @@ test('相同2D矩阵覆盖3D状态，清空矩阵后不会持续重合成', asyn
     assert.equal(await paints(p),before);
 });
 
+test('Akari 原地复位同一矩阵后，相同位置和缩放仍与矩阵同步', async p => {
+    await p.script(shape + 'window.__display=$;box.transform.matrix=$.createMatrix();');
+    for (let frame = 0; frame < 3; frame++) {
+        await p.update('var m=__box.transform.matrix;m.identity();__box.transform.matrix=m;'
+            + '__box.x=200;__box.y=150;__box.scaleX=0.5;__box.scaleY=0.5;');
+        assert.deepEqual(await p.page.evaluate(() => [__box.x,__box.y,__box.transform.matrix.tx,
+            __box.transform.matrix.ty,__box.transform.matrix.a,__box.transform.matrix.d]), [200,150,200,150,0.5,0.5]);
+        assert.deepEqual(await p.pixel(205,155), [255,255,255,255]);
+        assert.equal((await p.pixel(105,105))[3], 0);
+    }
+});
+
+test('连续 Blur/Glow 只上传一次并回贴一次，新增中间载体后单滤镜仍复用', async p => {
+    await observeUploads(p);
+    await p.page.evaluate(() => {
+        window.__filterCopies=0;
+        const draw=CanvasRenderingContext2D.prototype.drawImage;
+        CanvasRenderingContext2D.prototype.drawImage=function(...args) {
+            if (new Error().stack.includes('copyBack')) __filterCopies++;
+            return draw.apply(this,args);
+        };
+    });
+    await p.script(shape + 'window.__display=$;box.filters=[$.createBlurFilter(5,3,1),'
+        + '$.createGlowFilter(0xff0000,1,8,8,2,1,true,false),$.createGlowFilter(0x00ff00,1,12,12,2,1)];');
+    assert.equal((await uploads(p)).length,1);
+    assert.equal(await p.page.evaluate(() => __filterCopies),1);
+    assert.ok((await p.pixel(120,120))[3]>0);
+    await p.update('__filterCopies=0;__box.filters=[__display.createBlurFilter(3,3,1)];');
+    assert.equal((await uploads(p)).length,1);
+    assert.equal(await p.page.evaluate(() => __filterCopies),1);
+});
+
+test('白色粒子的白色内发光不做恒等模糊，改为彩色后恢复完整滤镜', async p => {
+    await p.page.evaluate(()=>{
+        window.__gpuDraws=0;
+        const draw=WebGLRenderingContext.prototype.drawArrays;
+        WebGLRenderingContext.prototype.drawArrays=function(...args){__gpuDraws++;return draw.apply(this,args);};
+    });
+    await p.script(shape + 'box.filters=[$.createGlowFilter(0xffffff,1,8,8,2,1,true,false),'
+        + '$.createGlowFilter(0xffffff,1,8,8,2,1,false,false)];');
+    assert.equal(await p.page.evaluate(()=>__gpuDraws),3);
+    assert.deepEqual(await p.pixel(120,120),[255,255,255,255]);
+    await p.update('__gpuDraws=0;__box.graphics.clear();__box.graphics.beginFill(0xff0000);'
+        + '__box.graphics.drawRect(0,0,40,40);__box.graphics.endFill();');
+    assert.equal(await p.page.evaluate(()=>__gpuDraws),6);
+    const edge=await p.pixel(101,120);
+    assert.ok(edge[1]>0&&edge[2]>0,'彩色边缘仍须显示白色内发光：'+edge);
+});
+
+test('av2669196 原样脚本55秒歌词正常展开，65秒双发光不重复上传输入', async p => {
+    await p.page.setViewportSize({width:1280,height:720});
+    const directory=path.join(__dirname,'fixtures/real');
+    const fixtures=fs.readdirSync(directory).filter(n=>n.endsWith('.js')).sort().map(n=>({
+        id:n,stime:0,duration:333,lang:'js',code:fs.readFileSync(path.join(directory,n),'utf8')
+    }));
+    assert.equal(fixtures.length,11);
+    await p.page.evaluate(fixtures=>{
+        scriptDanmakuHost.reset(54,true,1,true);scriptDanmakuHost.append(fixtures);__step(0);
+        for(let i=1;i<=60;i++)__stepTo(i*1000/60);
+    },fixtures);
+    const columns=await p.page.evaluate(()=>{
+        const c=document.querySelector('#stage canvas'),ctx=c.getContext('2d');
+        const data=ctx.getImageData(470,340,350,40).data;
+        let occupied=0;
+        for(let x=0;x<350;x++) {
+            for(let y=0;y<40;y++) {
+                const i=(y*350+x)*4;
+                if(data[i]+data[i+1]+data[i+2]>180&&data[i+3]>60) {occupied++;break;}
+            }
+        }
+        return occupied;
+    });
+    assert.ok(columns>200,'55秒歌词须横向展开，不能坍缩成几簇重叠文字：'+columns);
+    await p.page.evaluate(fixtures=>{
+        scriptDanmakuHost.reset(65,true,1,true);scriptDanmakuHost.append(fixtures);__step(0);
+    },fixtures);
+    await observeUploads(p);
+    await p.page.evaluate(()=>{for(let i=1;i<=60;i++)__stepTo(1000+i*1000/60);});
+    const textures=await uploads(p);
+    const bytes=textures.reduce((total,[w,h])=>total+w*h*4,0);
+    assert.ok(bytes<180*1024*1024,'65秒60帧上传量超出预算：'+bytes);
+    const particles=await p.page.evaluate(async()=>{
+        const {hostState}=await import('/script-danmaku/core.js');
+        return hostState.elements.some(e=>e.childList.length===20&&e.props.filters
+            &&e.props.filters.length===2&&e.props.filters.every(f=>f.kind==='GlowFilter'&&f.blurX===128)
+            &&e.childList.every(c=>c.shapeItems&&c.shapeItems.length>0));
+    });
+    assert.equal(particles,true,'不能通过恢复旧版漏画lineTo来削减滤镜开销');
+    console.log('av2669196 65秒60帧上传字节：'+bytes);
+});
+
+test('av2669196 原样脚本102秒歌词不被未来方块遮住，124秒歌词不提前出现', async p => {
+    await p.page.setViewportSize({width:1280,height:720});
+    const directory=path.join(__dirname,'fixtures/real');
+    const fixtures=fs.readdirSync(directory).filter(n=>n.endsWith('.js')).sort().map(n=>({
+        id:n,stime:0,duration:333,lang:'js',code:fs.readFileSync(path.join(directory,n),'utf8')
+    }));
+    assert.equal(fixtures.length,11);
+    await p.page.evaluate(fixtures=>{
+        scriptDanmakuHost.reset(100,true,1,true);scriptDanmakuHost.append(fixtures);__step(0);
+    },fixtures);
+    let frame=0;
+    async function advance(second) {
+        const target=Math.round((second-100)*60);
+        while(frame<target) {
+            const count=Math.min(60,target-frame);
+            await p.page.evaluate(({frame,count})=>{for(let i=1;i<=count;i++)__stepTo((frame+i)*1000/60);},{frame,count});
+            frame+=count;
+        }
+    }
+    async function bright(x,y,width,height) {
+        return p.page.evaluate(({x,y,width,height})=>{
+            const c=document.querySelector('#stage canvas'),data=c.getContext('2d').getImageData(x,y,width,height).data;
+            let count=0;
+            for(let i=0;i<data.length;i+=4)if(data[i]>150&&data[i+1]>150&&data[i+2]>150&&data[i+3]>100)count++;
+            return count;
+        },{x,y,width,height});
+    }
+    await advance(102);
+    assert.ok(await bright(500,330,280,90)>250,'102秒歌词须可见，不能被未来出现的方块盖住');
+    await advance(124);
+    assert.ok(await bright(550,400,180,28)<20,'124秒不能提前显示126.677秒才开始的歌词');
+    // DynamicSourceLayer 会重映射时间；128秒已越过内部127.177秒的交接。
+    await advance(128);
+    const restored=await bright(550,400,180,28);
+    assert.ok(restored>100,'关键帧恢复有限值后，后续歌词必须重新显示：'+restored);
+});
+
 test('绘制缓存不跨脚本读操作或帧保留旧的祖先矩阵', async p => {
     await p.script('var group=$.createCanvas({lifeTime:20,x:50});' + shape + 'group.addChild(box);window.__group=group;window.__root=$.root;');
     const values = await p.page.evaluate(() => {

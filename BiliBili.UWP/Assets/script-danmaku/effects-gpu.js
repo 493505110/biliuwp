@@ -20,7 +20,7 @@ var chunkBlurSource = [
 ].join("\n");
 var fragmentSource = [
     "precision highp float;varying vec2 uv;uniform sampler2D image;uniform sampler2D original;",
-    "uniform vec2 extent;uniform vec2 size;uniform vec2 direction;uniform float kernel;uniform float mode;",
+    "uniform vec2 extent;uniform vec2 originalExtent;uniform vec2 size;uniform vec2 direction;uniform float kernel;uniform float mode;",
     "uniform vec4 glowColor;uniform float strength;uniform float inner;uniform float knockout;",
     "uniform vec4 multiplier;uniform vec4 offset;",
     "uniform sampler2D chunks;uniform vec2 chunkExtent;",
@@ -30,7 +30,7 @@ var fragmentSource = [
     boxBlurSource,
     // 与 Flash 的逐通道固定精度运算对齐，各次模糊后向下取整。
     "result=floor(result*255.+.0001)/255.;}",
-    "else if(mode<1.5){vec4 base=texture2D(original,uv);float a=base.a;float g=min(1.,(inner>.5?1.-sampleAt(p).a:sampleAt(p).a)*strength)*glowColor.a;",
+    "else if(mode<1.5){vec4 base=texture2D(original,uv*originalExtent);float a=base.a;float g=min(1.,(inner>.5?1.-sampleAt(p).a:sampleAt(p).a)*strength)*glowColor.a;",
     "if(knockout>.5){float ga=inner>.5?g*a:g*(1.-a);result=vec4(glowColor.rgb*ga,ga);}",
     "else if(inner>.5){result=vec4(mix(base.rgb,glowColor.rgb*a,g),a);}",
     "else{float ga=g*(1.-a);result=vec4(base.rgb+glowColor.rgb*ga,a+ga);}}",
@@ -64,7 +64,7 @@ function getRenderer() {
         gl.deleteShader(vertex); gl.deleteShader(fragment);
         if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { gl.deleteProgram(program); return null; }
         var uniforms = {};
-        ["image", "original", "extent", "size", "direction", "kernel", "mode", "glowColor", "strength", "inner", "knockout", "multiplier", "offset", "chunks", "chunkExtent"].forEach(function (name) {
+        ["image", "original", "extent", "originalExtent", "size", "direction", "kernel", "mode", "glowColor", "strength", "inner", "knockout", "multiplier", "offset", "chunks", "chunkExtent"].forEach(function (name) {
             uniforms[name] = gl.getUniformLocation(program, name);
         });
         return { program: program, uniforms: uniforms };
@@ -150,12 +150,25 @@ function applyEffectsGPU(canvas, filters, transform, ratio) {
     if (capacityWidth * capacityHeight > MAX_FILTER_PIXELS && width * height <= MAX_FILTER_PIXELS) {
         capacityWidth = width; capacityHeight = height;
     }
-    // 固定上限：两份中间纹理、输入纹理与绘制缓冲均可复用，不随元素数增长。
+    // 固定上限：最多三份RGBA中间纹理、输入纹理与绘制缓冲均复用，不随元素数增长。
     if (capacityWidth * capacityHeight > MAX_FILTER_PIXELS || capacityWidth > 4096 || capacityHeight > 4096) return false;
     var gl = r.gl;
-    if (capacityWidth !== r.width || capacityHeight !== r.height) {
+    // 连续滤镜保留上一道输出作为 Glow 的 original，另两张纹理交替模糊。
+    // 下标2留给浮点分块核；第三张RGBA载体只在多滤镜时分配。
+    if (filters.length > 1 && !r.targets[3]) {
+        r.targets[3] = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, r.targets[3]);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        r.framebuffers[3] = gl.createFramebuffer();
+    }
+    if (capacityWidth !== r.width || capacityHeight !== r.height || (r.targets[3] && (r.chainWidth !== capacityWidth || r.chainHeight !== capacityHeight))) {
         r.width = r.canvas.width = capacityWidth; r.height = r.canvas.height = capacityHeight;
-        for (var i = 0; i < 2; i++) {
+        var rgbaTargets = r.targets[3] ? [0, 1, 3] : [0, 1];
+        for (var targetIndex = 0; targetIndex < rgbaTargets.length; targetIndex++) {
+            var i = rgbaTargets[targetIndex];
             gl.bindTexture(gl.TEXTURE_2D, r.targets[i]);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, r.width, r.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
             gl.bindFramebuffer(gl.FRAMEBUFFER, r.framebuffers[i]);
@@ -166,6 +179,7 @@ function applyEffectsGPU(canvas, filters, transform, ratio) {
                 return false;
             }
         }
+        if (r.targets[3]) { r.chainWidth = r.width; r.chainHeight = r.height; }
     }
     var useChunks = r.chunkProgram && r.width * r.height <= 4 * 1024 * 1024 && filters.some(function (f) {
         return Math.max(Number(f.blurX) || 0, Number(f.blurY) || 0) * ratio >= 33;
@@ -184,11 +198,13 @@ function applyEffectsGPU(canvas, filters, transform, ratio) {
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST);
     var context = canvas.getContext("2d");
+    var originalTexture = r.source, originalExtentX = 1, originalExtentY = 1;
     function draw(texture, extentX, extentY, target, mode, axis, kernel, filter, colorTransform, chunked) {
         var program = chunked ? r.chunkProgram : mode === 0 ? programForKernel(kernel) : r.programs.get(0);
         gl.useProgram(program.program);
         var u = program.uniforms;
         gl.uniform1i(u.image, 0); gl.uniform1i(u.original, 1); gl.uniform2f(u.size, width, height);
+        gl.uniform2f(u.originalExtent, originalExtentX, originalExtentY);
         gl.uniform2f(u.direction, (mode === 0 || mode === 3) && axis === 0 ? 1 : 0, (mode === 0 || mode === 3) && axis === 1 ? 1 : 0);
         gl.uniform1f(u.kernel, kernel || 1);
         gl.uniform4f(u.multiplier, 1, 1, 1, 1); gl.uniform4f(u.offset, 0, 0, 0, 0);
@@ -218,25 +234,34 @@ function applyEffectsGPU(canvas, filters, transform, ratio) {
         context.globalAlpha = 1; context.globalCompositeOperation = "copy";
         context.drawImage(r.canvas, 0, 0, width, height, 0, 0, width, height); context.restore();
     }
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, originalTexture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
     for (var index = 0; index < filters.length; index++) {
         var filter = filters[index], kind = filter.kind || filter.type;
-        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, r.source);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-        var texture = r.source, extentX = 1, extentY = 1, target = 0;
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, originalTexture);
+        var working = [0, 1, 3].filter(function (i) { return r.targets[i] && r.targets[i] !== originalTexture; });
+        var texture = originalTexture, extentX = originalExtentX, extentY = originalExtentY, nextTarget = 0;
         var quality = Math.max(1, Math.min(15, Math.floor(Number(filter.quality) || 1)));
         for (var pass = 0; pass < quality; pass++) for (var axis = 0; axis < 2; axis++) {
             var kernel = Math.max(1, Math.min(255, Number(axis ? filter.blurY : filter.blurX) * ratio || 1));
             if (kernel <= 1) continue;
+            var target = working[nextTarget];
             var chunked = useChunks && kernel >= 33;
             if (chunked) draw(texture, extentX, extentY, 2, 3, axis, kernel);
             draw(texture, extentX, extentY, target, 0, axis, kernel, null, null, chunked);
-            texture = r.targets[target]; target = 1 - target;
+            texture = r.targets[target]; nextTarget = 1 - nextTarget;
             extentX = width / r.width; extentY = height / r.height;
         }
-        draw(texture, extentX, extentY, null, kind === "GlowFilter" ? 1 : 2, 0, 1, kind === "GlowFilter" ? filter : null, index === filters.length - 1 ? transform : null);
-        copyBack();
+        var last = index === filters.length - 1;
+        var output = last ? null : working.find(function (i) { return r.targets[i] !== texture; });
+        draw(texture, extentX, extentY, output, kind === "GlowFilter" ? 1 : 2, 0, 1, kind === "GlowFilter" ? filter : null, last ? transform : null);
+        if (!last) {
+            originalTexture = r.targets[output];
+            originalExtentX = width / r.width; originalExtentY = height / r.height;
+        }
     }
+    copyBack();
     return true;
 }
 

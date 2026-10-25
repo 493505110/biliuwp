@@ -42,8 +42,8 @@ async function createBrowserHost(revision) {
         }
     } catch (error) { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); throw error; }
     return {
-        async page(width = 800, height = 600, seed = 1, disableWebgl = false) {
-            const page = await browser.newPage({ viewport: { width, height } });
+        async page(width = 800, height = 600, seed = 1, disableWebgl = false, presentation = false, deviceScaleFactor = 1) {
+            const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor });
             const errors = [];
             page.on('pageerror', error => errors.push(String(error)));
             await page.addInitScript(({ seed, disableWebgl }) => {
@@ -71,6 +71,13 @@ async function createBrowserHost(revision) {
             }, { seed, disableWebgl });
             await page.goto(`http://127.0.0.1:${server.address().port}/script-danmaku-host.html`);
             await page.waitForFunction(() => !!window.scriptDanmakuHost);
+            // 既有用例读取二维缓存像素；直呈测试显式启用，并通过实际页面截图验证最终画面。
+            if (!presentation) await page.evaluate(async () => {
+                // 拆分模块之前的历史 HTML 没有 renderer.js，仍允许用 revision 做对照。
+                if (!document.querySelector('script[type="module"]')) return;
+                const renderer = await import('/script-danmaku/renderer.js');
+                if (renderer.setDirectPresentationEnabled) renderer.setDirectPresentationEnabled(false);
+            });
             return { page, errors,
                 script: code => page.evaluate(code => {
                     scriptDanmakuHost.reset(0, true, 1, true);

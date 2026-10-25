@@ -9,6 +9,7 @@ import {
 } from "./core.js";
 import {
     applyElementBlendMode,
+    blendModeToComposite,
     applyElementMaskClip,
     createMatrix3D,
     createPerspectiveProjection,
@@ -32,8 +33,33 @@ import {
 import { localMatrix, relativeMatrix, worldMatrix, transformedBounds,
     transformPoint, subtree3D, projectionFor, projectPoint, drawProjected, projectedTextureRegion,
     beginProjectedBatch, flushProjectedBatch, endProjectedBatch,
-    beginGeometryPass, endGeometryPass } from "./geometry.js";
+    beginGeometryPass, endGeometryPass,
+    hideProjectedPresentation, canPresentProjectedGPU, isDirectProjectedBatch } from "./geometry.js";
 import { filterPadding, applyEffects } from "./effects.js";
+
+var directPresentationEnabled = true;
+var directlyPresentedElements = new WeakSet();
+var presentationOwner = null;
+var directPresentationCandidate = null;
+
+function resetDirectPresentation() {
+    hideProjectedPresentation();
+    directlyPresentedElements = new WeakSet();
+    presentationOwner = null;
+}
+
+function invalidateDirectPresentation() {
+    resetDirectPresentation();
+    markAllDirty();
+    ensureRunning();
+}
+
+// 渲染后端开关；二维缓存回归测试可显式固定旧路径，最终呈现测试覆盖默认快路径。
+function setDirectPresentationEnabled(enabled) {
+    if (directPresentationEnabled === !!enabled) return;
+    directPresentationEnabled = !!enabled;
+    invalidateDirectPresentation();
+}
 
 function ensureCanvas() {
     if (hostState.canvas) {
@@ -596,7 +622,7 @@ function effectSourceBounds(element) {
     var rectangles = own ? [own] : [];
     for (var i = 0; i < element.childList.length; i++) {
         var child = element.childList[i];
-        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
         var bounds = effectSourceBounds(child);
         if (!bounds) continue;
         var pad = filterPadding(child.props.filters);
@@ -671,7 +697,7 @@ function computeCompositeBounds(element, fresh) {
     if (own) rectangles.push(own);
     for (var i = 0; i < element.childList.length; i++) {
         var child = element.childList[i];
-        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
         var cachedLeaf = fresh && !child.childList.length && !child.needsCache && child.cacheBounds;
         var bounds = fresh ? (child.childList.length ? computeCompositeBounds(child, true) : cachedLeaf || elementLocalBounds(child))
             : (child.childList.length ? child.compositeFullBounds || child.compositeBounds : child.cacheBounds);
@@ -774,11 +800,12 @@ function rebuildComposite(element) {
 }
 
 function blitElement(target, element) {
-    if (!element || element.expired || element.props.visible === false) {
+    if (!element || !isElementVisible(element) || element.props.alpha <= 0) {
         return;
     }
 
     if (element.projectedComposite) {
+        if (directlyPresentedElements.has(element)) return;
         target.save();
         applyElementBlendMode(target, element);
         var projected = element.projectedBounds;
@@ -879,6 +906,7 @@ function clearSubtreeDirty(element) {
 // ---- 每帧流程：推进 tween → 标脏 → 只重绘脏元素 → 呈现 ----
 
 function clearSurface() {
+    resetDirectPresentation();
     if (!hostState.context2d || !hostState.canvas) {
         return;
     }
@@ -895,7 +923,7 @@ function clearSurface() {
 // （缩放 → 旋转 → 平移，与 applyElementTransform 同序）投到页面坐标，
 // 取外接矩形。旋转时外接矩形会变大，宁可多擦一点也不能留残影。
 function computeElementCanvasRect(element) {
-    if (!element.painted || element.props.visible === false || element.expired) {
+    if (!element.painted || !isElementVisible(element)) {
         return null;
     }
 
@@ -1281,6 +1309,16 @@ function matrixValues(value) {
         toFiniteNumber(value.d, 1), toFiniteNumber(value.tx, 0), toFiniteNumber(value.ty, 0)];
 }
 
+function matrixMatchesProperties(values, props) {
+    // matrix getter 返回可原地修改的对象；快照相同不代表标量仍与它同步。
+    // Akari 每帧 identity() 后再写回相同的 x/scale，必须先复位这些标量。
+    return !values || (!props.matrix3D && !props.z && !props.rotationX && !props.rotationY
+        && props.x === values[4] && props.y === values[5]
+        && props.scaleX === Math.sqrt(values[0] * values[0] + values[1] * values[1])
+        && props.scaleY === Math.sqrt(values[2] * values[2] + values[3] * values[3])
+        && props.rotation === Math.atan2(values[1], values[0]) * 180 / Math.PI);
+}
+
 function colorTransformValues(value) {
     if (!value) return null;
     return [toFiniteNumber(value.redMultiplier, 1), toFiniteNumber(value.greenMultiplier, 1),
@@ -1334,7 +1372,7 @@ function createElementTransform(element) {
         set: function (value) {
             var next = matrixValues(value);
             if (sameTransformValues(next, matrixSnapshot) && sameTransformValues(next, matrixValues(element.props.matrix))
-                && (!next || !element.props.matrix3D)) return;
+                && matrixMatchesProperties(next, element.props)) return;
             matrixSnapshot = next;
             setPropertyInternal(element, "matrix", value, true);
             markPropertyDirty(element, "matrix"); hostState.dirty = true;
@@ -1476,10 +1514,15 @@ function overlappingRects(rects, rect) {
 }
 
 function paintDirtyElements() {
+    if (presentationOwner && (!isElementVisible(presentationOwner)
+        || presentationOwner.props.alpha <= 0 || !hostState.rootElement.childList.includes(presentationOwner))) {
+        resetDirectPresentation();
+    }
     beginGeometryPass();
     try {
         hostState.rasterFrame++;
         var topLevel = hostState.rootElement.childList;
+        directPresentationCandidate = findDirectPresentationCandidate(topLevel);
         var damage = hostState.pendingEraseRects;
         hostState.pendingEraseRects = [];
         var index;
@@ -1511,6 +1554,7 @@ function paintDirtyElements() {
         }
         return painted;
     } finally {
+        directPresentationCandidate = null;
         endGeometryPass();
     }
 }
@@ -1532,6 +1576,97 @@ function mergeDamageRects(rects) {
 
 var nearClippedElements = new WeakSet();
 
+// 仅省略覆盖整个视口的单个矩形遮罩；舞台 overflow:hidden 已提供同样的裁剪。
+function maskCoversViewport(mask) {
+    if (!mask || mask.kind !== "shape" || mask.childList.length || !mask.shapeItems
+        || mask.shapeItems.length !== 1 || mask.shapeItems[0].kind !== "rect") return false;
+    var rect = mask.shapeItems[0], matrix = worldMatrix(mask), projection = projectionFor(mask);
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var points = [[rect.x, rect.y], [rect.x + rect.width, rect.y],
+        [rect.x + rect.width, rect.y + rect.height], [rect.x, rect.y + rect.height]]
+        .map(function (p) { return projectPoint(transformPoint(matrix, p[0], p[1], 0), projection); });
+    if (points.some(function (p) { return p.depth < 1 || !Number.isFinite(p.x) || !Number.isFinite(p.y); })) return false;
+    var area = 0;
+    for (var edge = 0; edge < 4; edge++) {
+        var next = points[(edge + 1) % 4];
+        area += points[edge].x * next.y - next.x * points[edge].y;
+    }
+    if (!Number.isFinite(area) || Math.abs(area) < 1e-6) return false;
+    return [[0, 0], [hostState.viewportWidth, 0], [hostState.viewportWidth, hostState.viewportHeight],
+        [0, hostState.viewportHeight]].every(function (p) {
+        var sign = 0;
+        for (var i = 0; i < 4; i++) {
+            var a = points[i], b = points[(i + 1) % 4];
+            var cross = (b.x - a.x) * (p[1] - a.y) - (b.y - a.y) * (p[0] - a.x);
+            if (!Number.isFinite(cross)) return false;
+            if (Math.abs(cross) < 1e-6) continue;
+            var current = Math.sign(cross);
+            if (sign && current !== sign) return false;
+            sign = current;
+        }
+        return true;
+    });
+}
+
+function canPresentProjectedTree(element) {
+    if (!isElementVisible(element) || element.props.alpha <= 0
+        || isUsedAsMask(element) || nearClippedElements.has(element)) return true;
+    var p = element.props;
+    var needsIsolation = p.scrollRect || (p.mask && !maskCoversViewport(p.mask))
+        // 与真正绘制时共用映射，避免 alpha 等 source-over 别名被名称检查误挡。
+        || blendModeToComposite(p.blendMode) !== "source-over"
+        || (!element.projectedPlanar && element.childList.length
+            && (p.colorTransform || (p.filters && p.filters.length)));
+    // 只为隔离边界求子树范围，避免每个普通节点都递归计算整棵后代树。
+    if (needsIsolation) return !projectedSubtreeBounds(element);
+    if ((element.projectedPlanar && element.composite && element.compositeBounds)
+        || (element.cacheCanvas && element.cacheBounds)) {
+        var matrix = worldMatrix(element);
+        // 仿射平面仍直接绘制到二维目标；这类图元需要保留原来的混合批次。
+        if (Math.abs(matrix[2]) + Math.abs(matrix[6]) <= 1e-8) return false;
+    }
+    return element.projectedPlanar || element.childList.every(canPresentProjectedTree);
+}
+
+function isPresentationPixelAligned(element) {
+    var ratio = window.devicePixelRatio || 1, bounds = projectedSubtreeBounds(element);
+    if (!bounds) return false;
+    var left = Math.max(-256, Math.floor(bounds.x)), top = Math.max(-256, Math.floor(bounds.y));
+    var right = Math.min(hostState.viewportWidth + 256, Math.ceil(bounds.x + bounds.width));
+    var bottom = Math.min(hostState.viewportHeight + 256, Math.ceil(bounds.y + bounds.height));
+    if (right <= left || bottom <= top) return false;
+    // 非整数 DPI 下，中间表面的 ceil/回贴可能包含额外采样；未对齐时保留原路径。
+    return [hostState.viewportWidth, hostState.viewportHeight, hostState.viewportWidth + 512,
+        hostState.viewportHeight + 512, left, top, right - left, bottom - top].every(function (value) {
+        return Math.abs(value * ratio - Math.round(value * ratio)) < 1e-7;
+    });
+}
+
+function hasPresentationContent(element) {
+    if (!isElementVisible(element) || element.props.alpha <= 0 || isUsedAsMask(element)) return false;
+    // 桥接代理和空 Sprite 不绘制自身；按当前显示树判断，避免依赖上一帧的缓存。
+    if (element.kind !== "group"
+        && (element.kind !== "shape" || (element.shapeItems && element.shapeItems.length))) return true;
+    return element.childList.some(hasPresentationContent);
+}
+
+function findDirectPresentationCandidate(topLevel) {
+    if (!directPresentationEnabled || !canPresentProjectedGPU() || hostState.stageMaskElement) return null;
+    var candidate = null;
+    // 每个绘制帧只选一次；第二个有内容的顶层节点出现后即可确定需要回退。
+    for (var index = 0; index < topLevel.length; index++) {
+        if (!hasPresentationContent(topLevel[index])) continue;
+        if (candidate) return null;
+        candidate = topLevel[index];
+    }
+    return candidate;
+}
+
+function shouldPresentProjectedDirectly(element) {
+    return element === directPresentationCandidate
+        && isPresentationPixelAligned(element) && canPresentProjectedTree(element);
+}
+
 function behindNearPlane(element) {
     var matrix = worldMatrix(element), focal = projectionFor(element).focalLength;
     // 原作的粒子经常整片移到相机背后；先判断深度，不能仍生成4096px滤镜缓存。
@@ -1548,7 +1683,7 @@ function behindNearPlane(element) {
 
 // 3D 子树保留每个叶子的世界矩阵，统一投影后再合成，避免先压成 2D 丢失 z。
 function prepareProjected(element) {
-    if (element.props.visible === false || element.props.alpha <= 0) {
+    if (!isElementVisible(element) || element.props.alpha <= 0) {
         var hiddenDirty = isElementDirty(element) || element.compositeDirty;
         element.propertyDirty = {}; element.compositeDirty = false;
         return hiddenDirty;
@@ -1602,7 +1737,7 @@ function prepareProjected(element) {
 }
 
 function projectedSubtreeBounds(element) {
-    if (nearClippedElements.has(element)) return null;
+    if (!isElementVisible(element) || element.props.alpha <= 0 || nearClippedElements.has(element)) return null;
     var rectangles = [], bounds = element.projectedPlanar ? element.compositeBounds : element.cacheBounds;
     if (bounds) {
         var matrix = worldMatrix(element), projection = projectionFor(element);
@@ -1619,7 +1754,7 @@ function projectedSubtreeBounds(element) {
     }
     for (var i = 0; !element.projectedPlanar && i < element.childList.length; i++) {
         var child = element.childList[i];
-        if (child.expired || child.props.visible === false || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
         var rect = projectedSubtreeBounds(child);
         if (rect) rectangles.push(rect);
     }
@@ -1654,7 +1789,7 @@ function drawProjectedNode(target, element, alpha, skipEffects) {
 }
 
 function drawProjectedContent(target, element, alpha, skipEffects) {
-    if (element.expired || element.props.visible === false || element.props.alpha <= 0 || isUsedAsMask(element)) return;
+    if (!isElementVisible(element) || element.props.alpha <= 0 || isUsedAsMask(element)) return;
     if (nearClippedElements.has(element)) return;
     var groupEffects = !element.projectedPlanar && element.childList.length && (element.props.colorTransform || (element.props.filters && element.props.filters.length));
     if (groupEffects && !skipEffects) {
@@ -1672,6 +1807,7 @@ function drawProjectedContent(target, element, alpha, skipEffects) {
     }
     target.save();
     var mask = element.props.mask;
+    if (isDirectProjectedBatch(target) && maskCoversViewport(mask)) mask = null;
     if (mask) {
         flushProjectedBatch(target);
         var maskMatrix = worldMatrix(mask), projection = projectionFor(mask);
@@ -1693,14 +1829,20 @@ function drawProjectedContent(target, element, alpha, skipEffects) {
     target.restore();
 }
 
-function rebuildProjectedComposite(element) {
+function rebuildProjectedComposite(element, directPresentation) {
+    // 空的 3D 兄弟节点也会准备投影缓存，不能清掉另一个节点的直呈记录。
+    if (directPresentation || presentationOwner === element) resetDirectPresentation();
     var bounds = projectedSubtreeBounds(element);
     var surface = bounds && screenSurface(element, bounds, "projectedCanvas");
     element.projectedComposite = true;
     element.projectedBounds = surface ? surface.bounds : null;
     if (surface) {
-        beginProjectedBatch(surface.context);
+        var batch = beginProjectedBatch(surface.context, directPresentation, invalidateDirectPresentation);
         try { drawProjectedNode(surface.context, element, 1, false); } finally { endProjectedBatch(surface.context); }
+        if (batch.presented) {
+            directlyPresentedElements.add(element);
+            presentationOwner = element;
+        }
     }
     else element.projectedCanvas = null;
     element.painted = true; element.rebuiltThisFrame = true;
@@ -1709,17 +1851,21 @@ function rebuildProjectedComposite(element) {
 
 // 返回 true 表示该元素这一帧需要重新合成到画布上。
 function prepareElement(element) {
-    if (element.props.visible === false || element.props.alpha <= 0) {
+    if (!isElementVisible(element) || element.props.alpha <= 0) {
         var hiddenDirty = isElementDirty(element) || element.compositeDirty;
         element.propertyDirty = {}; element.compositeDirty = false;
         return hiddenDirty;
     }
     if (element.treeParent === hostState.rootElement && subtree3D(element)) {
         var projectedDirty = prepareProjected(element);
-        if (projectedDirty || !element.projectedComposite) rebuildProjectedComposite(element);
-        return projectedDirty;
+        var directPresentation = shouldPresentProjectedDirectly(element);
+        var presentationChanged = directPresentation !== directlyPresentedElements.has(element);
+        if (projectedDirty || !element.projectedComposite || presentationChanged) rebuildProjectedComposite(element, directPresentation);
+        // 回退时主画布里还没有这幅图，必须把整层纳入损伤范围，不能只补新邻居的小矩形。
+        return projectedDirty || presentationChanged;
     }
     if (element.projectedComposite) {
+        if (directlyPresentedElements.has(element)) resetDirectPresentation();
         element.projectedComposite = false; element.projectedCanvas = null; element.projectedBounds = null;
         element.projectedPlanar = false; element.composite = null; element.compositeBounds = null;
         element.compositeFullBounds = null; element.compositeCrop = null; element.needsCache = true;
@@ -1773,6 +1919,7 @@ function prepareElement(element) {
 }
 
 export {
+    setDirectPresentationEnabled,
     markProjectionDirty,
     clearSurface,
     createElementTransform,

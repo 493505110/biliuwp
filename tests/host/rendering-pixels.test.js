@@ -271,11 +271,20 @@ test('P35 GPU与CPU滤镜在分数核宽、quality、inner/knockout和颜色变�
                 shape+'box.filters=[$.createBlurFilter(65.5,128,1)];',
                 shape+'box.filters=[$.createBlurFilter(255,2,1)];'
             ];
-            for(const code of codes){
+            const chains=[
+                shape+'box.filters=[$.createGlowFilter(0xff0000,0.5,8,4,2,1,true,false),$.createGlowFilter(0x00ff00,0.5,12,8,2,1,false,false)];',
+                shape+'box.filters=[$.createBlurFilter(5,3,1),$.createGlowFilter(0xff0000,0.5,8,4,2,1,true,false),$.createBlurFilter(3,5,1)];box.transform.colorTransform=$.createColorTransform(0.5,1,1,0.5);'
+            ];
+            for(const code of codes.concat(chains)){
                 await p.script(code);await fallback.script(code);
                 for(const point of [[96,120],[99,120],[100,120],[103,120],[120,120],[120,99],[140,120]]){
                     const actual=await p.pixel(...point), expected=await fallback.pixel(...point);
-                    assert.ok(actual.every((v,i)=>Math.abs(v-expected[i])<=3),JSON.stringify({point,actual,expected}));
+                    // 连续滤镜避免中间Canvas反预乘；低alpha处比较实际合成颜色，
+                    // 不把1级预乘舍入放大成未合成RGB的多级误差。
+                    const matches=chains.includes(code)
+                        ? Math.abs(actual[3]-expected[3])<=2 && actual.slice(0,3).every((v,i)=>Math.abs(v*actual[3]-expected[i]*expected[3])/255<=2)
+                        : actual.every((v,i)=>Math.abs(v-expected[i])<=3);
+                    assert.ok(matches,JSON.stringify({point,actual,expected}));
                 }
             }
             assert.deepEqual(fallback.errors,[]);
@@ -704,6 +713,86 @@ test('P67 浮点FBO不完整时保留常规GPU模糊，后续更新也不回读C
     await p.update('__box.filters=[__display.createBlurFilter(65,0,1)];');
     assert.equal(await p.page.evaluate(()=>__readbacks),1,'只有测试取样读取像素');
     assert.ok(Math.abs((await p.pixel(200,210))[3]-3)<=1);
+});
+
+test('P68 子级遮罩继承被遮罩容器的缩放与位移，移动后不残留', async p => {
+    await p.script('var outer=$.createCanvas({lifeTime:20,x:40,y:30,scaleX:1.25,scaleY:1.25});'
+        + 'var group=$.createCanvas({lifeTime:20,parent:outer,x:100,y:50,scaleX:2,scaleY:1.5});'
+        + 'group.graphics.beginFill(0x00ff00);group.graphics.drawRect(0,0,100,80);group.graphics.endFill();'
+        + 'var mask=$.createShape({lifeTime:20,parent:group,x:10,y:10});'
+        + 'mask.graphics.beginFill(0xffffff);mask.graphics.drawRect(0,0,50,40);mask.graphics.endFill();'
+        + 'group.mask=mask;window.__group=group;');
+    assert.deepEqual(await p.pixel(220,140),[0,255,0,255]);
+    assert.equal((await p.pixel(180,140))[3],0);
+    assert.equal((await p.pixel(320,140))[3],0);
+    await p.update('__group.x+=80;');
+    assert.equal((await p.pixel(220,140))[3],0);
+    assert.deepEqual(await p.pixel(320,140),[0,255,0,255]);
+});
+
+test('P69 白色透明渐变省略恒等内发光后，与CPU完整滤镜链保持相同覆盖率和颜色', async p => {
+    const host=await createBrowserHost();
+    try {
+        const fallback=await host.page(800,600,1,true);
+        try {
+            const code='var group=$.createCanvas({lifeTime:20,x:100,y:100});'
+                +'var box=$.createShape({lifeTime:20,parent:group});var m=$.createMatrix();m.createGradientBox(40,40,0,0,0);'
+                +'box.graphics.beginGradientFill("linear",[0xffffff,0xffffff],[0.2,0.8],[0,255],m);'
+                +'box.graphics.drawRect(0,0,40,40);box.graphics.endFill();'
+                +'group.filters=[$.createGlowFilter(0xffffff,1,33,33,2,2,true,false),$.createGlowFilter(0xff0000,0.7,12,8,2,1)];';
+            await p.script(code);
+            // 白色乘2后夹取仍为白色，但CPU参考带非恒等颜色变换，走完整内发光。
+            await fallback.script(code+'box.transform.colorTransform=$.createColorTransform(2,1,1,1);');
+            for(const point of [[94,120],[99,120],[100,120],[105,120],[120,120],[135,120],[140,120],[145,120]]) {
+                const actual=await p.pixel(...point),expected=await fallback.pixel(...point);
+                assert.ok(Math.abs(actual[3]-expected[3])<=2
+                    &&actual.slice(0,3).every((v,i)=>Math.abs(v*actual[3]-expected[i]*expected[3])/255<=2),
+                    JSON.stringify({point,actual,expected}));
+            }
+            assert.ok((await p.pixel(120,120))[3]>0,'对照不能是两张空图');
+            assert.deepEqual(fallback.errors,[]);
+        } finally {await fallback.page.close();}
+    } finally {await host.close();}
+});
+
+test('P70 非有限变换和alpha暂时隐藏2D子树，恢复数值后显示期间修改的内容且不残留', async p => {
+    await p.script('var group=$.createCanvas({lifeTime:20,x:100,y:100});'
+        +'var box=$.createShape({lifeTime:20,parent:group});box.graphics.beginFill(0xff0000);'
+        +'box.graphics.drawRect(0,0,40,40);box.graphics.endFill();window.__group=group;window.__box=box;');
+    for(const [key,value] of [['scaleX','NaN'],['scaleY','Infinity'],['rotation','-Infinity'],['x','NaN'],['alpha','NaN']]) {
+        await p.update('__group.'+key+'='+value+';');
+        assert.equal((await p.pixel(120,120))[3],0,key+'无效时旧像素必须清除');
+        assert.equal((await p.pixel(20,20))[3],0,'不能按默认变换绘制到原点');
+        await p.update('__box.graphics.clear();__box.graphics.beginFill(0x00ff00);__box.graphics.drawRect(0,0,40,40);__box.graphics.endFill();');
+        const normal=key==='x'?100:key==='rotation'?0:1;
+        await p.update('__group.'+key+'='+normal+';');
+        assert.deepEqual(await p.pixel(120,120),[0,255,0,255],key+'恢复后必须使用最新内容');
+    }
+    await p.update('var m=__group.transform.matrix;m.tx=NaN;__group.y=101;');
+    assert.equal((await p.pixel(120,120))[3],0,'原地修改的无效2D矩阵也不得显示');
+    await p.update('var m=__group.transform.matrix;m.tx=200;__group.transform.matrix=m;');
+    assert.deepEqual(await p.pixel(220,120),[0,255,0,255]);
+    assert.equal((await p.pixel(120,120))[3],0);
+});
+
+test('P71 非有限3D矩阵隐藏投影子树，恢复后WebGL与Canvas后备均正常绘制', async p => {
+    const host=await createBrowserHost();
+    try {
+        const fallback=await host.page(800,600,1,true);
+        try {
+            for(const probe of [p,fallback]) {
+                await probe.script('var group=$.createCanvas({lifeTime:20,x:400,y:300,rotationY:20});'
+                    +'var box=$.createShape({lifeTime:20,parent:group});box.graphics.beginFill(0xff0000);'
+                    +'box.graphics.drawRect(0,0,40,40);box.graphics.endFill();window.__group=group;window.__box=box;');
+                assert.ok((await probe.pixel(410,310))[3]>0);
+                await probe.update('var m=__group.transform.matrix3D;m.rawData[12]=NaN;__group.transform.matrix3D=m;');
+                assert.equal((await probe.pixel(410,310))[3],0);
+                await probe.update('var m=__group.transform.matrix3D;m.rawData[12]=400;__group.transform.matrix3D=m;');
+                assert.ok((await probe.pixel(410,310))[3]>0,'恢复后须重建投影');
+            }
+            assert.deepEqual(fallback.errors,[]);
+        } finally {await fallback.page.close();}
+    } finally {await host.close();}
 });
 
 async function run() {

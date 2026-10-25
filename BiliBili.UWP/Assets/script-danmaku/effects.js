@@ -310,9 +310,47 @@ function applyColorTransform(canvas, transform) {
     context.putImageData(image, 0, 0);
 }
 
+// 白色内容的白色内发光满足 mix(base.rgb, base.a, glow) == base.rgb，
+// alpha也不变。先证明整个输入是白色，再省掉这道恒等滤镜，避免为粒子层
+// 做两轴大半径模糊。未知位图、彩色内容和改变颜色的后代保留完整路径。
+function isWhiteShapeContent(element, root) {
+    if (element.kind !== "shape" && element.kind !== "group") return false;
+    if (!root) {
+        if (element.props.filters && element.props.filters.length) return false;
+        var blend = element.props.blendMode;
+        if (blend && !["normal", "layer", "source-over"].includes(blend)) return false;
+        var ct = element.props.colorTransform;
+        if (ct && ["red", "green", "blue"].some(function (channel) {
+            return toFiniteNumber(ct[channel + "Multiplier"], 1) !== 1
+                || toFiniteNumber(ct[channel + "Offset"], 0) !== 0;
+        })) return false;
+    }
+    function whiteStyle(style) {
+        if (!style) return true;
+        if (style.gradient) return style.gradient.colors && style.gradient.colors.length > 0
+            && style.gradient.colors.every(function (color) { return color === 0xffffff; });
+        return style.color === 0xffffff;
+    }
+    for (var i = 0; element.shapeItems && i < element.shapeItems.length; i++) {
+        var item = element.shapeItems[i];
+        if (!whiteStyle(item.style) || !whiteStyle(item.fill) || !whiteStyle(item.line)) return false;
+    }
+    return element.childList.every(function (child) {
+        return child.expired || child.props.visible === false || child.props.alpha <= 0 || isWhiteShapeContent(child, false);
+    });
+}
+
 function applyEffects(canvas, element, ratio) {
-    if (applyEffectsGPU(canvas, element.props.filters, element.props.colorTransform, ratio || window.devicePixelRatio || 1)) return;
-    applyFilters(canvas, element.props.filters, ratio || window.devicePixelRatio || 1);
+    var filters = element.props.filters || [];
+    var first = filters[0];
+    if (first && (first.kind || first.type) === "GlowFilter" && first.inner && !first.knockout
+        && first.color === 0xffffff && isWhiteShapeContent(element, true)) {
+        filters = filters.slice();
+        while (filters.length && (filters[0].kind || filters[0].type) === "GlowFilter"
+            && filters[0].inner && !filters[0].knockout && filters[0].color === 0xffffff) filters.shift();
+    }
+    if (applyEffectsGPU(canvas, filters, element.props.colorTransform, ratio || window.devicePixelRatio || 1)) return;
+    applyFilters(canvas, filters, ratio || window.devicePixelRatio || 1);
     applyColorTransform(canvas, element.props.colorTransform);
 }
 
