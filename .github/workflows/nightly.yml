@@ -112,7 +112,7 @@ jobs:
             $versions = @()
             $page = 1
             do {
-              $assets = @(Invoke-RestMethod -Uri "$repoApi/releases/$($previousRelease.id)/assets?per_page=100&page=$page" -Headers $headers)
+              $assets = @(Invoke-RestMethod -Uri "$repoApi/releases/$($previousRelease.id)/assets?per_page=100&page=$page" -Headers $headers | ForEach-Object { $_ })
               foreach ($asset in $assets) {
                 if ($asset.name -notmatch '\.(appx|msix|appxbundle|msixbundle)$') { continue }
                 if ($asset.state -ne 'uploaded' -or $asset.size -le 0 -or
