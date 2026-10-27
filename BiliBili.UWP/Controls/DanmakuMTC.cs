@@ -105,6 +105,7 @@ namespace BiliBili.UWP.Controls
         public event EventHandler<bool> Video360Changed;
         public bool IsMiniWindow = false;
         public bool IsFullWindow = false;
+        public bool IsInteractionLocked { get; private set; }
 
         //public Danmaku danmuControls;
         protected override void OnApplyTemplate()
@@ -191,6 +192,10 @@ namespace BiliBili.UWP.Controls
                 }
 
                 timer.Start();
+                if (IsInteractionLocked)
+                {
+                    SetInteractionLocked(true);
+                }
             }
             catch (Exception ex)
             {
@@ -256,6 +261,7 @@ namespace BiliBili.UWP.Controls
 
         public void HideOrShowMTC()
         {
+            if (IsInteractionLocked) return;
             var root = templateRoot ?? (GetTemplateChild("RootGrid") as Grid);
             var bar = templateControlPanel ?? (GetTemplateChild("ControlPanel_ControlPanelVisibilityStates_Border") as Border);
             if (root == null || bar == null)
@@ -287,10 +293,31 @@ namespace BiliBili.UWP.Controls
 
 
 
+        public void SetInteractionLocked(bool locked)
+        {
+            IsInteractionLocked = locked;
+            ssValue = 0;
+            timer2.Stop();
+            var root = templateRoot;
+            var bar = templateControlPanel;
+            if (root == null || bar == null) return;
+
+            (root.Resources["FadeOut"] as Storyboard)?.Stop();
+            (root.Resources["FadeIn"] as Storyboard)?.Stop();
+            bar.IsHitTestVisible = !locked;
+            bar.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+            if (!locked)
+            {
+                (root.Resources["FadeIn"] as Storyboard)?.Begin();
+                timer2.Start();
+            }
+        }
+
         double ssValue = 0;
         private void Grid_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
         {
             e.Handled = true;
+            if (IsInteractionLocked) return;
 
             //progress.Visibility = Visibility.Visible;
             double X = e.Delta.Translation.X;
@@ -318,6 +345,7 @@ namespace BiliBili.UWP.Controls
         private void Grid_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
         {
             e.Handled = true;
+            if (IsInteractionLocked) return;
 
 
             double X = e.Cumulative.Translation.X;
@@ -341,6 +369,11 @@ namespace BiliBili.UWP.Controls
 
         private void DanmakuMTC_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            if (IsInteractionLocked)
+            {
+                e.Handled = true;
+                return;
+            }
             if ((sender as Border).Visibility == Visibility.Visible)
             {
                 (sender as Border).Visibility = Visibility.Collapsed;

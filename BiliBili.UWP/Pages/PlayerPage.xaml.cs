@@ -115,11 +115,13 @@ namespace BiliBili.UWP.Pages
         /// 才能决定要不要切换控制栏显隐
         /// </summary>
         bool mtcTapPendingToggle;
+        bool isPlaybackLocked;
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
             this.InitializeComponent();
             this.NavigationCacheMode = NavigationCacheMode.Disabled;
+            InitializePlaybackLock();
             InitMediaPlayer();
             danmakuParse = new DanmakuParse();
             playerAPI = new PlayerAPI();
@@ -136,6 +138,63 @@ namespace BiliBili.UWP.Pages
             playerSurface.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(PlayerSurface_PointerCanceled), true);
             playerSurface.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(PlayerSurface_PointerCanceled), true);
         }
+
+        private void InitializePlaybackLock()
+        {
+#if DEBUG
+            btn_PlaybackLock.Visibility = Visibility.Visible;
+#else
+            try
+            {
+                // 设备形态包含可平板使用的二合一；触屏笔记本本身不满足形态条件。
+                var form = Windows.System.Profile.AnalyticsInfo.DeviceForm;
+                var isTablet = string.Equals(form, "Tablet", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(form, "Convertible", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(form, "Detachable", StringComparison.OrdinalIgnoreCase);
+                btn_PlaybackLock.Visibility = isTablet
+                    && new Windows.Devices.Input.TouchCapabilities().TouchPresent > 0
+                    ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.WriteLog("检测播放锁定按钮的设备支持失败", LogType.ERROR, ex);
+            }
+#endif
+        }
+
+        private void PlaybackLock_Click(object sender, RoutedEventArgs e)
+        {
+            SetPlaybackLocked(!isPlaybackLocked);
+        }
+
+        private void SetPlaybackLocked(bool locked)
+        {
+            isPlaybackLocked = locked;
+            mtcTapPendingToggle = false;
+            ssValue = 0;
+            ssPositionShadow.Visibility = Visibility.Collapsed;
+            if (locked)
+            {
+                sp_View.IsPaneOpen = false;
+                scriptDanmakuControl?.PushPointerEvent("cancel", 0, 0, 0, false);
+            }
+            MTC.SetInteractionLocked(locked);
+            playbackLockShield.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+            playbackLockIcon.Glyph = locked ? "\uE72E" : "\uE785";
+            var label = locked ? "解锁播放操作" : "锁定播放操作";
+            btn_PlaybackLock.Label = label;
+            Windows.UI.Xaml.Automation.AutomationProperties.SetName(btn_PlaybackLock, label);
+            ToolTipService.SetToolTip(btn_PlaybackLock, label);
+            if (!_isExiting)
+            {
+                // 将焦点从刚隐藏的控制栏移走，保留键盘/辅助功能的解锁入口。
+                btn_PlaybackLock.Focus(FocusState.Programmatic);
+            }
+        }
+
+        private void PlaybackLockShield_Tapped(object sender, TappedRoutedEventArgs e) => e.Handled = true;
+        private void PlaybackLockShield_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => e.Handled = true;
+        private void PlaybackLockShield_RightTapped(object sender, RightTappedRoutedEventArgs e) => e.Handled = true;
 
         private void InitMediaPlayer()
         {
@@ -700,6 +759,11 @@ namespace BiliBili.UWP.Pages
         /// </summary>
         private void PlayerPage_KeyUp(CoreWindow sender, KeyEventArgs args)
         {
+            if (isPlaybackLocked)
+            {
+                args.Handled = true;
+                return;
+            }
             _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, true);
         }
 
@@ -707,6 +771,14 @@ namespace BiliBili.UWP.Pages
         {
 
             args.Handled = true;
+            if (isPlaybackLocked)
+            {
+                if (args.VirtualKey == Windows.System.VirtualKey.Escape)
+                {
+                    SetPlaybackLocked(false);
+                }
+                return;
+            }
             // 转发给脚本的 Player.keyTrigger（宿主侧只投递 M8 允许的那组键）。
             // 只做监听、不消费：这里的 Handled 语义与脚本无关，保持原样。
             _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, false);
@@ -911,6 +983,10 @@ namespace BiliBili.UWP.Pages
         private void BeginExit()
         {
             _isExiting = true;
+            if (isPlaybackLocked)
+            {
+                SetPlaybackLocked(false);
+            }
             playbackRequestGate.Invalidate();
             CancelDanmakuLoading();
             pendingPlaybackRestoreState = null;
@@ -3473,6 +3549,7 @@ namespace BiliBili.UWP.Pages
         private void Grid_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
         {
             e.Handled = true;
+            if (isPlaybackLocked) return;
             //progress.Visibility = Visibility.Visible;
             if (e.Delta.Translation.Y == 0)
             {
@@ -3573,6 +3650,7 @@ namespace BiliBili.UWP.Pages
         private void Grid_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
         {
             e.Handled = true;
+            if (isPlaybackLocked) return;
 
             if (ssValue != 0)
             {
@@ -3587,6 +3665,7 @@ namespace BiliBili.UWP.Pages
         private void MTC_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
         {
             e.Handled = true;
+            if (isPlaybackLocked) return;
             ssValue = 0;
             txt_SSPosition.Text = "";
             ssPositionShadow.Visibility = Visibility.Visible;
@@ -4226,7 +4305,7 @@ namespace BiliBili.UWP.Pages
             object sender,
             ScriptDanmakuActionEventArgs e)
         {
-            if (e == null || !ReferenceEquals(sender, scriptDanmakuControl))
+            if (_isExiting || isPlaybackLocked || e == null || !ReferenceEquals(sender, scriptDanmakuControl))
             {
                 return;
             }
@@ -4320,7 +4399,7 @@ namespace BiliBili.UWP.Pages
             object sender,
             BasDanmakuActionEventArgs e)
         {
-            if (e == null)
+            if (_isExiting || isPlaybackLocked || e == null)
             {
                 return;
             }
@@ -4338,6 +4417,7 @@ namespace BiliBili.UWP.Pages
                     //WebMessageReceived 事件里同步回调进来的，直接在里面销毁宿主会出问题；
                     //先让出一条消息循环再处理
                     await Task.Yield();
+                    if (_isExiting || isPlaybackLocked) return;
                     await NavigateFromBasDanmakuAsync(e.Url);
                     break;
             }
@@ -4411,6 +4491,7 @@ namespace BiliBili.UWP.Pages
             object sender,
             InteractiveDanmakuActionEventArgs e)
         {
+            if (_isExiting || isPlaybackLocked) return;
             var item = e?.Item;
             var playbackItem = playNow;
             if (!IsCurrentInteractiveDanmakuItem(item, playbackItem))
@@ -4832,6 +4913,11 @@ namespace BiliBili.UWP.Pages
 
         private async void MTC_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
+            if (isPlaybackLocked)
+            {
+                e.Handled = true;
+                return;
+            }
             if (IsTapFromPlayerOverlay(e.OriginalSource as DependencyObject)) return;
             var request = playbackRequestGate.Current;
             var scriptControl = scriptDanmakuControl;
@@ -4844,7 +4930,7 @@ namespace BiliBili.UWP.Pages
                     return;
                 }
             }
-            if (_isExiting || !playbackRequestGate.IsCurrent(request)
+            if (_isExiting || isPlaybackLocked || !playbackRequestGate.IsCurrent(request)
                 || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
             if (!SettingHelper.IsPc() || SettingHelper.IsTabletMode())
             {
@@ -5118,6 +5204,7 @@ namespace BiliBili.UWP.Pages
 
         private void MTC_Tapped_1(object sender, TappedRoutedEventArgs e)
         {
+            if (isPlaybackLocked) return;
             //控制栏的 Tapped 冒泡到 playerSurface 之前会先到这里，此刻还不知道这一下
             //有没有点在 BAS 弹幕的互动元素上，先登记，由 PlayerSurface_Tapped 统一决定
             mtcTapPendingToggle = true;
@@ -5555,6 +5642,12 @@ namespace BiliBili.UWP.Pages
 
         private async void PlayerSurface_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            if (isPlaybackLocked)
+            {
+                mtcTapPendingToggle = false;
+                e.Handled = true;
+                return;
+            }
             var request = playbackRequestGate.Current;
             //无论走哪条分支都要消费掉，避免残留到下一次点击
             var toggleBar = mtcTapPendingToggle;
@@ -5575,13 +5668,13 @@ namespace BiliBili.UWP.Pages
                     return;
                 }
             }
-            if (_isExiting || !playbackRequestGate.IsCurrent(request)
+            if (_isExiting || isPlaybackLocked || !playbackRequestGate.IsCurrent(request)
                 || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
 
             //点在 BAS 弹幕的互动元素上时，这一下已经由弹幕自己处理（跳转/seek），
             //不能再顺手收起控制栏，否则播放器的单击效果会叠加到弹幕交互上
             var handledByBas = await TryHandleBasDanmakuTapAsync(e);
-            if (!handledByBas && toggleBar && !_isExiting && playbackRequestGate.IsCurrent(request))
+            if (!handledByBas && toggleBar && !_isExiting && !isPlaybackLocked && playbackRequestGate.IsCurrent(request))
             {
                 MTC.HideOrShowMTC();
             }
@@ -5650,7 +5743,7 @@ namespace BiliBili.UWP.Pages
         private void ForwardScriptPointer(string action, PointerRoutedEventArgs e)
         {
             var control = scriptDanmakuControl;
-            if (_isExiting || !LoadDanmu || control == null || control.ActualWidth <= 0 || control.ActualHeight <= 0
+            if (_isExiting || isPlaybackLocked || !LoadDanmu || control == null || control.ActualWidth <= 0 || control.ActualHeight <= 0
                 || e.Pointer.PointerDeviceType != Windows.Devices.Input.PointerDeviceType.Mouse) return;
             var point = e.GetCurrentPoint(control);
             // 只转发左键，右键仍用于播放器菜单。

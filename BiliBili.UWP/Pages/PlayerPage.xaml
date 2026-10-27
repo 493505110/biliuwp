@@ -358,6 +358,20 @@
                     <controls:DropShadowPanel x:Name="ssPositionShadow" Visibility="Collapsed" BlurRadius="12" ShadowOpacity="0.35" OffsetX="0" OffsetY="1" Color="Black" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <TextBlock x:Name="txt_SSPosition" FontSize="36" Foreground="White"></TextBlock>
                     </controls:DropShadowPanel>
+                    <!-- 覆盖全部播放交互层，锁定时只让右侧的解锁按钮接收输入。 -->
+                    <Grid x:Name="playbackLockShield" Visibility="Collapsed" Background="Transparent"
+                          Tapped="PlaybackLockShield_Tapped" DoubleTapped="PlaybackLockShield_DoubleTapped"
+                          RightTapped="PlaybackLockShield_RightTapped" />
+                    <AppBarButton x:Name="btn_PlaybackLock" Visibility="Collapsed" RequestedTheme="Dark"
+                                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0 0 16 0"
+                                  Width="48" Height="48" CornerRadius="0" IsCompact="True" LabelPosition="Collapsed"
+                                  Background="{ThemeResource SystemControlPageBackgroundAltMediumBrush}"
+                                  Label="锁定播放操作" AutomationProperties.Name="锁定播放操作"
+                                  ToolTipService.ToolTip="锁定播放操作" Click="PlaybackLock_Click">
+                        <AppBarButton.Icon>
+                            <FontIcon x:Name="playbackLockIcon" FontFamily="Segoe MDL2 Assets" Glyph="&#xE785;" FontSize="20" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
                 </Grid>
             </SplitView>
 
