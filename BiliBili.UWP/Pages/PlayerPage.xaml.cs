@@ -146,13 +146,7 @@ namespace BiliBili.UWP.Pages
 #else
             try
             {
-                // 设备形态包含可平板使用的二合一；触屏笔记本本身不满足形态条件。
-                var form = Windows.System.Profile.AnalyticsInfo.DeviceForm;
-                var isTablet = string.Equals(form, "Tablet", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(form, "Convertible", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(form, "Detachable", StringComparison.OrdinalIgnoreCase);
-                btn_PlaybackLock.Visibility = isTablet
-                    && new Windows.Devices.Input.TouchCapabilities().TouchPresent > 0
+                btn_PlaybackLock.Visibility = new Windows.Devices.Input.TouchCapabilities().TouchPresent > 0
                     ? Visibility.Visible : Visibility.Collapsed;
             }
             catch (Exception ex)
@@ -4932,7 +4926,7 @@ namespace BiliBili.UWP.Pages
             }
             if (_isExiting || isPlaybackLocked || !playbackRequestGate.IsCurrent(request)
                 || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
-            if (!SettingHelper.IsPc() || SettingHelper.IsTabletMode())
+            if (e.PointerDeviceType == Windows.Devices.Input.PointerDeviceType.Touch)
             {
                 if (mediaElement.MediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
                 {
@@ -4943,7 +4937,7 @@ namespace BiliBili.UWP.Pages
                     mediaElement.MediaPlayer.Play();
                 }
             }
-            else
+            else if (e.PointerDeviceType == Windows.Devices.Input.PointerDeviceType.Mouse)
             {
                 if (MTC.IsFullWindow)
                 {
