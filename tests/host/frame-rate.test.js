@@ -106,6 +106,29 @@ test('舞台帧率跨条目共享，视频状态同步不重置逻辑帧相位',
     healthy(host);
 });
 
+test('大量回调创建的元素共用一次寿命取时，并在暂停恢复后正常到期', async () => {
+    const host = await loadHost();
+    host.reset(0, true, 1, true);
+    host.append([{ id:'many',stime:0,duration:20,lang:'js',code:
+        'Utils.interval(function(){window.__born=[];for(var i=0;i<1000;i++)'
+        + '__born.push($.createShape({lifeTime:1}));},1,1);'
+    }]);
+    host.runFrames(3);
+    assert.equal(host.sandbox.__born.length,1000);
+    let reads=0;
+    const now=host.sandbox.performance.now;
+    host.sandbox.performance.now=()=>{reads++;return now();};
+    host.runFrames(1);
+    assert.ok(reads<50,'取时次数不应随元素数量增长：'+reads);
+    host.setState(0.1,false,1);
+    host.runFrames(120);
+    assert.ok(host.sandbox.__born.every(e=>!e.expired),'暂停不能消耗元素寿命');
+    host.setState(0.1,true,1);
+    host.runFrames(90);
+    assert.ok(host.sandbox.__born.every(e=>e.expired),'恢复播放后必须按舞台时间到期');
+    healthy(host);
+});
+
 test('长时间停顿不爆发补帧，帧中途注册的 Timer 不会提前到期', async () => {
     const host = await probe(30, 60);
     host.advanceClock(1000);

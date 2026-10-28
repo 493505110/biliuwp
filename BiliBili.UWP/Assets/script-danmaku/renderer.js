@@ -638,8 +638,77 @@ function filterContentRect(element, bounds, padding) {
     return { x: content.x - bounds.x + padding.x, y: content.y - bounds.y + padding.y, width: content.width, height: content.height };
 }
 
-// 叶子元素的内容缓存。只有 needsCache 置位时才会走到这里——
-// 这是「静态元素首帧之后不再重绘」的落点。
+// 动态矢量文字会反复创建相同的 drawPath 字形和文字行；共享只读的小位图，
+// 同时让投影器复用同一份纹理。LRU 限制键、像素和条目数，不保留任意大图。
+var vectorRasters = new Map();
+var sharedVectorCanvases = new WeakMap();
+var nextVectorRasterId = 0;
+var vectorRasterBytes = 0;
+var MAX_VECTOR_RASTER_BYTES = 4 * 1024 * 1024;
+var MAX_VECTOR_RASTERS = 256;
+
+function shapeRasterKey(element, bounds, ratio, width, height) {
+    if (element.kind !== "shape" || element.childList.length || element.props.colorTransform
+        || (element.props.filters && element.props.filters.length) || width * height > 64 * 1024
+        || !element.shapeItems || !element.shapeItems.length) return null;
+    function solid(style) {
+        return !style || (!style.gradient && Number.isFinite(style.color) && Number.isFinite(style.alpha)
+            && (style.width === undefined || Number.isFinite(style.width)));
+    }
+    // 只共享自包含的路径与纯色样式，排除依赖外部资源的绘制内容。
+    if (!element.shapeItems.every(function (item) {
+        return item.kind === "path" && Array.isArray(item.commands) && Array.isArray(item.data)
+            && item.commands.every(Number.isFinite) && item.data.every(Number.isFinite)
+            && solid(item.fill) && solid(item.line);
+    })) return null;
+    var key = JSON.stringify([bounds, ratio, element.shapeItems]);
+    return key.length <= 4096 ? key : null;
+}
+
+function compositeRasterKey(element, bounds, ratio, width, height) {
+    if (!(element.kind === "group" || (element.kind === "shape" && !element.shapeItems.length))
+        || element.props.colorTransform || element.props.mask || element.props.scrollRect
+        || (element.props.filters && element.props.filters.length) || element.compositeCrop || width * height > 64 * 1024) return null;
+    var children = [];
+    for (var i = 0; i < element.childList.length; i++) {
+        var child = element.childList[i];
+        if (!isElementVisible(child) || child.props.alpha <= 0 || isUsedAsMask(child)) continue;
+        if (child.props.mask || child.props.scrollRect || child.projectedComposite || subtree3D(child)
+            || blendModeToComposite(child.props.blendMode) !== "source-over") return null;
+        var source = child.childList.length ? child.composite : child.cacheCanvas;
+        // 空格等空字形没有位图，blitElement 同样不会绘制；它们的位置已反映在后续字形中。
+        if (!source && child.kind === "shape" && !child.childList.length && !child.cacheBounds) continue;
+        var id = source && sharedVectorCanvases.get(source);
+        if (!id) return null;
+        var m = localMatrix(child);
+        children.push([id,m[0],m[1],m[4],m[5],m[12],m[13],child.props.alpha]);
+    }
+    if (!children.length) return null;
+    // 只由已共享的只读字形/文字行构成，顺序、局部变换和透明度完全一致才复用。
+    var key = JSON.stringify(["composite",bounds,ratio,children]);
+    return key.length <= 4096 ? key : null;
+}
+
+function findVectorRaster(key) {
+    var shared = key && vectorRasters.get(key);
+    if (shared) { vectorRasters.delete(key); vectorRasters.set(key, shared); }
+    return shared;
+}
+
+function rememberVectorRaster(key, canvas, bounds) {
+    var bytes = canvas.width * canvas.height * 4 + key.length * 2;
+    while (vectorRasters.size && (vectorRasters.size >= MAX_VECTOR_RASTERS
+        || vectorRasterBytes + bytes > MAX_VECTOR_RASTER_BYTES)) {
+        var oldest = vectorRasters.keys().next().value;
+        vectorRasterBytes -= vectorRasters.get(oldest).bytes;
+        vectorRasters.delete(oldest);
+    }
+    vectorRasters.set(key, { canvas: canvas, bounds: bounds, bytes: bytes });
+    vectorRasterBytes += bytes;
+    sharedVectorCanvases.set(canvas, ++nextVectorRasterId);
+}
+
+// 叶子内容仅在 needsCache 置位时重建；相同字形可直接取共享位图。
 function rebuildElementCache(element) {
     var bounds = elementLocalBounds(element);
     element.needsCache = false;
@@ -656,7 +725,17 @@ function rebuildElementCache(element) {
     element.cacheDpr = ratio;
     var width = Math.max(1, Math.ceil((bounds.width + padding.x * 2) * ratio));
     var height = Math.max(1, Math.ceil((bounds.height + padding.y * 2) * ratio));
-    if (!element.cacheCanvas) {
+    var key = shapeRasterKey(element, bounds, ratio, width, height);
+    var shared = findVectorRaster(key);
+    if (shared) {
+        element.cacheCanvas = shared.canvas;
+        element.cacheCtx = shared.canvas.getContext("2d");
+        element.cacheBounds = shared.bounds;
+        element.painted = true;
+        return;
+    }
+    // 共享位图永不原地重绘；改单个字形、滤镜或缩放不能污染其它使用者。
+    if (!element.cacheCanvas || sharedVectorCanvases.has(element.cacheCanvas)) {
         element.cacheCanvas = document.createElement("canvas");
     }
 
@@ -683,6 +762,7 @@ function rebuildElementCache(element) {
         width: bounds.width + padding.x * 2,
         height: bounds.height + padding.y * 2
     };
+    if (key) rememberVectorRaster(key, element.cacheCanvas, element.cacheBounds);
     element.painted = true;
     hostState.paintCount++;
 }
@@ -771,7 +851,15 @@ function rebuildComposite(element) {
     filterContent.x += bounds.x - layout.origin.x; filterContent.y += bounds.y - layout.origin.y;
     bounds = layout.bounds;
     var width = layout.width, height = layout.height;
-    if (!element.composite) {
+    var key = compositeRasterKey(element, bounds, ratio, width, height);
+    var shared = findVectorRaster(key);
+    if (shared) {
+        element.composite = shared.canvas;
+        element.compositeBounds = shared.bounds;
+        element.painted = true;
+        return;
+    }
+    if (!element.composite || sharedVectorCanvases.has(element.composite)) {
         element.composite = document.createElement("canvas");
     }
 
@@ -795,6 +883,7 @@ function rebuildComposite(element) {
     element.composite.__m8RasterVersion = ++rasterVersion;
 
     element.compositeBounds = bounds;
+    if (key) rememberVectorRaster(key, element.composite, bounds);
     element.painted = true;
     hostState.paintCount++;
 }

@@ -1080,7 +1080,8 @@ namespace BiliBili.Tests
                 "element.lifeTimeMs = resolveElementLifeTimeMs(item, LIFE_TIME_UNBOUNDED);");
 
             var advanceBody = TestRepository.MethodBody(source, "function advanceItem(item, now, logicalFrame) {");
-            StringAssert.Contains(advanceBody, "var elementElapsed = elementElapsedMs(element, elapsed);");
+            StringAssert.Contains(advanceBody, "var stageNow = hostState.stagePlayingTimeMs + stageFrameOffsetMs();");
+            StringAssert.Contains(advanceBody, "var elementElapsed = elementElapsedMs(element, elapsed, stageNow);");
             StringAssert.Contains(advanceBody, "if (elementElapsed >= element.lifeTimeMs) {");
             StringAssert.Contains(advanceBody, "releaseItemElement(item, index);");
 

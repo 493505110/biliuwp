@@ -293,9 +293,9 @@ function deactivateItem(item) {
     }
 }
 
-function elementElapsedMs(element, itemElapsed) {
+function elementElapsedMs(element, itemElapsed, stageNow) {
     return element.createdAtStageMs == null ? itemElapsed
-        : Math.max(0, hostState.stagePlayingTimeMs + stageFrameOffsetMs() - element.createdAtStageMs);
+        : Math.max(0, (stageNow === undefined ? hostState.stagePlayingTimeMs + stageFrameOffsetMs() : stageNow) - element.createdAtStageMs);
 }
 
 function advanceItem(item, now, logicalFrame) {
@@ -341,12 +341,14 @@ function advanceItem(item, now, logicalFrame) {
         failItem(item, error);
     }
 
+    // 回调可能创建新元素；完成回调后统一取时，避免为成千上万个字形逐个读时钟。
+    var stageNow = hostState.stagePlayingTimeMs + stageFrameOffsetMs();
     for (var index = item.elements.length - 1; index >= 0; index--) {
         var element = item.elements[index];
         if (element.expired) {
             continue;
         }
-        var elementElapsed = elementElapsedMs(element, elapsed);
+        var elementElapsed = elementElapsedMs(element, elapsed, stageNow);
 
         // 被 Tween.* 句柄驱动的元素由句柄写回，不再按条目进度插值：
         // 否则两套时间轴会互相覆盖（先句柄后条目，句柄结果当场被冲掉）。

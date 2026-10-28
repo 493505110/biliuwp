@@ -7,6 +7,62 @@ const { createBrowserHost } = require('./browser-host');
 const cases = [];
 const shape = 'var box=$.createShape({lifeTime:20,x:100,y:100});box.graphics.beginFill(0xffffff);box.graphics.drawRect(0,0,40,40);box.graphics.endFill();window.__box=box;';
 function test(name, run) { cases.push({ name, run }); }
+const glyph = 'window.__display=$;function glyph(x){var s=$.createShape({lifeTime:20,x:x,y:100});'
+    + 's.graphics.beginFill(0xffffff);s.graphics.drawPath([1,2,2,2,2],[0,0,20,0,20,20,0,20,0,0]);s.graphics.endFill();return s;}';
+
+test('相同矢量字形共享栅格，改色、滤镜和DPI不会污染其它实例', async p => {
+    await p.script(glyph + 'window.__a=glyph(100);window.__b=glyph(200);window.__c=glyph(300);window.__d=glyph(400);');
+    assert.equal(await p.page.evaluate(() => __a.cacheCanvas === __b.cacheCanvas), true);
+    assert.deepEqual(await p.pixel(110,110), [255,255,255,255]);
+    await p.update('__a.graphics.clear();__a.graphics.beginFill(0xff0000);__a.graphics.drawPath([1,2,2,2,2],[0,0,20,0,20,20,0,20,0,0]);__a.graphics.endFill();');
+    assert.deepEqual(await p.pixel(110,110), [255,0,0,255]);
+    assert.deepEqual(await p.pixel(210,110), [255,255,255,255]);
+    await p.update('__c.transform.colorTransform={redMultiplier:0,greenMultiplier:1,blueMultiplier:0};');
+    assert.deepEqual(await p.pixel(310,110), [0,255,0,255]);
+    await p.update('__d.filters=[__display.createBlurFilter(5,5,1)];');
+    assert.ok((await p.pixel(399,110))[3]>0);
+    assert.equal((await p.pixel(199,110))[3],0);
+    await p.update('__b.scaleX=__b.scaleY=2;');
+    assert.equal(await p.page.evaluate(() => __b.cacheCanvas === __d.cacheCanvas), false);
+    assert.deepEqual(await p.pixel(230,110), [255,255,255,255]);
+    assert.deepEqual(await p.pixel(110,110), [255,0,0,255]);
+    await p.update('Object.defineProperty(window,"devicePixelRatio",{value:2,configurable:true});scriptDanmakuHost.resize();');
+    assert.deepEqual(await p.pixel(220,220), [255,0,0,255]);
+    assert.deepEqual(await p.pixel(460,220), [255,255,255,255]);
+    assert.deepEqual(await p.pixel(620,220), [0,255,0,255]);
+});
+
+test('相同字形组成的文字行共享合成，移字与加滤镜不污染另一行', async p => {
+    await p.script(glyph + 'function line(x){var g=$.createCanvas({lifeTime:20,x:x,y:200});'
+        + 'var a=glyph(0);a.y=0;g.addChild(a);var b=glyph(30);b.y=0;g.addChild(b);'
+        + 'g.addChild($.createShape({lifeTime:20}));return g;}'
+        + 'window.__a=line(100);window.__b=line(300);');
+    assert.equal(await p.page.evaluate(()=>__a.composite===__b.composite),true);
+    await p.update('__a.getChildAt(0).x=5;');
+    assert.equal((await p.pixel(101,210))[3],0);
+    assert.deepEqual(await p.pixel(301,210),[255,255,255,255]);
+    assert.equal(await p.page.evaluate(()=>__a.composite===__b.composite),false);
+    await p.update('__a.getChildAt(0).x=0;');
+    assert.equal(await p.page.evaluate(()=>__a.composite===__b.composite),true);
+    await p.update('__a.filters=[__display.createBlurFilter(5,5,1)];');
+    assert.ok((await p.pixel(99,210))[3]>0);
+    assert.equal((await p.pixel(299,210))[3],0);
+    assert.deepEqual(await p.pixel(310,210),[255,255,255,255]);
+});
+
+test('字形缓存淘汰后仍可修改旧实例，不改变共享它的像素', async p => {
+    await p.script(glyph + 'window.__a=glyph(100);window.__b=glyph(200);'
+        + 'for(var i=0;i<300;i++){var s=glyph(1000+i);s.graphics.clear();s.graphics.beginFill(i);s.graphics.drawPath([1,2,2,2,2],[0,0,20,0,20,20,0,20,0,0]);s.graphics.endFill();}');
+    await p.page.evaluate(code => {
+        scriptDanmakuHost.append([{id:'later',stime:0,duration:20,lang:'js',code}]);__step(0);
+    },glyph + 'window.__c=glyph(300);');
+    assert.equal(await p.page.evaluate(() => __b.cacheCanvas === __c.cacheCanvas),false,'最旧字形应已淘汰');
+    await p.update('__a.filters=[__display.createBlurFilter(5,5,1)];');
+    assert.ok((await p.pixel(99,110))[3]>0);
+    assert.equal((await p.pixel(199,110))[3],0);
+    assert.deepEqual(await p.pixel(210,110), [255,255,255,255]);
+});
+
 async function version(p, field = 'cacheCanvas') {
     return p.page.evaluate(field => window.__box[field].__m8RasterVersion, field);
 }
@@ -513,9 +569,10 @@ test('持续更新的大位图不额外复制裁剪块，稳定后恢复裁剪',
 });
 
 async function run() {
-    const host = await createBrowserHost();
+    const host = await createBrowserHost(process.env.M8_BASE_REVISION);
     try {
         for (const item of cases) {
+            if (process.env.M8_TEST_FILTER && !item.name.includes(process.env.M8_TEST_FILTER)) continue;
             const p = await host.page();
             try {
                 await item.run(p);
