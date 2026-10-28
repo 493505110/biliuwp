@@ -24,43 +24,16 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Check for new commits (skip if nightly is current)
+      - name: Validate nightly release logic
+        shell: pwsh
+        run: ./.github/scripts/tests/nightly-release.Tests.ps1
+
+      - name: Check for new commits and complete publication
         id: check
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # 手动触发:无条件构建
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Manual trigger: building regardless of commit state"
-            exit 0
-          fi
-          # 定时触发①:HEAD 已是最新正式版代码 → 直接跳过,即使 nightly 落后也不构建
-          # 理由:正式版 release 已覆盖该代码,master 尚未推出新提交前,nightly 无需再对齐
-          latest_tag=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name' 2>/dev/null || echo "none")
-          release_sha="none"
-          if [ "$latest_tag" != "none" ] && [ -n "$latest_tag" ]; then
-            # commits 接口会将附注标签和轻量标签都解析为提交 SHA，避免拿标签对象 SHA 与 HEAD 比较。
-            release_sha=$(gh api "repos/${{ github.repository }}/commits/$latest_tag" --jq '.sha' 2>/dev/null || echo "none")
-          fi
-          echo "latest_release=$latest_tag release_sha=$release_sha"
-          if [ "$release_sha" != "none" ] && [ "${{ github.sha }}" = "$release_sha" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "HEAD equals latest release ($latest_tag) — skipping"
-            exit 0
-          fi
-          # 定时触发②:HEAD 未达正式版,再对比 nightly 标签指向的 commit,相同则跳过
-          current="${{ github.sha }}"
-          prev=$(gh api "repos/${{ github.repository }}/git/ref/tags/nightly" --jq '.object.sha' 2>/dev/null || echo "none")
-          echo "current=$current prev=$prev"
-          if [ -n "$prev" ] && [ "$prev" != "none" ] && [ "$current" = "$prev" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "No new commits since last nightly ($current) — skipping"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "New commits detected (prev=$prev) — building"
-          fi
+        run: ./.github/scripts/nightly-release.ps1 -Mode Check
 
       - name: Set nightly package version
         id: version
@@ -68,79 +41,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          function Read-PackageVersion([string] $value) {
-            if ($value -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw "Invalid package version: $value" }
-            $version = [version]::Parse($value)
-            if ($version.Major -eq 0 -or ($value.Split('.') | Where-Object { [long]$_ -gt 65535 })) {
-              throw "Package version is outside the supported range: $value"
-            }
-            return $version
-          }
-
-          $manifestPath = Join-Path $env:GITHUB_WORKSPACE 'BiliBili.UWP/Package.appxmanifest'
-          $manifest = [System.Xml.XmlDocument]::new()
-          $manifest.PreserveWhitespace = $true
-          $manifest.Load($manifestPath)
-          $sourceVersion = Read-PackageVersion $manifest.Package.Identity.Version
-          if ($sourceVersion.Revision -ne 0) { throw 'The source manifest must use revision 0 for formal releases.' }
-          $baseVersion = $sourceVersion
-          $revision = 1
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = 'application/vnd.github+json'
-            'X-GitHub-Api-Version' = '2022-11-28'
-          }
-          $repoApi = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY"
-          $previousRelease = $null
-          try {
-            $previousRelease = Invoke-RestMethod -Uri "$repoApi/releases/tags/nightly" -Headers $headers
-          } catch {
-            if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
-            # 只有 release 和标签均不存在时才视为首次发布；残留标签意味着历史状态异常。
-            $tagExists = $true
-            try {
-              $null = Invoke-RestMethod -Uri "$repoApi/git/ref/tags/nightly" -Headers $headers
-            } catch {
-              if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
-              $tagExists = $false
-            }
-            if ($tagExists) { throw 'The nightly tag exists but its release is missing; cannot determine the previous package version.' }
-          }
-
-          if ($null -ne $previousRelease) {
-            $versions = @()
-            $page = 1
-            do {
-              $assets = @(Invoke-RestMethod -Uri "$repoApi/releases/$($previousRelease.id)/assets?per_page=100&page=$page" -Headers $headers | ForEach-Object { $_ })
-              foreach ($asset in $assets) {
-                if ($asset.name -notmatch '\.(appx|msix|appxbundle|msixbundle)$') { continue }
-                if ($asset.state -ne 'uploaded' -or $asset.size -le 0 -or
-                    $asset.name -notmatch '_(?<version>\d+\.\d+\.\d+\.\d+)_(?:x86|x64|ARM64)(?:_[^/]*)?\.(?:appx|msix|appxbundle|msixbundle)$') {
-                  throw "Cannot read the version of nightly package: $($asset.name)"
-                }
-                $versions += (Read-PackageVersion $Matches.version).ToString()
-              }
-              $page++
-            } while ($assets.Count -eq 100)
-            $versions = @($versions | Select-Object -Unique)
-            if ($versions.Count -ne 1) { throw 'Nightly packages must contain exactly one consistent version.' }
-            $previousVersion = Read-PackageVersion $versions[0]
-            $previousBase = [version]::new($previousVersion.Major, $previousVersion.Minor, $previousVersion.Build, 0)
-            if ($baseVersion -lt $previousBase) { throw "Source version $baseVersion is older than published nightly $previousVersion." }
-            if ($baseVersion -eq $previousBase) {
-              if ($previousVersion.Revision -eq 65535) { throw 'Nightly revision has reached 65535; increase the source manifest base version.' }
-              $revision = $previousVersion.Revision + 1
-            }
-            Write-Host "Previous nightly package version: $previousVersion"
-          }
-
-          $packageVersion = "$($baseVersion.Major).$($baseVersion.Minor).$($baseVersion.Build).$revision"
-          # 仅修改本次 runner 的工作副本，三个架构共用同一个版本，不提交 manifest。
-          $manifest.Package.Identity.SetAttribute('Version', $packageVersion)
-          $manifest.Save($manifestPath)
-          "package_version=$packageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "Nightly package version: $packageVersion"
+        run: ./.github/scripts/nightly-release.ps1 -Mode Version
 
       - name: Generate nightly changelog from Git commits
         if: steps.check.outputs.skip != 'true'
@@ -176,16 +77,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate Git commits for the nightly changelog.' }
           $items = @()
           foreach ($commit in $commits) {
-            $message = (git -c i18n.logOutputEncoding=utf-8 show --no-patch '--format=%h%x00%s%x00%b' $commit) -join "`n"
+            $item = git -c i18n.logOutputEncoding=utf-8 show --no-patch '--format=- %h %s' $commit
             if ($LASTEXITCODE -ne 0) { throw "Cannot read Git commit: $commit" }
-            $parts = $message.Split([char]0, 3)
-            if ($parts.Count -ne 3) { throw "Invalid Git commit message: $commit" }
-            # 应用内日志只识别单行条目，将提交正文合入条目并去掉署名尾注。
-            $details = @($parts[2] -split '\r?\n' | ForEach-Object { $_.Trim() } |
-              Where-Object { $_ -and $_ -notmatch '^(Co-Authored-By|Signed-off-by):' } |
-              ForEach-Object { $_ -replace '^[-*]\s+', '' })
-            $item = "- $($parts[0]) $($parts[1])"
-            if ($details.Count -gt 0) { $item += '：' + ($details -join '；') }
             $items += $item
           }
           if ($items.Count -eq 0) { $items = @('- 本次重新构建，无新增提交。') }
@@ -303,32 +196,11 @@ jobs:
           if ($x64File) { "x64_file=$(Split-Path $x64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
           if ($arm64File) { "arm64_file=$(Split-Path $arm64File -Leaf)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append }
 
-      - name: Reset nightly release & tag
+      - name: Stage, verify and publish nightly release
         if: steps.check.outputs.skip != 'true'
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # 删除旧 release 与旧 tag,由 softprops 全新重建:
-          # 原地更新 release 不会刷新 published_at,页面日期会停留在首次发布时间;
-          # 且 GitHub 对同名 tag 会"记住"旧 release 的日期,必须连 tag 一起删
-          # 删除失败(如 release/tag 不存在)不中断,但不再静默吞错:
-          # 若旧 release 删除失败,softprops 会原地更新,页面日期不刷新的问题会静默复发
-          gh release delete nightly --repo "${{ github.repository }}" --yes || echo "::warning::旧 nightly release 删除失败(可能不存在或权限不足),发布将原地更新"
-          gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/nightly" || echo "::warning::旧 nightly tag 删除失败(可能不存在),日期可能不刷新"
-          # 重建 tag 指向当前 HEAD:本地 git 操作最可靠
-          # (gh api PATCH 有参数类型/权限坑,曾导致 tag 停在旧提交、release 指向旧代码)
-          git tag -f nightly "$GITHUB_SHA"
-          # 推送 tag 到远端(URL 内嵌 token 认证,extraheader 构造方式在 runner 上返回 400)
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" nightly --force
-
-      - name: Publish nightly release
-        if: steps.check.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: nightly
-          name: Nightly Build
-          body_path: nightly-release-notes.md
-          files: ${{ steps.packages.outputs.files }}
-          prerelease: true
-          fail_on_unmatched_files: true
+          EXPECTED_PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+          NIGHTLY_FILES: ${{ steps.packages.outputs.files }}
+        run: ./.github/scripts/nightly-release.ps1 -Mode Publish
