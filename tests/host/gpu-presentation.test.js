@@ -335,6 +335,7 @@ async function realScene(host, startPosition = 36, frames = [30, 31, 60, 90, 91,
     }));
     const references = new Map();
     const rows = [];
+    let alphaIsolationFrames = 0;
     for (const direct of [false, true]) {
         const p = await host.page(1280, 720, 1, false, direct);
         try {
@@ -354,12 +355,28 @@ async function realScene(host, startPosition = 36, frames = [30, 31, 60, 90, 91,
                 };
             });
             let previous = 0;
-            // 启用直呈的帧及紧随的保留帧，不能只检查恰好回退的整秒画面。
+            // 检查非整秒帧及紧随的保留帧；真实 alpha 遮罩需要隔离时允许回退。
             for (const frame of frames) {
                 await p.page.evaluate(({ previous, frame }) => { for (let f = previous + 1; f <= frame; f++) __stepTo(f * 1000 / 60); }, { previous, frame });
                 previous = frame;
                 if (direct) {
-                    if (startPosition === 36 && [30, 31, 90, 91, 150, 151].includes(frame)) assert.equal((await state(p)).direct, true, 'frame ' + frame);
+                    const alphaIsolation = await p.page.evaluate(async () => {
+                        const {hostState}=await import('/script-danmaku/core.js');
+                        return hostState.elements.some(element => {
+                            if (element.projectedPlanar || element.blendMode !== 'layer'
+                                || !element.childList.some(child => child.blendMode === 'alpha')) return false;
+                            for (let current=element; current; current=current.treeParent) {
+                                if (current.expired || current.visible === false || current.alpha <= 0) return false;
+                            }
+                            return true;
+                        });
+                    });
+                    if (alphaIsolation) {
+                        alphaIsolationFrames++;
+                        assert.equal((await state(p)).direct, false, 'alpha 遮罩隔离 frame ' + frame);
+                    } else if (startPosition === 36 && [30,31,90,91,150,151].includes(frame)) {
+                        assert.equal((await state(p)).direct, true, 'frame ' + frame);
+                    }
                     const diff = await samePicture(p, references.get(frame), 'DECORATOR ' + startPosition + 's frame ' + frame);
                     assert.ok(diff.referencePixels > 0, '真实场景不能用两张空白截图验证：' + startPosition + 's frame ' + frame);
                 } else references.set(frame, await screenshot(p));
@@ -368,11 +385,12 @@ async function realScene(host, startPosition = 36, frames = [30, 31, 60, 90, 91,
             await healthy(p);
         } finally { await p.page.close(); }
     }
-    if (startPosition === 36) {
+    if (startPosition === 36 && !alphaIsolationFrames) {
         assert.equal(rows[0], 90);
         assert.ok(rows[1] <= 1, JSON.stringify(rows));
     } else assert.ok(rows[1] <= rows[0], JSON.stringify(rows));
-    console.log('ok DECORATOR ' + startPosition + 's 原样脚本最终画面一致，投影回贴 ' + rows[0] + ' → ' + rows[1]);
+    console.log('ok DECORATOR ' + startPosition + 's 原样脚本最终画面一致，alpha 隔离采样帧 '
+        + alphaIsolationFrames + '，投影回贴 ' + rows[0] + ' → ' + rows[1]);
 }
 
 (async () => {

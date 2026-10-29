@@ -277,6 +277,8 @@ function setPropertyInternal(element, name, value, markDirty) {
 
     var previous = props[name];
     props[name] = value;
+    // layer 的开关改变内部 alpha 遮罩的合成方式，不能只重贴旧复合位图。
+    if (name === "blendMode" && (previous === "layer" || value === "layer")) element.compositeDirty = true;
     if (name === "matrix" && value) {
         props.matrix3D = null;
         props.x = value.tx; props.y = value.ty;
@@ -765,6 +767,7 @@ function isUsedAsMask(element) {
 var BLEND_MODE_COMPOSITES = {
     normal: "source-over",
     layer: "source-over",
+    // layer 内的 alpha 由 renderer 在完整隔离表面上处理；其它位置保留普通叠加。
     alpha: "source-over",
     darken: "darken",
     multiply: "multiply",

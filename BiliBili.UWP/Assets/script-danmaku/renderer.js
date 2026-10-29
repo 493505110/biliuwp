@@ -668,7 +668,8 @@ function shapeRasterKey(element, bounds, ratio, width, height) {
 function compositeRasterKey(element, bounds, ratio, width, height) {
     if (!(element.kind === "group" || (element.kind === "shape" && !element.shapeItems.length))
         || element.props.colorTransform || element.props.mask || element.props.scrollRect
-        || (element.props.filters && element.props.filters.length) || element.compositeCrop || width * height > 64 * 1024) return null;
+        || (element.props.filters && element.props.filters.length) || hasAlphaBlendMask(element)
+        || element.compositeCrop || width * height > 64 * 1024) return null;
     var children = [];
     for (var i = 0; i < element.childList.length; i++) {
         var child = element.childList[i];
@@ -826,6 +827,38 @@ function planarCacheLayout(element, full, ratio) {
     return layout;
 }
 
+function hasAlphaBlendMask(element) {
+    return element.props.blendMode === "layer"
+        && element.childList.some(function (child) { return child.props.blendMode === "alpha"; });
+}
+
+// alpha 作用于所属 layer 的已有像素。必须先画成覆盖整个目标的透明位图，
+// 再 destination-in：直接画遮罩的几何或缓存会留下其边界之外的旧内容。
+// 按目标画布复用临时表面，嵌套 layer 各用自己的表面，不互相擦除。
+var alphaBlendSurfaces = new WeakMap();
+function paintAlphaBlendMask(target, element, paint) {
+    if (!isElementVisible(element) || isUsedAsMask(element)) return;
+    var canvas = alphaBlendSurfaces.get(target);
+    if (!canvas) {
+        canvas = document.createElement("canvas");
+        alphaBlendSurfaces.set(target, canvas);
+    }
+    if (canvas.width !== target.canvas.width || canvas.height !== target.canvas.height) {
+        canvas.width = target.canvas.width; canvas.height = target.canvas.height;
+    }
+    var context = canvas.getContext("2d"), matrix = target.getTransform();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+    paint(context);
+    target.save();
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.globalAlpha = 1;
+    target.globalCompositeOperation = "destination-in";
+    target.drawImage(canvas, 0, 0);
+    target.restore();
+}
+
 function rebuildComposite(element) {
     var bounds = computeCompositeBounds(element);
     element.compositeDirty = false;
@@ -876,7 +909,10 @@ function rebuildComposite(element) {
     // Sprite 自己的 graphics 与子节点都参与合成。
     paintElementContent(target, element);
     for (var index = 0; index < element.childList.length; index++) {
-        blitElement(target, element.childList[index]);
+        var child = element.childList[index];
+        if (element.props.blendMode === "layer" && child.props.blendMode === "alpha") {
+            paintAlphaBlendMask(target, child, function (context) { blitElement(context, child); });
+        } else blitElement(target, child);
     }
     element.composite.__m8FilterContent = filterContent;
     applyEffects(element.composite, element, ratio);
@@ -1702,7 +1738,9 @@ function canPresentProjectedTree(element) {
         || isUsedAsMask(element) || nearClippedElements.has(element)) return true;
     var p = element.props;
     var needsIsolation = p.scrollRect || (p.mask && !maskCoversViewport(p.mask))
-        // 与真正绘制时共用映射，避免 alpha 等 source-over 别名被名称检查误挡。
+        // 非共面 layer 的 alpha 遮罩需要在隔离表面合成，不能直接呈现 WebGL 批次。
+        || (!element.projectedPlanar && hasAlphaBlendMask(element))
+        // 其它普通叠加别名仍与实际绘制共用映射。
         || blendModeToComposite(p.blendMode) !== "source-over"
         || (!element.projectedPlanar && element.childList.length
             && (p.colorTransform || (p.filters && p.filters.length)));
@@ -1880,7 +1918,8 @@ function drawProjectedNode(target, element, alpha, skipEffects) {
 function drawProjectedContent(target, element, alpha, skipEffects) {
     if (!isElementVisible(element) || element.props.alpha <= 0 || isUsedAsMask(element)) return;
     if (nearClippedElements.has(element)) return;
-    var groupEffects = !element.projectedPlanar && element.childList.length && (element.props.colorTransform || (element.props.filters && element.props.filters.length));
+    var groupEffects = !element.projectedPlanar && element.childList.length
+        && (element.props.colorTransform || (element.props.filters && element.props.filters.length) || hasAlphaBlendMask(element));
     if (groupEffects && !skipEffects) {
         var bounds = projectedSubtreeBounds(element);
         var surface = bounds && screenSurface(element, bounds, "projectedEffectCanvas");
@@ -1912,7 +1951,16 @@ function drawProjectedContent(target, element, alpha, skipEffects) {
         if (element.composite && element.compositeBounds) drawProjected(target, element.composite, element.compositeBounds, worldMatrix(element), projectionFor(element));
     } else {
         if (element.cacheCanvas && element.cacheBounds) drawProjected(target, element.cacheCanvas, element.cacheBounds, worldMatrix(element), projectionFor(element));
-        for (var i = 0; i < element.childList.length; i++) drawProjectedNode(target, element.childList[i], opacity, false);
+        for (var i = 0; i < element.childList.length; i++) {
+            var child = element.childList[i];
+            if (element.props.blendMode === "layer" && child.props.blendMode === "alpha") {
+                flushProjectedBatch(target);
+                paintAlphaBlendMask(target, child, function (context) {
+                    beginProjectedBatch(context);
+                    try { drawProjectedNode(context, child, 1, false); } finally { endProjectedBatch(context); }
+                });
+            } else drawProjectedNode(target, child, opacity, false);
+        }
     }
     if (mask) flushProjectedBatch(target);
     target.restore();

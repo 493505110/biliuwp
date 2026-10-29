@@ -83,6 +83,7 @@ function createContextStub(canvas) {
     ctx.save = function () { };
     ctx.restore = function () { };
     ctx.setTransform = function () { };
+    ctx.getTransform = function () { return {a:1,b:0,c:0,d:1,e:0,f:0}; };
     ctx.transform = function () { };
     ctx.translate = function () { };
     ctx.scale = function () { };

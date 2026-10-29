@@ -196,6 +196,7 @@ function createContextStub(canvas) {
         ctx.__clip = ctx.__clip ? (intersectRect(ctx.__clip, rect) || { x: 0, y: 0, width: 0, height: 0 }) : rect;
     };
     ctx.setTransform = function (a, b, c, d, e, f) { ctx.__matrix = [a, b, c, d, e, f]; };
+    ctx.getTransform = function () { const [a,b,c,d,e,f] = ctx.__matrix; return {a,b,c,d,e,f}; };
     ctx.transform = function (a, b, c, d, e, f) { ctx.__matrix = multiply(ctx.__matrix, [a, b, c, d, e, f]); };
     ctx.translate = function (x, y) { ctx.transform(1, 0, 0, 1, x, y); };
     ctx.scale = function (x, y) { ctx.transform(x, 0, 0, y, 0, 0); };
