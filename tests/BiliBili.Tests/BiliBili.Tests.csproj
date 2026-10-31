@@ -57,6 +57,10 @@
              Link="Production\PlaybackRequestGate.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackPosition.cs"
              Link="Production\PlaybackPosition.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackNetworkStatistics.cs"
+             Link="Production\PlaybackNetworkStatistics.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\DashSegmentBitrateIndex.cs"
+             Link="Production\DashSegmentBitrateIndex.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\DashStreamSelector.cs"
              Link="Production\DashStreamSelector.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackTimelineIndex.cs"

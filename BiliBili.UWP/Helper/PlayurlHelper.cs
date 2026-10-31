@@ -1177,6 +1177,10 @@ namespace BiliBili.UWP.Helper
                             {
                                 usePlayMode = UsePlayMode.FFmpegDash,
                                 ffmpegDashSource = ffmpegSource,
+                                videoUrl = GetBaseUrl(video),
+                                audioUrl = GetBaseUrl(audio),
+                                videoIndexRange = GetIndexRange(GetSegmentBase(video)),
+                                audioIndexRange = GetIndexRange(GetSegmentBase(audio)),
                                 from = "bilibili_dash_ffmpeg_software_" + codecId,
                                 videoCodec = GetVideoCodecDisplayName(video),
                                 videoWidth = video.width,
@@ -1198,6 +1202,10 @@ namespace BiliBili.UWP.Helper
                         {
                             usePlayMode = UsePlayMode.Dash,
                             mediaSource = mediaSource,
+                            videoUrl = GetBaseUrl(video),
+                            audioUrl = GetBaseUrl(audio),
+                            videoIndexRange = GetIndexRange(GetSegmentBase(video)),
+                            audioIndexRange = GetIndexRange(GetSegmentBase(audio)),
                             from = "bilibili_dash_" + codecId,
                             videoCodec = GetVideoCodecDisplayName(video),
                             videoWidth = video.width,
@@ -1630,6 +1638,10 @@ namespace BiliBili.UWP.Helper
     }
     public class ReturnPlayModel
     {
+        public string videoIndexRange { get; set; }
+        public string audioIndexRange { get; set; }
+        public string videoUrl { get; set; }
+        public string audioUrl { get; set; }
         public IMediaSource mediaSource { get; set; }
         public FFmpegDashSource ffmpegDashSource { get; set; }
         public UsePlayMode usePlayMode { get; set; }

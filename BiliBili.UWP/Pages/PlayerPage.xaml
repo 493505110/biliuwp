@@ -217,6 +217,50 @@
                                  <TextBlock Foreground="White"><Run>视频编码:</Run><Run x:Name="txt_VideoCodec"></Run></TextBlock>
                                  <TextBlock Foreground="White"><Run>是否使用软解:</Run><Run x:Name="txt_fvideo"></Run></TextBlock>
                                  <TextBlock Foreground="White"><Run>视频源:</Run><Run x:Name="txt_site"></Run></TextBlock>
+                                 <TextBlock Foreground="White" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0 8 0 0"><Run>视频Host</Run><LineBreak /><Run x:Name="txt_VideoHost" Text="—" /></TextBlock>
+                                 <TextBlock Foreground="White" TextWrapping="Wrap" IsTextSelectionEnabled="True"><Run>音频Host</Run><LineBreak /><Run x:Name="txt_AudioHost" Text="—" /><LineBreak /></TextBlock>
+                                 <Grid Margin="0 4 0 0" ToolTipService.ToolTip="显示当前播放位置所在视频分段的平均码率估算值，包含容器开销，不是下载速度或逐帧瞬时码率；曲线每秒采样，保留最近 60 次，纵轴自动缩放。">
+                                     <Grid.ColumnDefinitions>
+                                         <ColumnDefinition Width="92" />
+                                         <ColumnDefinition Width="*" />
+                                         <ColumnDefinition Width="100" />
+                                     </Grid.ColumnDefinitions>
+                                     <TextBlock Foreground="White" VerticalAlignment="Center" Text="视频码率:" />
+                                     <Viewbox Grid.Column="1" Height="22" Stretch="Fill" Margin="4 0">
+                                         <Grid Width="120" Height="22">
+                                             <Polyline x:Name="line_VideoBitrate" Stroke="White" StrokeThickness="1" />
+                                         </Grid>
+                                     </Viewbox>
+                                     <TextBlock x:Name="txt_VideoBitrate" Grid.Column="2" Foreground="White" TextAlignment="Right" VerticalAlignment="Center" Text="—" />
+                                 </Grid>
+                                 <Grid ToolTipService.ToolTip="当前播放位置所在音频分段的平均码率估算值，包含容器开销；暂停或停止下载不会将它清零，曲线每秒采样，保留最近 60 次。">
+                                     <Grid.ColumnDefinitions>
+                                         <ColumnDefinition Width="92" />
+                                         <ColumnDefinition Width="*" />
+                                         <ColumnDefinition Width="100" />
+                                     </Grid.ColumnDefinitions>
+                                     <TextBlock Foreground="White" VerticalAlignment="Center" Text="音频码率:" />
+                                     <Viewbox Grid.Column="1" Height="22" Stretch="Fill" Margin="4 0">
+                                         <Grid Width="120" Height="22">
+                                             <Polyline x:Name="line_AudioBitrate" Stroke="White" StrokeThickness="1" />
+                                         </Grid>
+                                     </Viewbox>
+                                     <TextBlock x:Name="txt_AudioBitrate" Grid.Column="2" Foreground="White" TextAlignment="Right" VerticalAlignment="Center" Text="—" />
+                                 </Grid>
+                                 <Grid ToolTipService.ToolTip="每次采样期间音视频已完成请求的合计下载量，包含失败请求已接收部分；1 KB = 1024 字节。无下载时归零，曲线保留最近 60 次采样，纵轴自动缩放。">
+                                     <Grid.ColumnDefinitions>
+                                         <ColumnDefinition Width="92" />
+                                         <ColumnDefinition Width="*" />
+                                         <ColumnDefinition Width="100" />
+                                     </Grid.ColumnDefinitions>
+                                     <TextBlock Foreground="White" VerticalAlignment="Center" Text="网络活动:" />
+                                     <Viewbox Grid.Column="1" Height="22" Stretch="Fill" Margin="4 0">
+                                         <Grid Width="120" Height="22">
+                                             <Polyline x:Name="line_NetworkActivity" Stroke="White" StrokeThickness="1" />
+                                         </Grid>
+                                     </Viewbox>
+                                     <TextBlock x:Name="txt_NetworkActivity" Grid.Column="2" Foreground="White" TextAlignment="Right" VerticalAlignment="Center" Text="—" />
+                                 </Grid>
                                  <StackPanel x:Name="panel_ScriptDanmakuInfo" Visibility="Collapsed">
                                      <TextBlock Foreground="White" Margin="0 8 0 0">M8 代码弹幕</TextBlock>
                                      <TextBlock Foreground="White"><Run>数量:</Run><Run x:Name="txt_ScriptDanmakuCount" /><Run> 条</Run></TextBlock>

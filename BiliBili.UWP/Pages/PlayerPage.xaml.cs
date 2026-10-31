@@ -77,6 +77,8 @@ namespace BiliBili.UWP.Pages
         MediaPlayer mediaPlayer;
         MediaPlayer mediaPlayer_audio;
         FFmpegDashSource ffmpegDashSource;
+        PlaybackNetworkMonitor playbackNetworkMonitor;
+        readonly DispatcherTimer playbackNetworkTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         PlayerAPI playerAPI;
         readonly PlaybackRequestGate playbackRequestGate = new PlaybackRequestGate();
         CancellationTokenSource danmakuLoadCancellation;
@@ -306,6 +308,7 @@ namespace BiliBili.UWP.Pages
 
         private void DisposeMediaPlayer(bool releaseSystemMediaControls)
         {
+            ReleasePlaybackNetworkMonitor();
             var player = mediaPlayer;
             mediaPlayer = null;
             DisposeAuxiliaryMediaPlayer();
@@ -2331,6 +2334,7 @@ namespace BiliBili.UWP.Pages
 
         private void ClearPlaybackSource()
         {
+            ReleasePlaybackNetworkMonitor();
             try
             {
                 if (mediaPlayer != null)
@@ -2680,6 +2684,7 @@ namespace BiliBili.UWP.Pages
                 txt_VideoCodec.Text = string.IsNullOrWhiteSpace(result.videoCodec) ? "未知" : result.videoCodec;
                 txt_VideoWidth.Text = result.videoWidth ?? string.Empty;
                 txt_VideoHeight.Text = result.videoHeight ?? string.Empty;
+                StartPlaybackNetworkMonitor(result);
                 if (result.ffmpegDashSource != null)
                 {
                     DisposeAuxiliaryMediaPlayer();
@@ -2702,6 +2707,7 @@ namespace BiliBili.UWP.Pages
             }
             catch
             {
+                ReleasePlaybackNetworkMonitor();
                 if (ffmpegOwnershipTransferred)
                 {
                     try
@@ -4010,8 +4016,115 @@ namespace BiliBili.UWP.Pages
             txt_ScriptDanmakuLogs.Text = scriptDanmakuDiagnostics.LogText;
         }
 
+        private void StartPlaybackNetworkMonitor(ReturnPlayModel result)
+        {
+            ReleasePlaybackNetworkMonitor();
+            playbackNetworkMonitor = new PlaybackNetworkMonitor(result);
+            if (playbackNetworkMonitor.SupportsNetworkActivity || playbackNetworkMonitor.IsDash)
+            {
+                playbackNetworkTimer.Tick += PlaybackNetworkTimer_Tick;
+                playbackNetworkTimer.Start();
+            }
+            RefreshPlaybackNetworkInfo();
+            if (sp_View.IsPaneOpen && grid_Info.Visibility == Visibility.Visible)
+                _ = EnsurePlaybackBitrateIndexesAsync(playbackNetworkMonitor);
+        }
+
+        private async Task EnsurePlaybackBitrateIndexesAsync(PlaybackNetworkMonitor monitor)
+        {
+            if (monitor == null || !monitor.IsDash) return;
+            var load = monitor.EnsureSegmentIndexesAsync();
+            RefreshPlaybackNetworkInfo();
+            await load;
+            if (!_isExiting && ReferenceEquals(playbackNetworkMonitor, monitor)
+                && sp_View.IsPaneOpen && grid_Info.Visibility == Visibility.Visible)
+                RefreshPlaybackNetworkInfo();
+        }
+
+        private void ReleasePlaybackNetworkMonitor()
+        {
+            playbackNetworkTimer.Stop();
+            playbackNetworkTimer.Tick -= PlaybackNetworkTimer_Tick;
+            playbackNetworkMonitor?.Dispose();
+            playbackNetworkMonitor = null;
+            RefreshPlaybackNetworkInfo();
+        }
+
+        private void PlaybackNetworkTimer_Tick(object sender, object e)
+        {
+            var monitor = playbackNetworkMonitor;
+            if (monitor != null)
+            {
+                var position = mediaPlayer?.PlaybackSession.Position.TotalSeconds ?? 0;
+                monitor.Statistics.Sample(
+                    monitor.GetSegmentBitrate(false, position), monitor.GetSegmentBitrate(true, position));
+            }
+            // 采样独立于高频弹幕时钟，隐藏面板时不重建 XAML 曲线。
+            if (sp_View.IsPaneOpen && grid_Info.Visibility == Visibility.Visible)
+                RefreshPlaybackNetworkInfo();
+        }
+
+        private void RefreshPlaybackNetworkInfo()
+        {
+            var monitor = playbackNetworkMonitor;
+            var snapshot = monitor?.Statistics.GetSnapshot();
+            var position = mediaPlayer?.PlaybackSession.Position.TotalSeconds ?? 0;
+            txt_VideoBitrate.Text = FormatSegmentBitrate(monitor, false, position);
+            txt_AudioBitrate.Text = monitor == null ? "—"
+                : !monitor.HasSeparateAudio ? (monitor.IsDash ? "无音轨" : "不单独提供")
+                : FormatSegmentBitrate(monitor, true, position);
+            txt_VideoHost.Text = snapshot?.VideoHost ?? "—";
+            txt_AudioHost.Text = monitor == null ? "—"
+                : monitor.HasSeparateAudio ? snapshot.AudioHost ?? "未知"
+                : monitor.IsDash ? "无音轨" : "不单独提供";
+            txt_NetworkActivity.Text = monitor == null ? "—"
+                : monitor.SupportsNetworkActivity ? FormatNetworkActivity(snapshot.NetworkActivitySamples) : "暂不支持";
+            line_VideoBitrate.Points = CreateSegmentBitratePoints(snapshot?.VideoBitrateSamples);
+            line_AudioBitrate.Points = CreateSegmentBitratePoints(snapshot?.AudioBitrateSamples);
+            line_NetworkActivity.Points = CreateNetworkSamplePoints(snapshot?.NetworkActivitySamples);
+        }
+
+        private static string FormatSegmentBitrate(PlaybackNetworkMonitor monitor, bool isAudio, double position)
+        {
+            if (monitor == null) return "—";
+            if (!monitor.IsDash) return "暂不支持";
+            var bitrate = monitor.GetSegmentBitrate(isAudio, position);
+            if (bitrate.HasValue)
+                return (bitrate.Value / 1000).ToString("0.##", CultureInfo.CurrentCulture) + " Kbps";
+            return monitor.IsLoadingSegmentIndexes ? "读取中" : "分段数据不可用";
+        }
+
+        private static PointCollection CreateSegmentBitratePoints(double?[] samples)
+        {
+            if (samples == null) return new PointCollection();
+            // 未知分段留作缺口，不把缺失数据当成 0 Kbps，也不跨缺口连线。
+            int lastMissing = Array.FindLastIndex(samples, value => !value.HasValue);
+            return CreateNetworkSamplePoints(samples.Skip(lastMissing + 1).Select(value => value.Value).ToArray());
+        }
+
+        private static string FormatNetworkActivity(double[] samples)
+        {
+            var activity = samples.Length == 0 ? 0 : samples[samples.Length - 1];
+            return activity.ToString("0", CultureInfo.CurrentCulture) + " KB";
+        }
+
+        private static PointCollection CreateNetworkSamplePoints(double[] samples)
+        {
+            var points = new PointCollection();
+            if (samples == null || samples.Length == 0) return points;
+            var maximum = Math.Max(1, samples.Max());
+            int padding = PlaybackNetworkStatistics.HistoryLength - samples.Length;
+            for (int i = 0; i < PlaybackNetworkStatistics.HistoryLength; i++)
+            {
+                var speed = i < padding ? 0 : samples[i - padding];
+                points.Add(new Point(i * 120.0 / (PlaybackNetworkStatistics.HistoryLength - 1), 21 - speed / maximum * 20));
+            }
+            return points;
+        }
+
         private void menuitem_Info_Click(object sender, RoutedEventArgs e)
         {
+            RefreshPlaybackNetworkInfo();
             RefreshScriptDanmakuInfo();
             sp_View.IsPaneOpen = true;
             if (playNow != null && DanMuPool != null)
@@ -4025,6 +4138,7 @@ namespace BiliBili.UWP.Pages
             gv_story_list.Visibility = Visibility.Collapsed;
             grid_DM.Visibility = Visibility.Collapsed;
             grid_Info.Visibility = Visibility.Visible;
+            _ = EnsurePlaybackBitrateIndexesAsync(playbackNetworkMonitor);
         }
 
         #region 设置

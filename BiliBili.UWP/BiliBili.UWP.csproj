@@ -448,6 +448,9 @@
     <Compile Include="Helper\InteractiveDanmakuTypeDialog.cs" />
     <Compile Include="Helper\DanmakuLocationTypeDialog.cs" />
     <Compile Include="Helper\PlayurlHelper.cs" />
+    <Compile Include="Helper\PlaybackNetworkMonitor.cs" />
+    <Compile Include="Modules\Playback\PlaybackNetworkStatistics.cs" />
+    <Compile Include="Modules\Playback\DashSegmentBitrateIndex.cs" />
     <Compile Include="Helper\SettingHelper.cs" />
     <Compile Include="Helper\SqlHelper.cs" />
     <Compile Include="Helper\SystemHelper.cs" />
