@@ -116,6 +116,8 @@ namespace BiliBili.UWP.Pages
         /// </summary>
         bool mtcTapPendingToggle;
         bool isPlaybackLocked;
+        bool isPlaybackLockAvailable;
+        readonly DispatcherTimer playbackUnlockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         bool _isExiting = false;//退出页面标志,防止3秒延迟后仍播放下一集
         public PlayerPage()
         {
@@ -142,18 +144,58 @@ namespace BiliBili.UWP.Pages
         private void InitializePlaybackLock()
         {
 #if DEBUG
-            btn_PlaybackLock.Visibility = Visibility.Visible;
+            isPlaybackLockAvailable = true;
 #else
             try
             {
-                btn_PlaybackLock.Visibility = new Windows.Devices.Input.TouchCapabilities().TouchPresent > 0
-                    ? Visibility.Visible : Visibility.Collapsed;
+                isPlaybackLockAvailable = new Windows.Devices.Input.TouchCapabilities().TouchPresent > 0;
             }
             catch (Exception ex)
             {
                 LogHelper.WriteLog("检测播放锁定按钮的设备支持失败", LogType.ERROR, ex);
             }
 #endif
+            MTC.ControlPanelVisibilityChanged += MTC_ControlPanelVisibilityChanged;
+            playbackUnlockTimer.Tick += PlaybackUnlockTimer_Tick;
+            Unloaded += (sender, args) => playbackUnlockTimer.Stop();
+            UpdatePlaybackLockVisibility();
+        }
+
+        private void MTC_ControlPanelVisibilityChanged(object sender, bool visible)
+        {
+            UpdatePlaybackLockVisibility();
+        }
+
+        private void UpdatePlaybackLockVisibility()
+        {
+            if (_isExiting || !isPlaybackLockAvailable)
+            {
+                btn_PlaybackLock.Visibility = Visibility.Collapsed;
+            }
+            else if (!isPlaybackLocked)
+            {
+                btn_PlaybackLock.Visibility = MTC.IsControlPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void ShowPlaybackUnlockButton()
+        {
+            if (_isExiting || !isPlaybackLocked || !isPlaybackLockAvailable) return;
+            btn_PlaybackLock.Visibility = Visibility.Visible;
+            playbackUnlockTimer.Stop();
+            playbackUnlockTimer.Start();
+        }
+
+        private void PlaybackUnlockTimer_Tick(object sender, object e)
+        {
+            playbackUnlockTimer.Stop();
+            if (!isPlaybackLocked) return;
+            // 隐藏前移走按钮焦点，避免键盘/辅助功能焦点留在不可见元素上。
+            if (btn_PlaybackLock.FocusState != FocusState.Unfocused)
+            {
+                sp_View.Focus(FocusState.Programmatic);
+            }
+            btn_PlaybackLock.Visibility = Visibility.Collapsed;
         }
 
         private void PlaybackLock_Click(object sender, RoutedEventArgs e)
@@ -163,6 +205,7 @@ namespace BiliBili.UWP.Pages
 
         private void SetPlaybackLocked(bool locked)
         {
+            playbackUnlockTimer.Stop();
             isPlaybackLocked = locked;
             mtcTapPendingToggle = false;
             ssValue = 0;
@@ -179,6 +222,11 @@ namespace BiliBili.UWP.Pages
             btn_PlaybackLock.Label = label;
             Windows.UI.Xaml.Automation.AutomationProperties.SetName(btn_PlaybackLock, label);
             ToolTipService.SetToolTip(btn_PlaybackLock, label);
+            UpdatePlaybackLockVisibility();
+            if (locked)
+            {
+                ShowPlaybackUnlockButton();
+            }
             if (!_isExiting)
             {
                 // 将焦点从刚隐藏的控制栏移走，保留键盘/辅助功能的解锁入口。
@@ -186,7 +234,11 @@ namespace BiliBili.UWP.Pages
             }
         }
 
-        private void PlaybackLockShield_Tapped(object sender, TappedRoutedEventArgs e) => e.Handled = true;
+        private void PlaybackLockShield_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            ShowPlaybackUnlockButton();
+            e.Handled = true;
+        }
         private void PlaybackLockShield_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => e.Handled = true;
         private void PlaybackLockShield_RightTapped(object sender, RightTappedRoutedEventArgs e) => e.Handled = true;
 
@@ -977,6 +1029,8 @@ namespace BiliBili.UWP.Pages
         private void BeginExit()
         {
             _isExiting = true;
+            playbackUnlockTimer.Stop();
+            UpdatePlaybackLockVisibility();
             if (isPlaybackLocked)
             {
                 SetPlaybackLocked(false);
@@ -1203,6 +1257,7 @@ namespace BiliBili.UWP.Pages
                     ReleaseBasDanmakuControl();
                     ClearInteractiveDanmaku();
                     MTC.timer2.Stop();
+                    MTC.ControlPanelVisibilityChanged -= MTC_ControlPanelVisibilityChanged;
                     MTC.DanmuLoaded -= MTC_DanmuLoaded;
                     Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Arrow, 0);
                     DisplayInformation.AutoRotationPreferences = DisplayOrientations.None;

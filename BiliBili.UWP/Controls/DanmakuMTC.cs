@@ -103,9 +103,11 @@ namespace BiliBili.UWP.Controls
         public event EventHandler Captured;
         public event EventHandler<double> FastForward;
         public event EventHandler<bool> Video360Changed;
+        public event EventHandler<bool> ControlPanelVisibilityChanged;
         public bool IsMiniWindow = false;
         public bool IsFullWindow = false;
         public bool IsInteractionLocked { get; private set; }
+        public bool IsControlPanelVisible => templateControlPanel?.Visibility == Visibility.Visible;
 
         //public Danmaku danmuControls;
         protected override void OnApplyTemplate()
@@ -153,6 +155,12 @@ namespace BiliBili.UWP.Controls
                 {
                     controlPanel.Tapped += DanmakuMTC_Tapped;
                     templateDetachActions.Add(() => controlPanel.Tapped -= DanmakuMTC_Tapped);
+                    var visibilityToken = controlPanel.RegisterPropertyChangedCallback(
+                        UIElement.VisibilityProperty,
+                        (sender, property) => ControlPanelVisibilityChanged?.Invoke(this, IsControlPanelVisible));
+                    templateDetachActions.Add(() => controlPanel.UnregisterPropertyChangedCallback(
+                        UIElement.VisibilityProperty, visibilityToken));
+                    ControlPanelVisibilityChanged?.Invoke(this, IsControlPanelVisible);
                 }
 
                 var root = GetTemplateChild("RootGrid") as Grid;
