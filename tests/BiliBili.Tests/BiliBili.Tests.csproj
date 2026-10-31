@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\WeightedLruCache.cs" Link="Production\WeightedLruCache.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\LivePlaybackSources.cs" Link="Production\LivePlaybackSources.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\LivePlaybackFallback.cs" Link="Production\LivePlaybackFallback.cs" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.18" />
