@@ -2798,8 +2798,8 @@ namespace BiliBili.UWP.Pages
                     case PlayMode.Bangumi:
                     case PlayMode.Movie:
                     case PlayMode.VipBangumi:
-                        pr.Text = "填充弹幕中...";
-                        AddLog("开始填充弹幕...");
+                        pr.Text = "正在加载视频...";
+                        AddLog("开始加载视频和弹幕...");
                         var bangumiDanmakuTask = LoadDanmakuOrEmptyAsync(
                             Convert.ToInt64(item.Aid),
                             Convert.ToInt64(item.Mid),
@@ -2830,8 +2830,8 @@ namespace BiliBili.UWP.Pages
                         AddLog("播放器类型:" + ban.usePlayMode.ToString());
                         break;
                     case PlayMode.Video:
-                        pr.Text = "填充弹幕中...";
-                        AddLog("开始填充弹幕...");
+                        pr.Text = "正在加载视频...";
+                        AddLog("开始加载视频和弹幕...");
                         var videoDanmakuTask = LoadDanmakuOrEmptyAsync(
                             Convert.ToInt64(item.Aid),
                             Convert.ToInt64(item.Mid),
@@ -2860,8 +2860,8 @@ namespace BiliBili.UWP.Pages
                         AddLog("不支持播放的源:腾讯");
                         break;
                     case PlayMode.Sohu:
-                        pr.Text = "填充弹幕中...";
-                        AddLog("开始填充弹幕...");
+                        pr.Text = "正在加载视频...";
+                        AddLog("开始加载视频和弹幕...");
                         var sohuDanmakuTask = LoadDanmakuOrEmptyAsync(
                             Convert.ToInt64(item.Aid),
                             Convert.ToInt64(item.Mid),
@@ -3514,8 +3514,8 @@ namespace BiliBili.UWP.Pages
             var danmakuFile = ls.FirstOrDefault(x => x.FileType == ".xml");
             if (danmakuFile != null)
             {
-                pr.Text = "填充弹幕中...";
-                AddLog("填充弹幕中...");
+                pr.Text = "正在加载弹幕...";
+                AddLog("正在加载弹幕...");
                 var pool = await danmakuParse.ParseBiliBili(danmakuFile);
                 if (!IsPlaybackRequestCurrent(requestId, item)) return;
                 SetDanmakuPool(pool);
