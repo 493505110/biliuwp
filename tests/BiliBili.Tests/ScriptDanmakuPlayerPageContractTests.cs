@@ -320,8 +320,10 @@ namespace BiliBili.Tests
             var source = PlayerPageSource();
             StringAssert.Contains(source, "private void PlayerPage_KeyUp(");
             // 键值用 VirtualKey 的整数值透传（M8 允许的那组键与 DOM/Flash keyCode 同值）。
-            StringAssert.Contains(source, "PushKeyEventAsync((int)args.VirtualKey, true);");
-            StringAssert.Contains(source, "PushKeyEventAsync((int)args.VirtualKey, false);");
+            StringAssert.Contains(source, "PushKeyEventAsync((int)args.VirtualKey, true,");
+            StringAssert.Contains(source, "PushKeyEventAsync((int)args.VirtualKey, false,");
+            StringAssert.Contains(Body("private void PlayerPage_KeyDown("), "mediaPlayer?.PlaybackSession.Position.TotalSeconds");
+            StringAssert.Contains(Body("private void PlayerPage_KeyUp("), "mediaPlayer?.PlaybackSession.Position.TotalSeconds");
 
             var body = Body("private void PlayerPage_KeyDown(");
             StringAssert.Contains(body, "args.Handled = true;");

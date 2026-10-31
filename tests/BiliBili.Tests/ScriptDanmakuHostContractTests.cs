@@ -322,7 +322,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(source, "item.triggers.push(trigger);");
             StringAssert.Contains(source, "function liveTriggers(item, kind, keyUp) {");
             StringAssert.Contains(source, "function deliverCommentTrigger(comment) {");
-            StringAssert.Contains(source, "function deliverKeyTrigger(keyCode, keyUp) {");
+            StringAssert.Contains(source, "function deliverKeyTrigger(keyCode, keyUp, positionMs) {");
             StringAssert.Contains(source, "var DEFAULT_TRIGGER_TIMEOUT_MS = 1000;");
 
             // Player 上的三个入口接到实现上，不再是占位。
@@ -344,7 +344,7 @@ namespace BiliBili.Tests
             // 这组键与 Windows VirtualKey / DOM keyCode 同值，因此 C# 侧可整数值透传。
             var source = HostSource();
             StringAssert.Contains(source, "var M8_TRIGGER_KEY_CODES = {");
-            var body = TestRepository.MethodBody(source, "function deliverKeyTrigger(keyCode, keyUp) {");
+            var body = TestRepository.MethodBody(source, "function deliverKeyTrigger(keyCode, keyUp, positionMs) {");
             StringAssert.Contains(body, "if (!M8_TRIGGER_KEY_CODES[keyCode]) {");
             StringAssert.Contains(body, "return;");
 
@@ -782,8 +782,8 @@ namespace BiliBili.Tests
                 StringAssert.Contains(source, getter, getter);
             }
 
-            // time 取宿主的外推时钟（毫秒），state 取 playing / pause / stop。
-            StringAssert.Contains(source, "return currentPositionMs();");
+            // 按键回调内使用原生播放头快照，其他场景取宿主外推时钟（毫秒）。
+            StringAssert.Contains(source, "return hostState.keyEventPositionMs === null ? currentPositionMs() : hostState.keyEventPositionMs;");
             StringAssert.Contains(source, "return currentPlayerState();");
 
             // refreshRate 按**反编译实现**而不是 M8 文档：原版是空实现
@@ -1509,7 +1509,7 @@ namespace BiliBili.Tests
             var batches = TestRepository.ReadFile("BiliBili.UWP/Modules/ScriptDanmakuCommentBatch.cs");
             StringAssert.Contains(source, "public Task PushDanmakuBatchAsync(");
             StringAssert.Contains(source, "public Task PushSentCommentAsync(");
-            StringAssert.Contains(source, "public Task PushKeyEventAsync(int keyCode, bool isKeyUp)");
+            StringAssert.Contains(source, "public Task PushKeyEventAsync(int keyCode, bool isKeyUp, double? positionSeconds = null)");
 
             StringAssert.Contains(source, "window.scriptDanmakuHost.resetComments();");
             StringAssert.Contains(batches, "window.scriptDanmakuHost.appendComments([");
@@ -1517,6 +1517,7 @@ namespace BiliBili.Tests
             // 按键走独立 WebMessage 通道，不与逐条弹幕筛选串行等待。
             StringAssert.Contains(source, "webView.CoreWebView2.PostWebMessageAsJson(");
             StringAssert.Contains(source, "type = \"key\"");
+            StringAssert.Contains(source, "positionMs = positionSeconds.HasValue");
 
             // 快照要保留并在 reset 之后补投：脚本可能是后于弹幕池加载的。
             StringAssert.Contains(source, "private IEnumerable<ScriptDanmakuComment> danmakuSnapshot =");

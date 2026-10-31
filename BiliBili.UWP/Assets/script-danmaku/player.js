@@ -117,13 +117,16 @@ function removeTrigger(item, trigger) {
 }
 
 // 触发器回调在「该条目」的上下文里执行：回调里可以照常建元件、开定时器。
-function invokeTrigger(trigger, argument) {
+function invokeTrigger(trigger, argument, positionMs) {
     var item = trigger.ownerItem;
     var previous = hostState.activeItem;
+    var previousKeyPosition = hostState.keyEventPositionMs;
     hostState.activeItem = item;
     item.activeNow = currentPositionMs();
     try {
         prepareOrdinaryDanmakuLayer();
+        hostState.keyEventPositionMs = typeof positionMs === "number" && Number.isFinite(positionMs)
+            && positionMs >= 0 ? positionMs : null;
         trigger.callback(argument);
     } catch (error) {
         // 回调抛错只摘掉这一个触发器，不影响其它触发器与整帧。
@@ -132,6 +135,7 @@ function invokeTrigger(trigger, argument) {
             reportRuntimeError(error, item.model.id);
         }
     } finally {
+        hostState.keyEventPositionMs = previousKeyPosition;
         hostState.activeItem = previous;
         item.createParent = null;
     }
@@ -163,7 +167,7 @@ function deliverCommentTrigger(comment) {
     });
 }
 
-function deliverKeyTrigger(keyCode, keyUp) {
+function deliverKeyTrigger(keyCode, keyUp, positionMs) {
     if (!M8_TRIGGER_KEY_CODES[keyCode]) {
         return;
     }
@@ -171,7 +175,7 @@ function deliverKeyTrigger(keyCode, keyUp) {
     forEachTriggerItem(function (item) {
         var triggers = liveTriggers(item, "key", keyUp);
         for (var index = 0; index < triggers.length; index++) {
-            invokeTrigger(triggers[index], keyCode);
+            invokeTrigger(triggers[index], keyCode, positionMs);
         }
     });
 }

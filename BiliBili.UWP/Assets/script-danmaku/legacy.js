@@ -40,6 +40,19 @@ function normalizeMultilineStrings(code, onWord) {
     return result;
 }
 
+// AVM1 读取不存在的缓动变量得到 undefined。提前补齐配置中的裸标识符，
+// 避免首次定时回调求值 easing:Bounce 时抛错，继而重跑正文并重排全部定时器。
+// 不改写源码，不覆盖已有全局或宿主注入名；局部声明仍由脚本自身作用域解析。
+function prepareLegacyEasingGlobals(code, globals, injectedNames) {
+    normalizeMultilineStrings(code, (word, start) => {
+        if (word !== "easing" || !/[{,]\s*$/.test(code.slice(0, start))) return;
+        const value = /^easing\s*:\s*([A-Za-z_$][\w$]*)\s*(?=[,}])/.exec(code.slice(start));
+        if (!value || /^(?:true|false|null|this|super)$/.test(value[1])) return;
+        const name = value[1];
+        if (!injectedNames[name] && !(name in globals)) globals[name] = undefined;
+    });
+}
+
 // 仅用于原始 JS 编译失败后的旧 M8 回退。BPM 使用 If/Return/Else，
 // 同时把返回数组写在 return 的下一行；普通 JS 的 ASI 语义必须保留。
 function normalizeLegacySyntax(code) {
@@ -161,4 +174,4 @@ function sortOn(fields, options) {
 
 if (!Array.prototype.sortOn) Object.defineProperty(Array.prototype, "sortOn", { configurable: true, writable: true, value: sortOn });
 
-export { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements, normalizeLegacyEmptyDanmakuTargets, sortOn };
+export { normalizeMultilineStrings, prepareLegacyEasingGlobals, normalizeLegacySyntax, normalizeOrphanBreakStatements, normalizeLegacyEmptyDanmakuTargets, sortOn };

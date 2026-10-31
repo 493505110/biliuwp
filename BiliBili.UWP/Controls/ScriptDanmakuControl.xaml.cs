@@ -388,7 +388,7 @@ namespace BiliBili.UWP.Controls
         /// M8 允许监听的那组键（方向键 / Home / End / PgUp / PgDn / W A S D /
         /// 小键盘 0-9）与 DOM/Flash 的 keyCode 同值，因此可以直接透传，宿主侧筛选。
         /// </summary>
-        public Task PushKeyEventAsync(int keyCode, bool isKeyUp)
+        public Task PushKeyEventAsync(int keyCode, bool isKeyUp, double? positionSeconds = null)
         {
             // 输入不能排在逐条普通弹幕筛选、整池快照和状态同步后面。
             // 消息按投递顺序到达宿主，不等待 ExecuteScriptAsync 的往返结果；
@@ -407,7 +407,11 @@ namespace BiliBili.UWP.Controls
                     type = "key",
                     version = Volatile.Read(ref contentVersion),
                     keyCode,
-                    up = isKeyUp
+                    up = isKeyUp,
+                    // 音游判定使用原生按键发生时的播放头，不能把跨进程排队时间计入误差。
+                    positionMs = positionSeconds.HasValue
+                        && !double.IsNaN(positionSeconds.Value) && !double.IsInfinity(positionSeconds.Value)
+                        ? (double?)(Math.Max(0, positionSeconds.Value) * 1000) : null
                 }));
             }
             catch (Exception ex)

@@ -106,12 +106,22 @@ function prepareEffectsGPU() {
     var r = getRenderer();
     if (!r || r.prepared) return;
     r.prepared = true;
-    // 部分驱动还会延迟建立首次浮点绘制管线；同样放到 ready 前完成。
+    // 链接成功不代表驱动已建立首次绘制管线。小核不走浮点分块路径，
+    // 音游首次按键的 Glow + Blur 组合也必须在 ready 前实际绘制过。
+    var probe = document.createElement("canvas"); probe.width = probe.height = 1;
+    probe.getContext("2d").fillRect(0, 0, 1, 1);
+    [3, 11, 19, 32].forEach(function (kernel) {
+        applyEffectsGPU(probe, [
+            { kind: "GlowFilter", blurX: kernel, blurY: kernel, quality: 1,
+                color: 0xffffff, alpha: 0.5, strength: 1 },
+            { kind: "BlurFilter", blurX: kernel, blurY: kernel, quality: 1 }
+        ], null, 1);
+    });
+    // 部分驱动还会延迟建立首次浮点绘制管线。
     if (r.chunkProgram) {
-        var probe = document.createElement("canvas"); probe.width = probe.height = 1;
         applyEffectsGPU(probe, [{ kind: "BlurFilter", blurX: 33, blurY: 33, quality: 1 }], null, 1);
-        r.gl.finish();
     }
+    r.gl.finish();
 }
 
 function applyEffectsGPU(canvas, filters, transform, ratio) {

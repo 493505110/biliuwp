@@ -1,5 +1,5 @@
 // 条目编译、生命周期、播放时钟同步与帧调度。
-import { normalizeMultilineStrings, normalizeLegacySyntax, normalizeOrphanBreakStatements, normalizeLegacyEmptyDanmakuTargets } from "./legacy.js";
+import { normalizeMultilineStrings, prepareLegacyEasingGlobals, normalizeLegacySyntax, normalizeOrphanBreakStatements, normalizeLegacyEmptyDanmakuTargets } from "./legacy.js";
 import { resetPointer } from "./input.js";
 import {
     advanceParticleElements
@@ -137,11 +137,13 @@ function activateItem(item, now) {
 // 加形参救不了它。标识符解析对「未绑定名」是每次访问都回落到全局对象上查的，
 // 所以只要在全局对象上把名字补出来，**已经建好的闭包也会立刻恢复正常**。
 //
-// 安全性：只声明「已被 ReferenceError 证明不存在」的名字，因此绝不会遮蔽
+// 常规错误恢复只声明「已被 ReferenceError 证明不存在」的名字，因此绝不会遮蔽
 // 任何真实存在的名字——脚本自己声明的、或像 entry_10 那样用
 // `Factory.extend(this, …)` 导出到全局对象上的，都照旧解析。
-// 不做任何静态分析，也不动作用域链（不用 with）。
+// 另为 easing 配置中尚不存在的裸变量预备 undefined，避免延迟回调重启时间轴。
+// 不动作用域链（不用 with）。
 function runItemScriptWithAvm1Scope(item) {
+    prepareLegacyEasingGlobals(item.model.code, window, INJECTED_SCRIPT_NAMES);
     for (var attempt = 0; attempt <= MAX_AVM1_SCOPE_RETRIES; attempt++) {
         try {
             var scriptArgs = createScriptScope(item);
@@ -561,6 +563,17 @@ function tick(now, logicalFrame) {
     return anyActive;
 }
 
+// 输入反馈无需等待下一次 RAF。只提交脏画布，不提前推进 Timer、enterFrame 或 Tween。
+function paintInputFeedback() {
+    if (!hostState.visible || state.stopped || !hostState.context2d || !hostState.dirty) return;
+    try {
+        hostState.dirty = false;
+        paintDirtyElements();
+    } catch (error) {
+        reportCompositeError(error, "");
+    }
+}
+
 // 「还有东西要动吗」：窗口内的条目里有登记在册的定时器
 // （M8 的 interval —— 逐帧回调只有这一条路径）、有未跑完的
 // Tween.* 句柄，或有元素补间尚未跑完。
@@ -859,6 +872,7 @@ export {
     clearItemElements,
     clearItemTriggers,
     ensureRunning,
+    paintInputFeedback,
     isInWindow,
     recoverItemFromCallbackError,
     declareAvm1GlobalIfUndeclared,

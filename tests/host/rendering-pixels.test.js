@@ -700,14 +700,25 @@ test('P66 大半径分块模糊在透明边界、分数核宽及重复quality下
 
 test('P67 浮点FBO不完整时保留常规GPU模糊，后续更新也不回读CPU', async p => {
     await p.page.evaluate(()=>{
-        window.__checks=0;window.__readbacks=0;window.__floatAllocations=0;
+        window.__checks=0;window.__readbacks=0;window.__floatAllocations=0;window.__floatFailures=0;
+        const floatTextures=new Set();
         const status=WebGLRenderingContext.prototype.checkFramebufferStatus,read=CanvasRenderingContext2D.prototype.getImageData,upload=WebGLRenderingContext.prototype.texImage2D;
-        WebGLRenderingContext.prototype.texImage2D=function(...args){if(args.length===9&&args[7]===this.FLOAT)__floatAllocations++;return upload.apply(this,args);};
-        WebGLRenderingContext.prototype.checkFramebufferStatus=function(...args){return ++__checks===3?this.FRAMEBUFFER_UNSUPPORTED:status.apply(this,args);};
+        WebGLRenderingContext.prototype.texImage2D=function(...args){
+            if(args.length===9&&args[7]===this.FLOAT){__floatAllocations++;floatTextures.add(this.getParameter(this.TEXTURE_BINDING_2D));}
+            return upload.apply(this,args);
+        };
+        // 按附件类型制造浮点 FBO 失败，不依赖预热是否已分配串联滤镜的第三个 RGBA 载体。
+        WebGLRenderingContext.prototype.checkFramebufferStatus=function(...args){
+            __checks++;
+            const attachment=this.getFramebufferAttachmentParameter(this.FRAMEBUFFER,this.COLOR_ATTACHMENT0,this.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+            if(floatTextures.has(attachment)){__floatFailures++;return this.FRAMEBUFFER_UNSUPPORTED;}
+            return status.apply(this,args);
+        };
         CanvasRenderingContext2D.prototype.getImageData=function(...args){__readbacks++;return read.apply(this,args);};
     });
     await p.script('var box=$.createShape({lifeTime:20,x:200,y:200});box.graphics.beginFill(0xffffff);box.graphics.drawRect(0,0,1,20);box.graphics.endFill();box.filters=[$.createBlurFilter(63,0,1)];window.__box=box;window.__display=$;');
-    assert.equal(await p.page.evaluate(()=>__checks),await p.page.evaluate(()=>__floatAllocations?3:2));
+    assert.ok(await p.page.evaluate(()=>__checks>=2));
+    assert.equal(await p.page.evaluate(()=>__floatFailures),await p.page.evaluate(()=>__floatAllocations?1:0));
     assert.equal(await p.page.evaluate(()=>__readbacks),0);
     assert.ok(Math.abs((await p.pixel(200,210))[3]-4)<=1);
     await p.update('__box.filters=[__display.createBlurFilter(65,0,1)];');

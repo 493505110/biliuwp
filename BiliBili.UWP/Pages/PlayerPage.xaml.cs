@@ -810,7 +810,8 @@ namespace BiliBili.UWP.Pages
                 args.Handled = true;
                 return;
             }
-            _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, true);
+            _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, true,
+                mediaPlayer?.PlaybackSession.Position.TotalSeconds);
         }
 
         private void PlayerPage_KeyDown(CoreWindow sender, KeyEventArgs args)
@@ -827,7 +828,8 @@ namespace BiliBili.UWP.Pages
             }
             // 转发给脚本的 Player.keyTrigger（宿主侧只投递 M8 允许的那组键）。
             // 只做监听、不消费：这里的 Handled 语义与脚本无关，保持原样。
-            _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, false);
+            _ = scriptDanmakuControl?.PushKeyEventAsync((int)args.VirtualKey, false,
+                mediaPlayer?.PlaybackSession.Position.TotalSeconds);
             if (sp_View.IsPaneOpen)
             {
                 return;

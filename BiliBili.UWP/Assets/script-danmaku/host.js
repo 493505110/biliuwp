@@ -18,6 +18,7 @@ import {
     appendItems,
     clearAllItems,
     ensureRunning,
+    paintInputFeedback,
     prepareItemsForComment,
     seekTo,
     setState,
@@ -187,8 +188,9 @@ window.scriptDanmakuHost = {
         deliverCommentTrigger(normalized);
     },
     // 键盘事件：投递给在窗口内条目的 keyTrigger（up=true 的只收 keyUp）。
-    pushKey: function (keyCode, up) {
-        deliverKeyTrigger(Math.trunc(toFiniteNumber(keyCode, -1)), !!up);
+    pushKey: function (keyCode, up, positionMs) {
+        deliverKeyTrigger(Math.trunc(toFiniteNumber(keyCode, -1)), !!up, positionMs);
+        paintInputFeedback();
     },
     pushPointer: pushPointer,
     handleTap: handleTap,
@@ -205,7 +207,7 @@ if (window.chrome && window.chrome.webview && window.chrome.webview.addEventList
             || message.version !== hostState.ordinaryDanmakuBridgeVersion) return;
         if (message.type === "key") {
             if ((!hostState.visible || state.stopped) && !message.up) return;
-            window.scriptDanmakuHost.pushKey(message.keyCode, message.up);
+            window.scriptDanmakuHost.pushKey(message.keyCode, message.up, message.positionMs);
         } else if (message.type === "pointer") {
             pushPointer(message.action, message.x, message.y, message.pointerId, message.down);
         }

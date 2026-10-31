@@ -330,7 +330,7 @@ Object.defineProperty(Player, "time", {
     configurable: true,
     enumerable: true,
     get: function () {
-        return currentPositionMs();
+        return hostState.keyEventPositionMs === null ? currentPositionMs() : hostState.keyEventPositionMs;
     }
 });
 

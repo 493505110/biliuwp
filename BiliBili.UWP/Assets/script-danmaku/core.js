@@ -111,6 +111,8 @@ hostState.scriptSeekVersion = 0;
 // 当前正在执行脚本 / 定时器回调 / 触发器回调的条目：$、interval、
 // commentTrigger 等全局函数靠它归属元素、定时器与触发器。
 hostState.activeItem = null;
+// 只在按键回调内覆盖 Player.time；元素创建、寿命和渲染仍使用当前宿主时钟。
+hostState.keyEventPositionMs = null;
 // 弹幕快照（Player.commentList）。由 C# 侧推入，resetComments/appendComments 维护。
 hostState.commentSnapshot = [];
 // NSDanmaku 在 XAML 中绘制，显示树里用一个代理代表它的整层。
