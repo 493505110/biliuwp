@@ -43,6 +43,9 @@ hostState.rootElement = createRetainedElement("group");
 // `$.Global` 与 `$G` 必须是同一个对象；在全部 API 就绪后绑定别名。
 M8Display.Global = Global;
 
+// 同一视频更新规则时，原位更新条目，保留脚本持有的数组与 CommentData 引用。
+let commentWriteIndex = null;
+
 // ---- 宿主命令对象（控件通过 ExecuteScriptAsync 逐字调用）----
 
 window.scriptDanmakuHost = {
@@ -143,7 +146,15 @@ window.scriptDanmakuHost = {
     // 弹幕快照分两段推：resetComments() 清空 + appendComments(list)
     // 按 24KB 一包追加以外的批量（与 append/beginItem 的分块风格一致）。
     resetComments: function () {
+        commentWriteIndex = null;
         hostState.commentSnapshot = [];
+    },
+    beginComments: function () {
+        commentWriteIndex = 0;
+    },
+    finishComments: function () {
+        if (commentWriteIndex !== null) hostState.commentSnapshot.length = commentWriteIndex;
+        commentWriteIndex = null;
     },
     filterOrdinaryDanmaku: function (comment) {
         if (!hostState.visible || state.stopped) return true;
@@ -156,7 +167,15 @@ window.scriptDanmakuHost = {
         }
 
         for (var index = 0; index < list.length; index++) {
-            hostState.commentSnapshot.push(normalizeComment(list[index]));
+            if (commentWriteIndex === null) {
+                hostState.commentSnapshot.push(normalizeComment(list[index]));
+            } else {
+                var comment = normalizeComment(list[index]);
+                var previous = hostState.commentSnapshot[commentWriteIndex];
+                if (previous) Object.assign(previous, comment);
+                else hostState.commentSnapshot.push(comment);
+                commentWriteIndex++;
+            }
         }
     },
     // 用户发送了一条弹幕：投递给在窗口内条目的 commentTrigger。

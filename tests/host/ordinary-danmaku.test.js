@@ -19,6 +19,55 @@ async function create() {
 async function run() {
     {
         const host = await create();
+        host.api.appendComments([
+            {txt:'blocked word',time:1,mode:1,blocked:true,blockType:2},
+            {txt:'user',time:2,mode:1,blocked:true,blockType:1},
+            {txt:'visible',time:3,mode:1}
+        ]);
+        host.append([item('snapshot', `window.__list=Player.commentList;window.__entry=Player.commentList[0];
+            window.__visible=Player.commentList.filter(function(c){return !c.blocked;}).map(function(c){return c.txt;});
+            Player.commentTrigger(function(c){window.__sent=c;},10000);`)]);
+        host.runFrames(1);
+        const list = host.sandbox.__list;
+        const entry = host.sandbox.__entry;
+        assert.equal(list.length, 3, '屏蔽只标记，不删除 M8 列表内容');
+        assert.equal(entry.blocked, true);
+        assert.equal(entry.blockType, 2);
+        assert.equal(JSON.stringify(host.sandbox.__visible), '["visible"]');
+        assert.equal(list[2].blocked, false);
+        assert.equal(list[2].blockType, 0);
+
+        host.api.beginComments();
+        host.api.appendComments([{txt:'blocked word',time:1,mode:1,blocked:false,blockType:0}]);
+        host.api.appendComments([
+            {txt:'user',time:2,mode:1,blocked:false,blockType:0},
+            {txt:'visible',time:3,mode:1,blocked:true,blockType:4}
+        ]);
+        host.api.finishComments();
+        assert.equal(host.sandbox.__list, list, '规则刷新保留已取得的数组引用');
+        assert.equal(list[0], entry, '规则刷新保留已取得的弹幕对象引用');
+        assert.equal(entry.blocked, false, '移除规则后原对象解除屏蔽');
+        assert.equal(entry.blockType, 0);
+        assert.equal(list[2].blockType, 4);
+        assert.equal(list[2].blocked, true);
+        host.api.pushComment({txt:'sent',blocked:true,blockType:2});
+        assert.equal(host.sandbox.__sent.blockType, 2);
+        assert.equal(host.sandbox.__sent.blocked, true);
+        assert.equal(list.length, 4);
+        host.api.beginComments();
+        host.api.finishComments();
+        assert.equal(list.length, 0, '空快照会清理旧条目');
+        host.api.resetComments();
+        host.api.appendComments([{txt:'new video'}]);
+        host.append([item('new-snapshot', 'window.__newList=Player.commentList;')]);
+        host.runFrames(1);
+        assert.notEqual(host.sandbox.__newList, list, '内容重置隔离旧视频的引用');
+        assert.equal(host.sandbox.__newList[0].blocked, false);
+        assert.equal(host.errors().length, 0);
+        console.log('ok M8屏蔽标记 / 完整列表 / 规则刷新保持引用 / 发送链 / 内容隔离');
+    }
+    {
+        const host = await create();
         host.append([item('alpha', `$.root.addEventListener('added',function(e){
             if(!e.target.selectable)return;
             window.__class=String(e.target.constructor);

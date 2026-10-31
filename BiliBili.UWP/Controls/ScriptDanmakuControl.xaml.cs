@@ -510,7 +510,10 @@ namespace BiliBili.UWP.Controls
                 if (version != Volatile.Read(ref contentVersion)) return;
                 if (revision != snapshotVersion) continue;
 
-                await ExecuteScriptAsync("window.scriptDanmakuHost.resetComments();");
+                if (pushedSnapshotContentVersion == version)
+                    await ExecuteScriptAsync("window.scriptDanmakuHost.beginComments();");
+                else
+                    await ExecuteScriptAsync("window.scriptDanmakuHost.resetComments();");
                 foreach (var command in commands)
                 {
                     if (version != Volatile.Read(ref contentVersion)) return;
@@ -520,6 +523,7 @@ namespace BiliBili.UWP.Controls
 
                 if (revision == snapshotVersion)
                 {
+                    await ExecuteScriptAsync("window.scriptDanmakuHost.finishComments();");
                     pushedSnapshotVersion = revision;
                     pushedSnapshotContentVersion = version;
                     return;

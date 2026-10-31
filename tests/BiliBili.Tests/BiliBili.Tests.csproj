@@ -63,6 +63,8 @@
              Link="Production\PlaybackTimelineIndex.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackEventTimeline.cs"
              Link="Production\PlaybackEventTimeline.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\DanmakuFilterRules.cs" Link="Production\DanmakuFilterRules.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\DanmakuDensityFilter.cs" Link="Production\DanmakuDensityFilter.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackUrl.cs"
              Link="Production\PlaybackUrl.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackRestoreState.cs"

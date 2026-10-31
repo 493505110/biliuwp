@@ -499,6 +499,8 @@
     <Compile Include="Modules\Playback\DashStreamSelector.cs" />
     <Compile Include="Modules\Playback\PlaybackTimelineIndex.cs" />
     <Compile Include="Modules\Playback\PlaybackEventTimeline.cs" />
+    <Compile Include="Modules\Playback\DanmakuFilterRules.cs" />
+    <Compile Include="Modules\Playback\DanmakuDensityFilter.cs" />
     <Compile Include="Modules\Playback\PlaybackUrl.cs" />
     <Compile Include="Modules\Playback\PlaybackRestoreState.cs" />
     <Compile Include="Modules\Playback\ScriptDanmakuSeekState.cs" />

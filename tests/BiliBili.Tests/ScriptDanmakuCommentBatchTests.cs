@@ -35,7 +35,9 @@ namespace BiliBili.Tests
                 color = index,
                 pool = index % 2,
                 mode = index % 7 + 1,
-                fontSize = 25
+                fontSize = 25,
+                blocked = index % 2 == 0,
+                blockType = index % 5
             }).ToArray();
             var commands = ScriptDanmakuCommentBatch.Build(comments);
             Assert.IsTrue(commands.Count > 1);
@@ -50,6 +52,8 @@ namespace BiliBili.Tests
                 Assert.AreEqual(comments[index].pool, decoded[index].pool);
                 Assert.AreEqual(comments[index].mode, decoded[index].mode);
                 Assert.AreEqual(comments[index].fontSize, decoded[index].fontSize);
+                Assert.AreEqual(comments[index].blocked, decoded[index].blocked);
+                Assert.AreEqual(comments[index].blockType, decoded[index].blockType);
             }
         }
 

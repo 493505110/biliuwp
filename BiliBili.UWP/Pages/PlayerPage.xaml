@@ -162,7 +162,7 @@
                                 </StackPanel>
                                 <StackPanel Margin="0 10 0 0">
                                     <Grid >
-                                        <TextBlock Foreground="White" VerticalAlignment="Center">弹幕加载数量(0为不限制)</TextBlock>
+                                        <TextBlock Foreground="White" VerticalAlignment="Center" ToolTipService.ToolTip="按原版密度与速度限制滚动弹幕；不裁剪代码弹幕列表">滚动弹幕密度(0为不限制)</TextBlock>
                                         <TextBlock  VerticalAlignment="Center" Foreground="White" HorizontalAlignment="Right" Margin="10 0" Text="{Binding Value, ElementName=slider_Num}"></TextBlock>
                                     </Grid>
                                     <Slider x:Name="slider_Num" ValueChanged="slider_Num_ValueChanged" Width="300" HorizontalAlignment="Left"  Maximum="100" />

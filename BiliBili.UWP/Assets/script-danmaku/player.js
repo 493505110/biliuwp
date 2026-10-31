@@ -190,7 +190,9 @@ function normalizeComment(raw) {
         color: normalizeColor(source.color),
         pool: Math.trunc(toFiniteNumber(source.pool, 0)),
         mode: Math.trunc(toFiniteNumber(source.mode, 1)),
-        fontSize: toFiniteNumber(source.fontSize, DEFAULT_TEXT_FONTSIZE)
+        fontSize: toFiniteNumber(source.fontSize, DEFAULT_TEXT_FONTSIZE),
+        blocked: source.blocked === true,
+        blockType: Math.trunc(toFiniteNumber(source.blockType, 0))
     };
     // 2014 年的作品使用 text/stime；与后来 txt/time 共用同一份值（秒）。
     Object.defineProperties(comment, {

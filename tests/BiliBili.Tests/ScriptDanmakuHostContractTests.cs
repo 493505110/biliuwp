@@ -257,7 +257,7 @@ namespace BiliBili.Tests
             StringAssert.Contains(page, "if (visible && !ordinaryDanmakuSuppressed && item.location == 5)");
             var syncComments = TestRepository.MethodBody(page, "private void SyncScriptDanmakuComments()");
             Assert.IsFalse(syncComments.Contains("ordinaryDanmakuSuppressed"));
-            StringAssert.Contains(syncComments, "pool.Select(ToScriptDanmakuComment)");
+            StringAssert.Contains(syncComments, "pool.Select(item => ToScriptDanmakuComment(item, rules, mask))");
             StringAssert.Contains(TestRepository.MethodBody(page,
                 "private void ScriptDanmakuControl_OrdinaryDanmakuSuppressionChanged(object sender, bool suppressed)"),
                 "if (!ReferenceEquals(sender, scriptDanmakuControl)) return;");

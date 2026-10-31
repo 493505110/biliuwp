@@ -60,5 +60,11 @@ namespace BiliBili.UWP.Models
 
         /// <summary>字体大小。</summary>
         public double fontSize { get; set; }
+
+        /// <summary>屏蔽不删除列表条目；脚本可按此标记决定是否使用。</summary>
+        public bool blocked { get; set; }
+
+        /// <summary>原版 BlockType：0 自定义/默认，1 用户，2 关键词，4 类型。</summary>
+        public int blockType { get; set; }
     }
 }

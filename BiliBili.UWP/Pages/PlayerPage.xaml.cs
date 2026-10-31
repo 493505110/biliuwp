@@ -1093,8 +1093,9 @@ namespace BiliBili.UWP.Pages
         InteractiveDanmakuModel currentInteractiveDanmaku;
         PlaybackEventTimeline<NSDanmaku.Model.DanmakuModel> danmakuTimeline;
         int danmakuPoolVersion;
-        int danmakuLimitSecond = -1;
-        int danmakuLimitCount;
+        readonly DanmakuDensityFilter danmakuDensityFilter = new DanmakuDensityFilter();
+        DanmakuFilterRules danmakuFilterRules = new DanmakuFilterRules(null, null, null);
+        bool danmakuSettingsSubscribed;
         int mergeDanmakuSecond = -1;
         PlayerModel playNow;
         InteractionVideo interactionVideo;
@@ -1200,6 +1201,11 @@ namespace BiliBili.UWP.Pages
 
         private async Task ClosePlayerAsync()
         {
+            if (danmakuSettingsSubscribed)
+            {
+                ApplicationData.Current.LocalSettings.Values.MapChanged -= DanmakuSettings_MapChanged;
+                danmakuSettingsSubscribed = false;
+            }
             var currentItem = playNow;
             var progressValue = mediaPlayer == null
                 ? 0
@@ -1357,8 +1363,7 @@ namespace BiliBili.UWP.Pages
 
             LegacyPlayback.ForceSoftwareDecode = SettingHelper.Get_ForceVideo();
 
-            DanDis_Get();
-            DMZZBDS = SettingHelper.Get_DMZZ();
+            RefreshDanmakuFilterRules();
             var danmuSpeed = SettingHelper.Get_DMSpeed();
             var danmuFont = SettingHelper.Get_DanmuFont();
             var danmuBold = SettingHelper.Get_BoldDanmu();
@@ -1451,6 +1456,11 @@ namespace BiliBili.UWP.Pages
                 LoadDanmu = false;
             }
             settingFlag = false;
+            if (!danmakuSettingsSubscribed)
+            {
+                ApplicationData.Current.LocalSettings.Values.MapChanged += DanmakuSettings_MapChanged;
+                danmakuSettingsSubscribed = true;
+            }
         }
 
         private void Bo_IsSupportedChanged(BrightnessOverride sender, object args)
@@ -1466,7 +1476,6 @@ namespace BiliBili.UWP.Pages
             //}
         }
 
-        string DMZZBDS = "";
         bool hidePointerFlag = false;
         bool isPlaybackRateFlyoutOpen;
         int DanmuNum = 0;
@@ -1947,7 +1956,10 @@ namespace BiliBili.UWP.Pages
             }
 
             // 保留惰性投影：无代码弹幕时只保留快照；需要投递时由控件在后台转换。
-            var comments = pool.Select(ToScriptDanmakuComment);
+            // 捕获不可变规则和位置掩码，后台枚举不读取 UI 或变化中的设置。
+            var rules = danmakuFilterRules;
+            var mask = danmakuLocationMask;
+            var comments = pool.Select(item => ToScriptDanmakuComment(item, rules, mask));
             _ = scriptDanmakuControl?.PushDanmakuBatchAsync(comments);
         }
 
@@ -1967,7 +1979,7 @@ namespace BiliBili.UWP.Pages
 
         /// <summary>NSDanmaku 的弹幕模型 → 脚本宿主消费的 M8 CommentData 形状。</summary>
         private static ScriptDanmakuComment ToScriptDanmakuComment(
-            NSDanmaku.Model.DanmakuModel item)
+            NSDanmaku.Model.DanmakuModel item, DanmakuFilterRules rules, int mask)
         {
             if (item == null)
             {
@@ -1980,6 +1992,7 @@ namespace BiliBili.UWP.Pages
                 poolNumber = 0;
             }
 
+            var blockType = GetDanmakuBlockType(item, rules, mask);
             return new ScriptDanmakuComment
             {
                 txt = item.text ?? string.Empty,
@@ -1987,7 +2000,9 @@ namespace BiliBili.UWP.Pages
                 color = (item.color.R << 16) | (item.color.G << 8) | item.color.B,
                 pool = poolNumber,
                 mode = ToDanmakuMode(item.location),
-                fontSize = item.size
+                fontSize = item.size,
+                blocked = blockType.HasValue,
+                blockType = blockType ?? 0
             };
         }
 
@@ -2039,8 +2054,6 @@ namespace BiliBili.UWP.Pages
 
             var position = mediaPlayer?.PlaybackSession.Position.TotalSeconds ?? 0;
             danmakuTimeline.Reset(Math.Max(0, position), includeCurrentPosition);
-            danmakuLimitSecond = -1;
-            danmakuLimitCount = 0;
             mergeDanmakuSecond = -1;
             sended.Clear();
         }
@@ -2058,15 +2071,12 @@ namespace BiliBili.UWP.Pages
         private void RefreshPositionDanmakuPool()
         {
             if (!positionDanmakuPoolReady || _isExiting) return;
-            // M7 按存活区间显示，不受普通弹幕合并/每秒数量上限破坏其排版。
+            // M7 按存活区间显示，不受普通弹幕合并/滚动密度限制破坏其排版。
             var pool = (DanMuPool ?? new List<NSDanmaku.Model.DanmakuModel>()).Where(item =>
             {
-                NSDanmaku.Helper.PositionDanmaku definition;
                 if (item == null || item.location != NSDanmaku.Model.DanmakuLocation.Position
-                    || !NSDanmaku.Helper.PositionDanmaku.TryParse(item.text, out definition)
-                    || DanDis_Dis(definition.Text)) return false;
-                try { return DMZZBDS.Length == 0 || !Regex.IsMatch(item.source ?? string.Empty, DMZZBDS); }
-                catch (ArgumentException) { return true; }
+                    || !NSDanmaku.Helper.PositionDanmaku.TryParse(item.text, out var definition)) return false;
+                return !GetDanmakuBlockType(item, danmakuFilterRules, danmakuLocationMask).HasValue;
             });
             danmu?.SetPositionDanmakuList(pool);
             SyncPositionDanmakuPlayback();
@@ -2135,52 +2145,34 @@ namespace BiliBili.UWP.Pages
             // 时间轴仍照常消费，解除接管后不补发游戏期间已过去的弹幕。
             // DanMuPool 不变，M8 的 Player.commentList 继续提供完整数据。
             if (ordinaryDanmakuSuppressed) return;
-            if (item == null || DanDis_Dis(item.text))
+            if (item == null || GetDanmakuBlockType(item, danmakuFilterRules, danmakuLocationMask).HasValue)
             {
                 return;
             }
 
-            if (!IsDanmakuLocationEnabled(item.location))
+            int pool;
+            int.TryParse(item.pool, out pool);
+            // 原版在创建显示对象（触发 added）前按真实时间限流，seek/倍速不重置窗口。
+            if (!danmakuDensityFilter.TryAccept(ToDanmakuMode(item.location), pool, DanmuNum,
+                danmu?.DanmakuDuration ?? 5, Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency))
             {
                 return;
             }
 
             var scriptControl = scriptDanmakuControl;
             var displayVersion = danmakuDisplayVersion;
-            if (scriptControl != null && !await scriptControl.FilterOrdinaryDanmakuAsync(ToScriptDanmakuComment(item))) return;
+            if (scriptControl != null && !await scriptControl.FilterOrdinaryDanmakuAsync(
+                ToScriptDanmakuComment(item, danmakuFilterRules, danmakuLocationMask))) return;
             // 异步筛选期间切视频、拖动进度或退出时，不把旧弹幕画进新时间轴。
             if (_isExiting || !LoadDanmu || ordinaryDanmakuSuppressed
                 || displayVersion != danmakuDisplayVersion
                 || !ReferenceEquals(scriptControl, scriptDanmakuControl)) return;
 
             var itemSecond = item.time < 0 ? 0 : (int)Math.Floor(item.time);
-            if (itemSecond != danmakuLimitSecond)
-            {
-                danmakuLimitSecond = itemSecond;
-                danmakuLimitCount = 0;
-            }
-
             if (itemSecond != mergeDanmakuSecond)
             {
                 mergeDanmakuSecond = itemSecond;
                 sended.Clear();
-            }
-
-            if (DanmuNum != 0 && danmakuLimitCount >= DanmuNum)
-            {
-                return;
-            }
-
-            try
-            {
-                if (DMZZBDS.Length != 0 && Regex.IsMatch(item.source, DMZZBDS))
-                {
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogHelper.WriteLog("匹配弹幕屏蔽规则失败", LogType.ERROR, ex);
             }
 
             if (mergeDanmu)
@@ -2210,8 +2202,6 @@ namespace BiliBili.UWP.Pages
                     _ = danmu.AddScrollDanmu(item, false);
                     break;
             }
-
-            danmakuLimitCount++;
         }
 
         private void ClearInteractiveDanmaku()
@@ -2273,36 +2263,48 @@ namespace BiliBili.UWP.Pages
         //}
 
         #region 弹幕屏蔽
-        List<string> Guanjianzi = new List<string>();
-        List<string> Yonghu = new List<string>();
-        private void DanDis_Get()
+        private string danmakuKeywords;
+        private string danmakuUsers;
+        private string danmakuExpression;
+
+        private void RefreshDanmakuFilterRules()
         {
-
-            string a = SettingHelper.Get_Guanjianzi();
-            string b = SettingHelper.Get_Yonghu();
-            if (a.Length != 0)
-            {
-
-                Guanjianzi = a.Split('|').ToList();
-                Yonghu = b.Split('|').ToList();
-                Guanjianzi.Remove(string.Empty);
-                Yonghu.Remove(string.Empty);
-            }
-
-
+            var keywords = SettingHelper.Get_Guanjianzi();
+            var users = SettingHelper.Get_Yonghu();
+            var expression = SettingHelper.Get_DMZZ();
+            if (keywords == danmakuKeywords && users == danmakuUsers && expression == danmakuExpression) return;
+            danmakuKeywords = keywords;
+            danmakuUsers = users;
+            danmakuExpression = expression;
+            danmakuFilterRules = new DanmakuFilterRules(keywords, users, expression);
+            ++danmakuDisplayVersion;
+            SyncScriptDanmakuComments();
+            RefreshPositionDanmakuPool();
         }
-        private bool DanDis_Dis(string text)
+
+        private void DanmakuSettings_MapChanged(IObservableMap<string, object> sender, IMapChangedEventArgs<string> args)
         {
-            var a = (from sb in Guanjianzi where text.Contains(sb) select sb).ToList();
-            var b = (from sb in Yonghu where text.Contains(sb) select sb).ToList();
-            if (b.Count != 0 || a.Count != 0)
+            if (_isExiting || (args.CollectionChange != CollectionChange.Reset
+                && args.Key != "Guanjianzi" && args.Key != "Yonghu" && args.Key != "DMZZ"
+                && args.Key != "DanmakuLocationTypes")) return;
+            _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+                if (_isExiting) return;
+                RefreshDanmakuFilterRules();
+                ApplyDanmakuLocationVisibility();
+                RefreshPositionDanmakuPool();
+            });
+        }
+
+        private static int? GetDanmakuBlockType(NSDanmaku.Model.DanmakuModel item, DanmakuFilterRules rules, int mask)
+        {
+            int pool;
+            int.TryParse(item.pool, out pool);
+            var text = item.text;
+            if (item.location == NSDanmaku.Model.DanmakuLocation.Position
+                && NSDanmaku.Helper.PositionDanmaku.TryParse(text, out var definition)) text = definition.Text;
+            return rules.GetBlockType(text, item.sendID, item.source, pool,
+                SettingHelper.Is_DanmakuLocationTypeEnabled(mask, item.location));
         }
         #endregion
 
@@ -4121,7 +4123,13 @@ namespace BiliBili.UWP.Pages
         private void ApplyDanmakuLocationVisibility()
         {
             var mask = SettingHelper.Get_DanmakuLocationTypes();
+            var changed = mask != danmakuLocationMask;
             danmakuLocationMask = mask;
+            if (changed)
+            {
+                ++danmakuDisplayVersion;
+                SyncScriptDanmakuComments();
+            }
             if (danmu != null)
             {
                 SetDanmakuGridVisibility(
