@@ -3640,7 +3640,8 @@ namespace BiliBili.UWP.Pages
 
         private void HandleSlideProgressDelta(double delta)
         {
-            if (mediaElement.MediaPlayer.PlaybackSession.PlaybackState != MediaPlaybackState.Playing)
+            var playbackState = mediaElement.MediaPlayer.PlaybackSession.PlaybackState;
+            if (playbackState != MediaPlaybackState.Playing && playbackState != MediaPlaybackState.Paused)
                 return;
 
             if (delta > 0)
