@@ -116,6 +116,33 @@ namespace BiliBili.UWP.Api.User
             return api;
         }
 
+        public ApiModel UserCreatedFavorite(string mid)
+        {
+            return UserFavoriteRequest(mid, "https://api.bilibili.com/x/v3/fav/folder/created/list-all",
+                $"up_mid={Uri.EscapeDataString(mid)}&type=2");
+        }
+
+        public ApiModel UserFavoriteInfo(string mid, long mediaId, int page = 1)
+        {
+            return UserFavoriteRequest(mid, "https://api.bilibili.com/x/v3/fav/resource/list",
+                $"media_id={mediaId}&pn={page}&ps=20&keyword=&type=0");
+        }
+
+        private static ApiModel UserFavoriteRequest(string mid, string url, string parameters)
+        {
+            return new ApiModel
+            {
+                method = HttpMethod.GET,
+                baseUrl = url,
+                parameter = parameters,
+                headers = new Dictionary<string, string>
+                {
+                    { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+                    { "Referer", $"https://space.bilibili.com/{Uri.EscapeDataString(mid)}/favlist" }
+                }
+            };
+        }
+
         /// <summary>
         /// 添加到收藏夹
         /// </summary>

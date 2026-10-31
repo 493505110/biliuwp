@@ -104,6 +104,36 @@ namespace BiliBili.UWP.Api.User
             return api;
         }
 
+        public ApiModel UserCollections(string mid, int page = 1, int pageSize = 20)
+        {
+            return SpaceRequest(mid, "https://api.bilibili.com/x/polymer/web-space/seasons_series_list",
+                $"mid={Uri.EscapeDataString(mid)}&page_num={page}&page_size={pageSize}");
+        }
+
+        public ApiModel UserCollectionVideos(string mid, long id, bool isSeason, int page = 1, int pageSize = 30)
+        {
+            return isSeason
+                ? SpaceRequest(mid, "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
+                    $"mid={Uri.EscapeDataString(mid)}&season_id={id}&sort_reverse=false&page_num={page}&page_size={pageSize}")
+                : SpaceRequest(mid, "https://api.bilibili.com/x/series/archives",
+                    $"mid={Uri.EscapeDataString(mid)}&series_id={id}&only_normal=true&sort=asc&pn={page}&ps={pageSize}");
+        }
+
+        private static ApiModel SpaceRequest(string mid, string url, string parameters)
+        {
+            return new ApiModel
+            {
+                method = HttpMethod.GET,
+                baseUrl = url,
+                parameter = parameters,
+                headers = new Dictionary<string, string>
+                {
+                    { "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+                    { "Referer", $"https://space.bilibili.com/{Uri.EscapeDataString(mid)}" }
+                }
+            };
+        }
+
         /// <summary>
         /// 查询当前用户与目标用户的关注关系
         /// </summary>

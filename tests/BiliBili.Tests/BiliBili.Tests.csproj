@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\BiliBili.UWP\Models\UserSpaceCollectionModels.cs" Link="Production\UserSpaceCollectionModels.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\UserSpaceCollectionParser.cs" Link="Production\UserSpaceCollectionParser.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Models\UserSpaceFavoriteModels.cs" Link="Production\UserSpaceFavoriteModels.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\UserSpaceFavoriteParser.cs" Link="Production\UserSpaceFavoriteParser.cs" />
     <Compile Include="..\..\Libraries\NSDanmaku-Fork\NSDanmaku\Helper\WeightedLruCache.cs" Link="Production\WeightedLruCache.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\LivePlaybackSources.cs" Link="Production\LivePlaybackSources.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\LivePlaybackFallback.cs" Link="Production\LivePlaybackFallback.cs" />

@@ -31,6 +31,8 @@ namespace BiliBili.UWP.Pages.User
     public sealed partial class UserCenterPage : Page
     {
         private Modules.UserCenterVM userCenterVM;
+        private readonly Modules.UserSpaceCollectionsVM spaceCollectionsVM = new Modules.UserSpaceCollectionsVM();
+        private readonly Modules.UserSpaceFavoritesVM spaceFavoritesVM = new Modules.UserSpaceFavoritesVM();
         readonly Modules.Account account;
         string mid = "";
         public UserCenterPage()
@@ -56,6 +58,10 @@ namespace BiliBili.UWP.Pages.User
                 {
                     mid = e.Parameter.ToString();
                 }
+                spaceCollectionsVM.Activate(mid);
+                spaceFavoritesVM.Activate(mid);
+                if (pivot.SelectedItem == pi_Collections) _ = spaceCollectionsVM.EnsureLoadedAsync();
+                if (pivot.SelectedItem == pi_Favorites) _ = spaceFavoritesVM.EnsureLoadedAsync();
                 if (userCenterVM == null)
                 {
                     userCenterVM = new Modules.UserCenterVM(mid);
@@ -91,6 +97,12 @@ namespace BiliBili.UWP.Pages.User
                 NavigationCacheMode = NavigationCacheMode.Disabled;
             }
             base.OnNavigatingFrom(e);
+        }
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            spaceCollectionsVM.Deactivate();
+            spaceFavoritesVM.Deactivate();
+            base.OnNavigatedFrom(e);
         }
         private void btnBack_Click(object sender, RoutedEventArgs e)
         {
@@ -151,6 +163,14 @@ namespace BiliBili.UWP.Pages.User
 
         private void pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (pivot.SelectedItem == pi_Collections)
+            {
+                _ = spaceCollectionsVM.EnsureLoadedAsync();
+            }
+            if (pivot.SelectedItem == pi_Favorites)
+            {
+                _ = spaceFavoritesVM.EnsureLoadedAsync();
+            }
             if (pivot.SelectedIndex == 1)
             {
                 if (_dynItems.Count == 0 && !_loadDynamic)
@@ -158,6 +178,51 @@ namespace BiliBili.UWP.Pages.User
                     GetDynamic();
                 }
             }
+        }
+
+        private async void CollectionMore_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is UserSpaceCollection collection) await spaceCollectionsVM.OpenAsync(collection);
+        }
+
+        private void CollectionVideo_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is UserSpaceVideo video)
+                MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), video.Aid.ToString());
+        }
+
+        private void CollectionsBack_Click(object sender, RoutedEventArgs e) => spaceCollectionsVM.BackToCollections();
+
+        private async void CollectionsLoadMore_Click(object sender, RoutedEventArgs e) => await spaceCollectionsVM.LoadMoreAsync();
+
+        private async void FavoriteFolder_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if ((sender as Selector)?.SelectedItem is UserSpaceFavoriteFolder folder)
+                await spaceFavoritesVM.SelectFolderAsync(folder);
+        }
+
+        private void FavoriteVideo_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (!(e.ClickedItem is UserSpaceVideo video)) return;
+            if (!video.CanOpen)
+            {
+                Utils.ShowMessageToast("这个收藏视频已失效");
+                return;
+            }
+            MessageCenter.SendNavigateTo(NavigateMode.Info, typeof(VideoViewPage), video.Aid.ToString());
+        }
+
+        private async void FavoritesLoadMore_Click(object sender, RoutedEventArgs e) => await spaceFavoritesVM.LoadMoreAsync();
+        private async void FavoritesRetry_Click(object sender, RoutedEventArgs e) => await spaceFavoritesVM.RetryAsync();
+        private async void FavoritesRefresh_Click(object sender, RoutedEventArgs e) => await spaceFavoritesVM.RefreshAsync();
+
+        private void FavoritesLayout_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            bool compact = e.NewSize.Width < 640;
+            favoriteFoldersColumn.Width = new GridLength(compact ? 0 : 180);
+            favoriteFoldersList.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            favoriteFoldersCombo.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+            favoriteFolderTitle.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         }
 
         #region 动态

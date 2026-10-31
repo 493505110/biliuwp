@@ -481,6 +481,8 @@
     <Compile Include="Models\PlayModels.cs" />
     <Compile Include="Models\ReturnModel.cs" />
     <Compile Include="Models\UserModels.cs" />
+    <Compile Include="Models\UserSpaceCollectionModels.cs" />
+    <Compile Include="Models\UserSpaceFavoriteModels.cs" />
     <Compile Include="Models\VideoInfoModels.cs" />
     <Compile Include="Modules\Account.cs" />
     <Compile Include="Modules\ArticleContentParser.cs" />
@@ -527,6 +529,10 @@
     <Compile Include="Modules\Season\SeasonIndexVM.cs" />
     <Compile Include="Modules\ToView.cs" />
     <Compile Include="Modules\UserCenterVM.cs" />
+    <Compile Include="Modules\UserSpaceCollectionParser.cs" />
+    <Compile Include="Modules\UserSpaceCollectionsVM.cs" />
+    <Compile Include="Modules\UserSpaceFavoriteParser.cs" />
+    <Compile Include="Modules\UserSpaceFavoritesVM.cs" />
     <Compile Include="Modules\User\MyFollowVideoVM.cs" />
     <Compile Include="Pages\AddTagPage.xaml.cs">
       <DependentUpon>AddTagPage.xaml</DependentUpon>

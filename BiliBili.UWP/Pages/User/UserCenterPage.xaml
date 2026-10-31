@@ -15,6 +15,58 @@
     <Page.Resources>
         <convert:DatetimeConvert x:Key="time"/>
         <convert:NumberToStringConvert x:Key="numberToStringConvert"/>
+        <DataTemplate x:Key="UserSpaceVideoListTemplate" x:DataType="dynModels:UserSpaceVideo">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <Grid Margin="4">
+                    <toolkit:ImageEx Source="{x:Bind Cover,Converter={StaticResource imageConvert},ConverterParameter='120h'}" IsCacheEnabled="True"
+                        PlaceholderSource="ms-appx:///Assets/Thumbnails/Placeholde.png" Stretch="UniformToFill"/>
+                    <Border CornerRadius="4" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="4" Padding="4,2" Background="#99000000">
+                        <TextBlock Text="{x:Bind Duration}" Foreground="White" FontSize="12"/>
+                    </Border>
+                </Grid>
+                <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                    <TextBlock Text="{x:Bind Title}" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Foreground="Gray" Margin="0,4,0,0">观看:<Run Text="{x:Bind Views,Converter={StaticResource numberToStringConvert}}"/> 弹幕:<Run Text="{x:Bind DanmakuText,Converter={StaticResource numberToStringConvert}}"/></TextBlock>
+                    <TextBlock Foreground="Gray" Margin="0,4,0,0" Visibility="{x:Bind HasPublicationTime}">发表于 <Run Text="{x:Bind PublishedAt,Converter={StaticResource time},ConverterParameter='ts'}"/></TextBlock>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="CollectionPreviewTemplate" x:DataType="dynModels:UserSpaceVideo">
+            <Grid Width="200">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="125"/>
+                    <RowDefinition Height="48"/>
+                    <RowDefinition Height="24"/>
+                </Grid.RowDefinitions>
+                <Grid>
+                    <toolkit:ImageEx Source="{x:Bind Cover,Converter={StaticResource imageConvert},ConverterParameter='320w_200h_1e_1c'}"
+                                     IsCacheEnabled="True" Stretch="Uniform"
+                                     PlaceholderSource="ms-appx:///Assets/Logo/PI160_100.png"/>
+                    <Grid VerticalAlignment="Bottom" Padding="8">
+                        <Grid.Background>
+                            <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
+                                <GradientStop Color="#CC000005" Offset="0.993"/>
+                                <GradientStop Color="#00000000" Offset="0"/>
+                            </LinearGradientBrush>
+                        </Grid.Background>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock FontSize="12" Foreground="White" TextTrimming="CharacterEllipsis" Margin="0,0,4,0">观看:<Run Text="{x:Bind Views,Converter={StaticResource numberToStringConvert}}"/> 弹幕:<Run Text="{x:Bind DanmakuText,Converter={StaticResource numberToStringConvert}}"/></TextBlock>
+                        <TextBlock Grid.Column="1" Text="{x:Bind Duration}" HorizontalAlignment="Right" FontSize="12" Foreground="White"/>
+                    </Grid>
+                </Grid>
+                <TextBlock Grid.Row="1" Text="{x:Bind Title}" Margin="8,4,8,0" MaxLines="2"
+                           TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Row="2" Text="{x:Bind PublishedAt,Converter={StaticResource time},ConverterParameter='ts'}"
+                           Visibility="{x:Bind HasPublicationTime}" Margin="8,0,8,4" FontSize="12" Foreground="Gray"/>
+            </Grid>
+        </DataTemplate>
         <!--让ListView条目横向撑满-->
         <Style x:Key="ListViewItemStretchStyle" TargetType="ListViewItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -225,7 +277,7 @@
         <Pivot x:Name="pivot" SelectionChanged="pivot_SelectionChanged" Grid.Row="1" >
             <PivotItem Margin="0">
                 <PivotItem.Header>
-                    <TextBlock FontSize="18" >投稿</TextBlock>
+                    <TextBlock FontSize="18">投稿</TextBlock>
                 </PivotItem.Header>
                 <Grid>
                     <toolkit:AdaptiveGridView 
@@ -280,7 +332,7 @@
             </PivotItem>
             <PivotItem Margin="0">
                 <PivotItem.Header>
-                    <TextBlock FontSize="18"  >动态</TextBlock>
+                    <TextBlock FontSize="18">动态</TextBlock>
                 </PivotItem.Header>
                 <Grid>
                     <ScrollViewer x:Name="sv_dynamic" ViewChanged="sv_dynamic_ViewChanged">
@@ -293,6 +345,216 @@
                     <ProgressRing x:Name="pr_Load" IsActive="True" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                     <TextBlock x:Name="tb_dynEmpty" Visibility="Collapsed" Foreground="Gray"
                                HorizontalAlignment="Center" VerticalAlignment="Center">还没有动态</TextBlock>
+                </Grid>
+            </PivotItem>
+            <PivotItem x:Name="pi_Collections" Margin="0">
+                <PivotItem.Header>
+                    <TextBlock FontSize="18">合集与系列</TextBlock>
+                </PivotItem.Header>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition/>
+                    </Grid.RowDefinitions>
+                    <Grid Margin="8,0" Visibility="{x:Bind spaceCollectionsVM.ShowVideos,Mode=OneWay}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <Button Click="CollectionsBack_Click" Width="48" Height="32" MinWidth="0" MinHeight="0"
+                                Padding="0" BorderThickness="0" Background="Transparent"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                ToolTipService.ToolTip="返回合集与系列" AutomationProperties.Name="返回合集与系列"
+                                Visibility="{x:Bind spaceCollectionsVM.ShowVideos,Mode=OneWay}">
+                            <Viewbox Width="16" Height="16">
+                                <SymbolIcon Symbol="Back"/>
+                            </Viewbox>
+                        </Button>
+                        <TextBlock Grid.Column="1" Text="{x:Bind spaceCollectionsVM.Title,Mode=OneWay}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" FontSize="16"/>
+                    </Grid>
+                    <ListView Grid.Row="1" Padding="8,4" SelectionMode="None"
+                        ItemContainerStyle="{StaticResource ListViewItemStretchStyle}"
+                        ItemsSource="{x:Bind spaceCollectionsVM.Collections,Mode=OneWay}"
+                        Visibility="{x:Bind spaceCollectionsVM.ShowCollectionList,Mode=OneWay}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="dynModels:UserSpaceCollection">
+                                <Border Margin="0,0,0,12" Padding="0,4,0,12" BorderThickness="0,0,0,1"
+                                        BorderBrush="{ThemeResource Bili-BorderColor}">
+                                    <StackPanel>
+                                        <Grid Margin="4,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0" FontSize="18">
+                                                <Run Text="{x:Bind Heading}"/><Run Text=" · "/><Run Text="{x:Bind Count}" Foreground="Gray"/>
+                                            </TextBlock>
+                                            <HyperlinkButton Grid.Column="1" Content="查看更多" Tag="{x:Bind}" Click="CollectionMore_Click" Foreground="Gray"/>
+                                        </Grid>
+                                        <GridView Padding="0" SelectionMode="None" IsItemClickEnabled="True" VerticalAlignment="Top"
+                                            HorizontalContentAlignment="Left"
+                                            ScrollViewer.HorizontalScrollMode="Enabled" ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                            ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                            ItemsSource="{x:Bind PreviewVideos}" ItemTemplate="{StaticResource CollectionPreviewTemplate}"
+                                            ItemClick="CollectionVideo_ItemClick" Visibility="{x:Bind HasPreviewVideos}">
+                                            <GridView.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <ItemsStackPanel Orientation="Horizontal"/>
+                                                </ItemsPanelTemplate>
+                                            </GridView.ItemsPanel>
+                                            <GridView.ItemContainerStyle>
+                                                <Style TargetType="GridViewItem">
+                                                    <Setter Property="Margin" Value="8"/>
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                    <Setter Property="VerticalAlignment" Value="Top"/>
+                                                    <Setter Property="VerticalContentAlignment" Value="Top"/>
+                                                    <Setter Property="Background" Value="{ThemeResource Bili-List-Background}"/>
+                                                </Style>
+                                            </GridView.ItemContainerStyle>
+                                        </GridView>
+                                        <TextBlock Text="暂无可预览的视频" Margin="4,8" Foreground="Gray"
+                                                   Visibility="{x:Bind HasPreviewVideos,Converter={StaticResource display}}"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                        <ListView.Footer>
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind spaceCollectionsVM.Status,Mode=OneWay}" Foreground="Gray"
+                                           TextWrapping="Wrap" HorizontalAlignment="Center"/>
+                                <HyperlinkButton Click="CollectionsLoadMore_Click" Foreground="Gray" HorizontalAlignment="Center"
+                                                 Visibility="{x:Bind spaceCollectionsVM.CanLoadMore,Mode=OneWay}">
+                                    <TextBlock>加载更多</TextBlock>
+                                </HyperlinkButton>
+                                <ProgressRing IsActive="True" HorizontalAlignment="Center"
+                                              Visibility="{x:Bind spaceCollectionsVM.IsLoading,Mode=OneWay}"/>
+                            </StackPanel>
+                        </ListView.Footer>
+                    </ListView>
+                    <toolkit:AdaptiveGridView Grid.Row="1" Padding="8,4" ItemHeight="100" DesiredWidth="500"
+                        StretchContentForSingleRow="False" SelectionMode="None" IsItemClickEnabled="True"
+                        ItemsSource="{x:Bind spaceCollectionsVM.Videos,Mode=OneWay}" ItemClick="CollectionVideo_ItemClick"
+                        ItemTemplate="{StaticResource UserSpaceVideoListTemplate}"
+                        Visibility="{x:Bind spaceCollectionsVM.ShowVideos,Mode=OneWay}">
+                        <toolkit:AdaptiveGridView.ItemContainerStyle>
+                            <Style TargetType="GridViewItem">
+                                <Setter Property="Margin" Value="4"/>
+                            </Style>
+                        </toolkit:AdaptiveGridView.ItemContainerStyle>
+                        <toolkit:AdaptiveGridView.Footer>
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind spaceCollectionsVM.Status,Mode=OneWay}" Foreground="Gray"
+                                           TextWrapping="Wrap" HorizontalAlignment="Center"/>
+                                <HyperlinkButton Click="CollectionsLoadMore_Click" Foreground="Gray" HorizontalAlignment="Center"
+                                                 Visibility="{x:Bind spaceCollectionsVM.CanLoadMore,Mode=OneWay}">
+                                    <TextBlock>加载更多</TextBlock>
+                                </HyperlinkButton>
+                                <ProgressRing IsActive="True" HorizontalAlignment="Center"
+                                              Visibility="{x:Bind spaceCollectionsVM.IsLoading,Mode=OneWay}"/>
+                            </StackPanel>
+                        </toolkit:AdaptiveGridView.Footer>
+                    </toolkit:AdaptiveGridView>
+                    <TextBlock Grid.RowSpan="2" Text="{x:Bind spaceCollectionsVM.Status,Mode=OneWay}" Foreground="Gray"
+                               Visibility="{x:Bind spaceCollectionsVM.ShowEmptyCollections,Mode=OneWay}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               TextAlignment="Center" TextWrapping="Wrap" Margin="16"/>
+                </Grid>
+            </PivotItem>
+            <PivotItem x:Name="pi_Favorites" Margin="0" AutomationProperties.Name="收藏">
+                <PivotItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- 仅补偿“收”的视觉高度，保留原字体和页签布局尺寸。 -->
+                        <TextBlock Text="收" FontSize="18" AutomationProperties.AccessibilityView="Raw">
+                            <TextBlock.RenderTransform>
+                                <TranslateTransform Y="2"/>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                        <TextBlock FontSize="18" AutomationProperties.AccessibilityView="Raw">藏</TextBlock>
+                    </StackPanel>
+                </PivotItem.Header>
+                <Grid>
+                    <Grid SizeChanged="FavoritesLayout_SizeChanged"
+                          Visibility="{x:Bind spaceFavoritesVM.ShowContent,Mode=OneWay}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="favoriteFoldersColumn" Width="180"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <ListView x:Name="favoriteFoldersList" Grid.RowSpan="2" Margin="4,8" SelectionMode="Single"
+                                  ItemsSource="{x:Bind spaceFavoritesVM.Folders,Mode=OneWay}"
+                                  SelectedItem="{x:Bind spaceFavoritesVM.SelectedFolder,Mode=OneWay}"
+                                  SelectionChanged="FavoriteFolder_SelectionChanged">
+                            <ListView.Header>
+                                <TextBlock Text="{x:Bind spaceFavoritesVM.FolderHeader,Mode=OneWay}" Foreground="Gray" Margin="8,4,8,12"/>
+                            </ListView.Header>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="dynModels:UserSpaceFavoriteFolder">
+                                    <Grid Padding="0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="24"/>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE8B7;" FontSize="14"/>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" Margin="4,0,8,0"/>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Count}" Foreground="Gray" FontSize="12" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                        </ListView>
+                        <Grid Grid.Column="1" Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <ComboBox x:Name="favoriteFoldersCombo" Visibility="Collapsed" HorizontalAlignment="Stretch"
+                                          ItemsSource="{x:Bind spaceFavoritesVM.Folders,Mode=OneWay}" DisplayMemberPath="DisplayTitle"
+                                          PlaceholderText="选择收藏夹" SelectedItem="{x:Bind spaceFavoritesVM.SelectedFolder,Mode=OneWay}"
+                                          SelectionChanged="FavoriteFolder_SelectionChanged"/>
+                                <TextBlock x:Name="favoriteFolderTitle" Text="{x:Bind spaceFavoritesVM.Title,Mode=OneWay}"
+                                           FontSize="18" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{x:Bind spaceFavoritesVM.Summary,Mode=OneWay}" Foreground="Gray" FontSize="12" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <HyperlinkButton Grid.Column="1" Content="刷新" Click="FavoritesRefresh_Click" Foreground="Gray" VerticalAlignment="Top"/>
+                        </Grid>
+                        <toolkit:AdaptiveGridView Grid.Column="1" Grid.Row="1" Padding="8,4" SelectionMode="None"
+                            DesiredWidth="500" ItemHeight="100" StretchContentForSingleRow="False" IsItemClickEnabled="True"
+                            ItemsSource="{x:Bind spaceFavoritesVM.Videos,Mode=OneWay}" ItemTemplate="{StaticResource UserSpaceVideoListTemplate}"
+                            ItemClick="FavoriteVideo_ItemClick">
+                            <toolkit:AdaptiveGridView.ItemContainerStyle>
+                                <Style TargetType="GridViewItem">
+                                    <Setter Property="Margin" Value="4"/>
+                                </Style>
+                            </toolkit:AdaptiveGridView.ItemContainerStyle>
+                            <toolkit:AdaptiveGridView.Footer>
+                                <StackPanel Margin="8">
+                                    <TextBlock Text="{x:Bind spaceFavoritesVM.Status,Mode=OneWay}" Foreground="Gray"
+                                               TextWrapping="Wrap" HorizontalAlignment="Center"/>
+                                    <HyperlinkButton Content="加载更多" Click="FavoritesLoadMore_Click" Foreground="Gray" HorizontalAlignment="Center"
+                                                     Visibility="{x:Bind spaceFavoritesVM.ShowLoadMore,Mode=OneWay}"/>
+                                    <HyperlinkButton Content="重试" Click="FavoritesRetry_Click" Foreground="Gray" HorizontalAlignment="Center"
+                                                     Visibility="{x:Bind spaceFavoritesVM.CanRetry,Mode=OneWay}"/>
+                                    <ProgressRing IsActive="True" HorizontalAlignment="Center"
+                                                  Visibility="{x:Bind spaceFavoritesVM.IsLoading,Mode=OneWay}"/>
+                                </StackPanel>
+                            </toolkit:AdaptiveGridView.Footer>
+                        </toolkit:AdaptiveGridView>
+                    </Grid>
+                    <TextBlock Text="{x:Bind spaceFavoritesVM.Status,Mode=OneWay}" Foreground="Gray"
+                               Visibility="{x:Bind spaceFavoritesVM.IsEmpty,Mode=OneWay}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               TextAlignment="Center" TextWrapping="Wrap" Margin="16"/>
                 </Grid>
             </PivotItem>
         </Pivot>
