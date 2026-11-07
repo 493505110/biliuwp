@@ -122,6 +122,7 @@ namespace BiliBili.UWP.Views
                 UpdateInteractiveDanmakuTypeSummary();
                 UpdateDanmakuLocationTypeSummary();
                 sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
+                sw_DanmakuRenderCompatibilityMode.IsOn = SettingHelper.Get_DanmakuRenderCompatibilityMode();
                 sw_EnableScriptDanmaku.IsOn = SettingHelper.Get_EnableScriptDanmaku();
 
                 sw_DTCT.IsOn = SettingHelper.Get_DTCT();
@@ -899,6 +900,12 @@ namespace BiliBili.UWP.Views
             {
                 UpdateDanmakuLocationTypeSummary();
             }
+        }
+
+        private void sw_DanmakuRenderCompatibilityMode_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting) return;
+            SettingHelper.Set_DanmakuRenderCompatibilityMode(sw_DanmakuRenderCompatibilityMode.IsOn);
         }
 
         private void sw_UseNewDanmakuInterface_Toggled(object sender, RoutedEventArgs e)

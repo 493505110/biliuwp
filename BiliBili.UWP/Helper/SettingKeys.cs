@@ -17,6 +17,7 @@
         public const string AccessKeyUserName = "bili_access_key";
         public const string UserID = "UserID";
         public const string BlockPcdn = "BlockPcdn";
+        public const string DanmakuRenderCompatibilityMode = "DanmakuRenderCompatibilityMode";
         public const string BiliJumpAiEnabled = "BiliJumpAiEnabled";
         public const string BiliJumpAiAutoJump = "BiliJumpAiAutoJump";
         public const string BiliJumpAiProvider = "BiliJumpAiProvider";

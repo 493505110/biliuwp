@@ -797,6 +797,7 @@ namespace BiliBili.UWP.Pages
             if (e != null)
             {
                 danmu = e;
+                ApplyDanmakuRenderCompatibilityMode();
                 ApplyOrdinaryDanmakuSuppression();
                 RefreshPositionDanmakuPool();
             }
@@ -1389,10 +1390,12 @@ namespace BiliBili.UWP.Pages
                 danmu.DanmakuDuration = Math.Max(1, Convert.ToInt32(danmuSpeed));
                 danmu.DanmakuFontFamily = danmuFont;
                 danmu.DanmakuBold = danmuBold;
+                danmu.DanmakuRenderCompatibilityMode = SettingHelper.Get_DanmakuRenderCompatibilityMode();
             }
 
             UpdateInteractiveDanmakuTypeSummary();
             sw_UseNewDanmakuInterface.IsOn = SettingHelper.Get_UseNewDanmakuInterface();
+            sw_DanmakuRenderCompatibilityMode.IsOn = SettingHelper.Get_DanmakuRenderCompatibilityMode();
 
             sw_BoldDanmu.IsOn = danmuBold;
 
@@ -2291,10 +2294,16 @@ namespace BiliBili.UWP.Pages
         {
             if (_isExiting || (args.CollectionChange != CollectionChange.Reset
                 && args.Key != "Guanjianzi" && args.Key != "Yonghu" && args.Key != "DMZZ"
-                && args.Key != "DanmakuLocationTypes")) return;
+                && args.Key != "DanmakuLocationTypes"
+                && args.Key != SettingKeys.DanmakuRenderCompatibilityMode)) return;
+            bool renderingOnly = args.CollectionChange != CollectionChange.Reset
+                && args.Key == SettingKeys.DanmakuRenderCompatibilityMode;
+            bool renderingChanged = args.CollectionChange == CollectionChange.Reset || renderingOnly;
             _ = Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 if (_isExiting) return;
+                if (renderingChanged) ApplyDanmakuRenderCompatibilityMode();
+                if (renderingOnly) return;
                 RefreshDanmakuFilterRules();
                 ApplyDanmakuLocationVisibility();
                 RefreshPositionDanmakuPool();
@@ -4443,6 +4452,22 @@ namespace BiliBili.UWP.Pages
                 await LoadInteractiveDanmakuAsync(playNow);
             }
             HandleInteractiveDanmakuPosition();
+        }
+
+        private void ApplyDanmakuRenderCompatibilityMode()
+        {
+            bool enabled = SettingHelper.Get_DanmakuRenderCompatibilityMode();
+            if (danmu != null) danmu.DanmakuRenderCompatibilityMode = enabled;
+            sw_DanmakuRenderCompatibilityMode.IsOn = enabled;
+        }
+
+        private void sw_DanmakuRenderCompatibilityMode_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (settingFlag) return;
+            bool enabled = sw_DanmakuRenderCompatibilityMode.IsOn;
+            if (SettingHelper.Get_DanmakuRenderCompatibilityMode() != enabled)
+                SettingHelper.Set_DanmakuRenderCompatibilityMode(enabled);
+            if (danmu != null) danmu.DanmakuRenderCompatibilityMode = enabled;
         }
 
         private void sw_UseNewDanmakuInterface_Toggled(object sender, RoutedEventArgs e)

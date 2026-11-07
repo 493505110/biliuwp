@@ -1245,6 +1245,18 @@ namespace BiliBili.UWP
             return Get_AnyInteractiveDanmakuTypeEnabled();
         }
 
+        public static bool Get_DanmakuRenderCompatibilityMode()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            return container.Values[SettingKeys.DanmakuRenderCompatibilityMode] is bool enabled && enabled;
+        }
+
+        public static void Set_DanmakuRenderCompatibilityMode(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.DanmakuRenderCompatibilityMode] = value;
+        }
+
         public static void Set_UseNewDanmakuInterface(bool value)
         {
             container = ApplicationData.Current.LocalSettings;

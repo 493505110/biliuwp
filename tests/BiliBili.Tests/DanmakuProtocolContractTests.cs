@@ -226,6 +226,7 @@ namespace BiliBili.Tests
             var bottom = MethodBody(control, "public async Task AddBottomDanmu");
             var remove = MethodBody(control, "private void RemoveFixedDanmaku");
             var clear = MethodBody(control, "public void ClearAll");
+            var clearOrdinary = MethodBody(control, "private void ClearOrdinaryDanmaku");
 
             StringAssert.Contains(control, "private const int FixedDanmakuTickMilliseconds = 350;");
             StringAssert.Contains(control, "private const int FixedDanmakuTickCount = 10;");
@@ -242,7 +243,9 @@ namespace BiliBili.Tests
             StringAssert.Contains(remove, "lifetime.Stop();");
             StringAssert.Contains(remove, "element.Children.Clear();");
             StringAssert.Contains(clear, "ClearPositionDanmaku();");
-            StringAssert.Contains(clear, "fixedLifetimes.Clear();");
+            StringAssert.Contains(clear, "ClearOrdinaryDanmaku();");
+            StringAssert.Contains(clearOrdinary, "item.Stop();");
+            StringAssert.Contains(clearOrdinary, "fixedLifetimes.Clear();");
         }
 
         private static void AssertField(string source, int fieldNumber, string assignment)

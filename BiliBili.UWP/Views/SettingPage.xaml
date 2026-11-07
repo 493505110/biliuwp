@@ -559,6 +559,11 @@
                             </Grid>
 
                             <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center" ToolTipService.ToolTip="弹幕文字显示异常时可开启；开启后使用旧版渲染方式，可能增加资源占用">弹幕渲染兼容模式</TextBlock>
+                                <ToggleSwitch x:Name="sw_DanmakuRenderCompatibilityMode" Toggled="sw_DanmakuRenderCompatibilityMode_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
+                            </Grid>
+
+                            <Grid Margin="0 10 0 0">
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">使用新版弹幕接口</TextBlock>
                                 <ToggleSwitch x:Name="sw_UseNewDanmakuInterface" Toggled="sw_UseNewDanmakuInterface_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68"></ToggleSwitch>
                             </Grid>
