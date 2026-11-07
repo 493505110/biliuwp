@@ -349,8 +349,9 @@ namespace BiliBili.UWP.Modules
                         durl = new List<Durl>(),
                         quality_description = play?["g_qn_desc"]?.ToObject<List<quality_description_item>>() ?? new List<quality_description_item>()
                     };
-                    var sources = LivePlaybackSources.FromPlayInfo(play, quality);
-                    if (sources.Urls.Count == 0 && !sources.RequiresWebPlayback
+                    bool blockPcdn = SettingHelper.Get_BlockPcdn();
+                    var sources = LivePlaybackSources.FromPlayInfo(play, quality, blockPcdn);
+                    if (sources.Urls.Count == 0 && !sources.RequiresWebPlayback && !sources.BlockedByCdnPolicy
                         && root["data"]?.Value<int?>("live_status") != 0)
                     {
                         // 常规响应可能只暴露未推流的明文源；没有可播源时再检查加密源元数据。
@@ -358,7 +359,7 @@ namespace BiliBili.UWP.Modules
                         var metadataRoot = metadataResponse.GetJObject();
                         if (metadataResponse.status && metadataRoot?.Value<int?>("code") == 0)
                         {
-                            var inspected = LivePlaybackSources.FromPlayInfo(metadataRoot["data"]?["playurl_info"]?["playurl"], quality);
+                            var inspected = LivePlaybackSources.FromPlayInfo(metadataRoot["data"]?["playurl_info"]?["playurl"], quality, blockPcdn);
                             if (inspected.RequiresWebPlayback) sources = inspected;
                         }
                     }
@@ -370,7 +371,8 @@ namespace BiliBili.UWP.Modules
                         return new ReturnModel<LivePlayUrlsModel>
                         {
                             success = false,
-                            message = m.requires_web_playback ? LivePlaybackSources.DrmMessage : "未获取到可用的直播流",
+                            message = sources.BlockedByCdnPolicy ? PlaybackCdnPolicy.BlockedMessage
+                                : m.requires_web_playback ? LivePlaybackSources.DrmMessage : "未获取到可用的直播流",
                             data = m
                         };
                     }

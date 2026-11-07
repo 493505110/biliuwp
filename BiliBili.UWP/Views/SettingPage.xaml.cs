@@ -75,6 +75,7 @@ namespace BiliBili.UWP.Views
 
                 sw_NewWidnows.IsOn = SettingHelper.Get_NewWindow();
                 sw_UseDASH.IsOn = SettingHelper.Get_UseDASH();
+                sw_BlockPcdn.IsOn = SettingHelper.Get_BlockPcdn();
                 sw_BiliJumpAi.IsOn = SettingHelper.Get_BiliJumpAiEnabled();
                 sw_BiliJumpAiAutoJump.IsOn = SettingHelper.Get_BiliJumpAiAutoJump();
                 txt_BiliJumpAiMinFans.Text = SettingHelper.Get_BiliJumpAiMinFans().ToString();
@@ -936,6 +937,12 @@ namespace BiliBili.UWP.Views
                 return;
             }
             SettingHelper.Set_UseDASH(sw_UseDASH.IsOn);
+        }
+
+        private void BlockPcdn_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (loadsetting) return;
+            SettingHelper.Set_BlockPcdn(sw_BlockPcdn.IsOn);
         }
 
         private void DASHVideoCodec_SelectionChanged(object sender, SelectionChangedEventArgs e)

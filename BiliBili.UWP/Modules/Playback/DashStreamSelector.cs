@@ -62,11 +62,9 @@ namespace BiliBili.UWP.Modules.Playback
                 && ResolvePlayableUrl(stream.BaseUrl, stream.BackupUrls) != null;
         }
 
-        public static string ResolvePlayableUrl(string baseUrl, IEnumerable<string> backupUrls)
+        public static string ResolvePlayableUrl(string baseUrl, IEnumerable<string> backupUrls, bool blockPcdn = false)
         {
-            return new[] { baseUrl }
-                .Concat(backupUrls ?? Enumerable.Empty<string>())
-                .FirstOrDefault(IsHttpUrl);
+            return PlaybackCdnPolicy.SelectUrl(baseUrl, backupUrls, blockPcdn);
         }
 
         public static IEnumerable<int> GetCodecPreference(int preferredCodecId, bool forceCodec = false)
@@ -94,10 +92,5 @@ namespace BiliBili.UWP.Modules.Playback
                 && stream.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsHttpUrl(string value)
-        {
-            return Uri.TryCreate(value, UriKind.Absolute, out var uri)
-                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
-        }
     }
 }

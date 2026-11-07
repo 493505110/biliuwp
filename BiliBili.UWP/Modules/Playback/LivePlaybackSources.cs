@@ -10,13 +10,15 @@ namespace BiliBili.UWP.Modules.Playback
         public int Quality { get; private set; }
         public IReadOnlyList<string> Urls { get; private set; }
         public bool RequiresWebPlayback { get; private set; }
+        public bool BlockedByCdnPolicy { get; private set; }
         public const string DrmMessage = "该直播使用 DRM 加密播放源，客户端暂不支持。可在哔哩哔哩官方网页观看。";
 
-        public static LivePlaybackSources FromPlayInfo(JToken play, int requestedQuality)
+        public static LivePlaybackSources FromPlayInfo(JToken play, int requestedQuality, bool blockPcdn = false)
         {
             var preferred = new List<JToken>();
             var fallback = new List<JToken>();
             bool hasActiveDrmSource = false;
+            bool hasBlockedSource = false;
             foreach (var stream in (play?["stream"] as JArray) ?? new JArray())
             {
                 foreach (var format in (stream["format"] as JArray) ?? new JArray())
@@ -51,6 +53,11 @@ namespace BiliBili.UWP.Modules.Playback
                 {
                     var url = BuildUrl(info, baseUrl);
                     if (url == null || !seen.Add(url)) continue;
+                    if (blockPcdn && PlaybackCdnPolicy.IsPcdnUrl(url))
+                    {
+                        hasBlockedSource = true;
+                        continue;
+                    }
                     if (urls.Count == 0) quality = codecQuality;
                     urls.Add(url);
                 }
@@ -58,7 +65,8 @@ namespace BiliBili.UWP.Modules.Playback
             return new LivePlaybackSources
             {
                 Quality = quality, Urls = urls,
-                RequiresWebPlayback = urls.Count == 0 && hasActiveDrmSource
+                RequiresWebPlayback = urls.Count == 0 && hasActiveDrmSource && !hasBlockedSource,
+                BlockedByCdnPolicy = urls.Count == 0 && hasBlockedSource
             };
         }
 

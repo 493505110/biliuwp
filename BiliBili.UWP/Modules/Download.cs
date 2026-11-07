@@ -1,5 +1,6 @@
 ﻿using BiliBili.UWP.Helper;
 using BiliBili.UWP.Models;
+using BiliBili.UWP.Modules.Playback;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -158,19 +159,20 @@ namespace BiliBili.UWP.Modules
             if (quality.Qn != 0)
             {
                 var andorid_api = await GetSeasonDownloadUrlWebApi(aid, cid, season_type, quality_model);
-                if (andorid_api.success || andorid_api.message == "大会员专享限制")
+                if (andorid_api.success || andorid_api.message == "大会员专享限制"
+                    || andorid_api.message == PlaybackCdnPolicy.BlockedMessage)
                 {
                     return andorid_api;
                 }
                 var biliplus = await GetSeasonDownloadUrlBiliplusApi(cid, aid, quality, season_type, access_key, mid);
-                if (biliplus.success)
+                if (biliplus.success || biliplus.message == PlaybackCdnPolicy.BlockedMessage)
                 {
                     return biliplus;
                 }
             }
            
             var moe_api = await GetSeasonDownloadUrlMoeApi(season_id, cid, aid, quality, "");
-            if (moe_api.success)
+            if (moe_api.success || moe_api.message == PlaybackCdnPolicy.BlockedMessage)
             {
                 return moe_api;
             }
@@ -209,7 +211,7 @@ namespace BiliBili.UWP.Modules
                             Order = item.order,
                             QualityInfo = quality,
                             Size = item.size,
-                            Url = item.url
+                            Url = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url)
                         });
                     }
                     return new ReturnModel<List<DownloadUrlInfo>>()
@@ -228,6 +230,10 @@ namespace BiliBili.UWP.Modules
                     };
                 }
 
+            }
+            catch (PcdnBlockedException)
+            {
+                return new ReturnModel<List<DownloadUrlInfo>> { success = false, message = PlaybackCdnPolicy.BlockedMessage };
             }
             catch (Exception)
             {
@@ -283,21 +289,21 @@ namespace BiliBili.UWP.Modules
                                     Qn = quality.qn
                                 },
                                 Size = item.size,
-                                Url = item.url
+                                Url = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url)
                             });
                         }
                     }
                     else
                     {
                         var length = jobj["result"]["dash"]["duration"].ToInt32();
-                        var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["result"]["dash"]["video"].ToString());
-                        var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["result"]["dash"]["audio"].ToString());
+                        var videos = PlaybackCdnHelper.FilterDashStreams(Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["result"]["dash"]["video"].ToString()), item => item.codecid == 7);
+                        var audios = PlaybackCdnHelper.FilterDashStreams(Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["result"]["dash"]["audio"].ToString()), item => (item.mimeType ?? item.mime_type) == "audio/mp4");
                         var video = videos.FirstOrDefault(x => x.id == quality.qn && x.codecid == 7);
                         if (video == null)
                         {
                             video = videos.OrderByDescending(x => x.id).FirstOrDefault(x => x.codecid == 7);
                         }
-                        var audio = audios.Where(x => x.mimeType == "audio/mp4").FirstOrDefault();
+                        var audio = audios.Where(x => (x.mimeType ?? x.mime_type) == "audio/mp4").FirstOrDefault();
 
                         downloadUrls.Add(new DownloadUrlInfo()
                         {
@@ -316,7 +322,7 @@ namespace BiliBili.UWP.Modules
                             },
                             DashFileType = "video",
                             Size = 0,
-                            Url = video.baseUrl
+                            Url = PlaybackCdnHelper.RequireDashUrl(video)
                         });
                         downloadUrls.Add(new DownloadUrlInfo()
                         {
@@ -335,7 +341,7 @@ namespace BiliBili.UWP.Modules
                             },
                             Size = 0,
                             DashFileType = "audio",
-                            Url = audio.baseUrl
+                            Url = PlaybackCdnHelper.RequireDashUrl(audio)
                         });
 
 
@@ -356,6 +362,10 @@ namespace BiliBili.UWP.Modules
                 }
 
 
+            }
+            catch (PcdnBlockedException)
+            {
+                return new ReturnModel<List<DownloadUrlInfo>> { success = false, message = PlaybackCdnPolicy.BlockedMessage };
             }
             catch (Exception)
             {
@@ -394,7 +404,7 @@ namespace BiliBili.UWP.Modules
                             Order = 0,
                             QualityInfo = quality,
                             Size = item["size"].ToInt32(),
-                            Url = item["url"].ToString()
+                            Url = PlaybackCdnHelper.RequireUrl(item["url"].ToString(), item["backup_url"]?.ToObject<List<string>>())
                         });
                     }
                     return new ReturnModel<List<DownloadUrlInfo>>()
@@ -414,6 +424,10 @@ namespace BiliBili.UWP.Modules
                     };
                 }
 
+            }
+            catch (PcdnBlockedException)
+            {
+                return new ReturnModel<List<DownloadUrlInfo>> { success = false, message = PlaybackCdnPolicy.BlockedMessage };
             }
             catch (Exception ex)
             {
@@ -466,7 +480,7 @@ namespace BiliBili.UWP.Modules
                                 Order = item.order,
                                 QualityInfo = quality,
                                 Size = item.size,
-                                Url = item.url
+                                Url = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url)
                             });
                         }
                        
@@ -475,14 +489,14 @@ namespace BiliBili.UWP.Modules
                     {
                       
                         var length = jobj["dash"]["duration"].ToInt32();
-                        var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["dash"]["video"].ToString());
-                        var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["dash"]["audio"].ToString());
+                        var videos = PlaybackCdnHelper.FilterDashStreams(Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["dash"]["video"].ToString()), item => item.codecid == 7);
+                        var audios = PlaybackCdnHelper.FilterDashStreams(Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["dash"]["audio"].ToString()), item => (item.mimeType ?? item.mime_type) == "audio/mp4");
                         var video = videos.FirstOrDefault(x => x.id == quality.Qn && x.codecid == 7);
                         if (video == null)
                         {
                             video = videos.OrderByDescending(x => x.id).FirstOrDefault(x => x.codecid == 7);
                         }
-                        var audio = audios.Where(x => x.mimeType == "audio/mp4").FirstOrDefault();
+                        var audio = audios.Where(x => (x.mimeType ?? x.mime_type) == "audio/mp4").FirstOrDefault();
 
                         downloadUrls.Add(new DownloadUrlInfo()
                         {
@@ -501,7 +515,7 @@ namespace BiliBili.UWP.Modules
                             },
                             DashFileType = "video",
                             Size = 0,
-                            Url = video.baseUrl
+                            Url = PlaybackCdnHelper.RequireDashUrl(video)
                         });
                         downloadUrls.Add(new DownloadUrlInfo()
                         {
@@ -520,7 +534,7 @@ namespace BiliBili.UWP.Modules
                             },
                             Size = 0,
                             DashFileType = "audio",
-                            Url = audio.baseUrl
+                            Url = PlaybackCdnHelper.RequireDashUrl(audio)
                         });
                        
                     }
@@ -541,6 +555,10 @@ namespace BiliBili.UWP.Modules
                 }
 
             }
+            catch (PcdnBlockedException)
+            {
+                return new ReturnModel<List<DownloadUrlInfo>> { success = false, message = PlaybackCdnPolicy.BlockedMessage };
+            }
             catch (Exception ex)
             {
                 return new ReturnModel<List<DownloadUrlInfo>>()
@@ -553,24 +571,30 @@ namespace BiliBili.UWP.Modules
 
         public async Task<ReturnModel<List<DownloadUrlInfo>>> GetVideoDownloadUrl(string aid, string cid, QualityModel quality, string access_key = "", string mid = "")
         {
-
-            var andorid_api = await GetVideoDownloadUrlWebApi(aid, cid, quality);
-            if (andorid_api != null)
+            try
             {
+                var andorid_api = await GetVideoDownloadUrlWebApi(aid, cid, quality);
+                if (andorid_api != null)
+                {
+                    return new ReturnModel<List<DownloadUrlInfo>>()
+                    {
+                        success = true,
+                        message = "",
+                        data = andorid_api
+                    };
+                }
+
+
                 return new ReturnModel<List<DownloadUrlInfo>>()
                 {
-                    success = true,
-                    message = "",
-                    data = andorid_api
+                    success = false,
+                    message = "无法读取下载地址"
                 };
             }
-
-
-            return new ReturnModel<List<DownloadUrlInfo>>()
+            catch (PcdnBlockedException)
             {
-                success = false,
-                message = "无法读取下载地址"
-            };
+                return new ReturnModel<List<DownloadUrlInfo>> { success = false, message = PlaybackCdnPolicy.BlockedMessage };
+            }
         }
         private async Task<List<DownloadUrlInfo>> GetVideoDownloadUrlAndroidApi(string aid, string cid, QualityModel quality, string access_key = "", string mid = "")
         {
@@ -601,7 +625,7 @@ namespace BiliBili.UWP.Modules
                                 Qn=quality.qn
                             },
                             Size = item.size,
-                            Url = item.url
+                            Url = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url)
                         });
                     }
                     return downloadUrls;
@@ -611,6 +635,10 @@ namespace BiliBili.UWP.Modules
                     return null;
                 }
 
+            }
+            catch (PcdnBlockedException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -664,21 +692,21 @@ namespace BiliBili.UWP.Modules
                                     Qn = quality.qn
                                 },
                                 Size = item.size,
-                                Url = item.url
+                                Url = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url)
                             });
                         }
                     }
                     else
                     {
                         var length = jobj["data"]["dash"]["duration"].ToInt32();
-                        var videos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["data"]["dash"]["video"].ToString());
-                        var audios = Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["data"]["dash"]["audio"].ToString());
+                        var videos = PlaybackCdnHelper.FilterDashStreams(Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["data"]["dash"]["video"].ToString()), item => item.codecid == 7);
+                        var audios = PlaybackCdnHelper.FilterDashStreams(Newtonsoft.Json.JsonConvert.DeserializeObject<List<DashItem>>(jobj["data"]["dash"]["audio"].ToString()), item => (item.mimeType ?? item.mime_type) == "audio/mp4");
                         var video = videos.FirstOrDefault(x => x.id == quality.qn && x.codecid == 7);
                         if (video == null)
                         {
                             video = videos.OrderByDescending(x => x.id).FirstOrDefault(x => x.codecid == 7);
                         }
-                        var audio = audios.Where(x => x.mimeType == "audio/mp4").FirstOrDefault();
+                        var audio = audios.Where(x => (x.mimeType ?? x.mime_type) == "audio/mp4").FirstOrDefault();
 
                         downloadUrls.Add(new DownloadUrlInfo()
                         {
@@ -697,7 +725,7 @@ namespace BiliBili.UWP.Modules
                             },
                             DashFileType="video",
                             Size = 0,
-                            Url = video.baseUrl
+                            Url = PlaybackCdnHelper.RequireDashUrl(video)
                         });
                         downloadUrls.Add(new DownloadUrlInfo()
                         {
@@ -716,7 +744,7 @@ namespace BiliBili.UWP.Modules
                             },
                             Size = 0,
                             DashFileType = "audio",
-                            Url = audio.baseUrl
+                            Url = PlaybackCdnHelper.RequireDashUrl(audio)
                         });
 
 
@@ -729,6 +757,10 @@ namespace BiliBili.UWP.Modules
                     return null;
                 }
 
+            }
+            catch (PcdnBlockedException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -786,6 +818,7 @@ namespace BiliBili.UWP.Modules
         public long size { get; set; }
         public long length { get; set; }
         public string url { get; set; }
+        public List<string> backup_url { get; set; }
     }
 
 

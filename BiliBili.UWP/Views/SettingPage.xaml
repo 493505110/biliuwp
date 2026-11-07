@@ -381,6 +381,10 @@
 
                             </Grid>
                           
+                            <Grid Margin="0 10 0 0">
+                                <TextBlock Foreground="Gray" VerticalAlignment="Center">屏蔽 PCDN/MCDN</TextBlock>
+                                <ToggleSwitch x:Name="sw_BlockPcdn" Toggled="BlockPcdn_Toggled" HorizontalAlignment="Right" Margin="10 0" MinWidth="0" Width="68" />
+                            </Grid>
                             <TextBlock FontSize="16" Margin="0 10 0 0">播放选项</TextBlock>
                             <Grid Margin="0 10 0 0" Visibility="Collapsed">
                                 <TextBlock Foreground="Gray" VerticalAlignment="Center">播放自动全屏</TextBlock>

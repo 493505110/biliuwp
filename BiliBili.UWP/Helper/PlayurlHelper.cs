@@ -178,8 +178,9 @@ namespace BiliBili.UWP.Helper
                 {
                     foreach (var item in m.durl)
                     {
-                        urls.Add(item.url);
-                        playList.Append(item.url, 0, item.length / 1000);
+                        var mediaUrl = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url);
+                        urls.Add(mediaUrl);
+                        playList.Append(mediaUrl, 0, item.length / 1000);
                     }
                     playList.SetNetworkHeaders("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
                     return new ReturnPlayModel()
@@ -195,7 +196,11 @@ namespace BiliBili.UWP.Helper
                     return null;
                 }
             }
-            catch (Exception ex)
+            catch (PcdnBlockedException ex)
+            {
+                return new ReturnPlayModel { preventFallback = true, errorMessage = ex.Message };
+            }
+            catch (Exception)
             {
 
                 return null;
@@ -259,8 +264,9 @@ namespace BiliBili.UWP.Helper
                 {
                     foreach (var item in obj["result"]["durl"])
                     {
-                        urls.Add(item["url"].ToString());
-                        playList.Append(item["url"].ToString(), 0, 0);
+                        var mediaUrl = PlaybackCdnHelper.RequireUrl(item["url"].ToString(), item["backup_url"]?.ToObject<List<string>>());
+                        urls.Add(mediaUrl);
+                        playList.Append(mediaUrl, 0, 0);
                     }
                     playList.SetNetworkHeaders("https://www.bilibili.com");
                     return new ReturnPlayModel()
@@ -275,6 +281,10 @@ namespace BiliBili.UWP.Helper
                 {
                     return null;
                 }
+            }
+            catch (PcdnBlockedException ex)
+            {
+                return new ReturnPlayModel { preventFallback = true, errorMessage = ex.Message };
             }
             catch (Exception)
             {
@@ -298,11 +308,12 @@ namespace BiliBili.UWP.Helper
                 {
                     if (obj["mode"].ToString() == "mp4")
                     {
-                        urls.Add(obj["data"][0]["url"].ToString());
+                        var mediaUrl = PlaybackCdnHelper.RequireUrl(obj["data"][0]["url"].ToString());
+                        urls.Add(mediaUrl);
                         return new ReturnPlayModel()
                         {
                             usePlayMode = UsePlayMode.System,
-                            url = obj["data"][0]["url"].ToString(),
+                            url = mediaUrl,
                             urls = urls,
                             from = "server"
                         };
@@ -316,8 +327,9 @@ namespace BiliBili.UWP.Helper
                         };
                         foreach (var item in obj["data"])
                         {
-                            playList.Append(item["url"].ToString(), item["size"].ToInt32(), item["length"].ToInt32() / 1000);
-                            urls.Add(item["url"].ToString());
+                            var mediaUrl = PlaybackCdnHelper.RequireUrl(item["url"].ToString(), item["backup_url"]?.ToObject<List<string>>());
+                            playList.Append(mediaUrl, item["size"].ToInt32(), item["length"].ToInt32() / 1000);
+                            urls.Add(mediaUrl);
                         }
                         playList.SetNetworkHeaders("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
                         returnPlayModel.playlist = playList;
@@ -329,6 +341,10 @@ namespace BiliBili.UWP.Helper
                 {
                     return null;
                 }
+            }
+            catch (PcdnBlockedException ex)
+            {
+                return new ReturnPlayModel { preventFallback = true, errorMessage = ex.Message };
             }
             catch (Exception)
             {
@@ -371,8 +387,9 @@ namespace BiliBili.UWP.Helper
                     var playList = new LegacyPlaybackPlaylist();
                     foreach (var item in m.durl)
                     {
-                        urls.Add(item.url);
-                        playList.Append(item.url, 0, item.length / 1000);
+                        var mediaUrl = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url);
+                        urls.Add(mediaUrl);
+                        playList.Append(mediaUrl, 0, item.length / 1000);
                     }
                     playList.SetNetworkHeaders(referer);
                     return new ReturnPlayModel()
@@ -414,6 +431,10 @@ namespace BiliBili.UWP.Helper
                 {
                     return null;
                 }
+            }
+            catch (PcdnBlockedException ex)
+            {
+                return new ReturnPlayModel { preventFallback = true, errorMessage = ex.Message };
             }
             catch (Exception)
             {
@@ -525,8 +546,9 @@ namespace BiliBili.UWP.Helper
                 {
                     foreach (var item in obj["durl"])
                     {
-                        urls.Add(item["url"].ToString());
-                        playList.Append(item["url"].ToString(), item["size"].ToInt32(), item["length"].ToInt32() / 1000);
+                        var mediaUrl = PlaybackCdnHelper.RequireUrl(item["url"].ToString(), item["backup_url"]?.ToObject<List<string>>());
+                        urls.Add(mediaUrl);
+                        playList.Append(mediaUrl, item["size"].ToInt32(), item["length"].ToInt32() / 1000);
                     }
                     playList.SetNetworkHeaders("https://www.bilibili.com/bangumi/play/ep" + model.episode_id);
                     return new ReturnPlayModel()
@@ -541,6 +563,10 @@ namespace BiliBili.UWP.Helper
                 {
                     return null;
                 }
+            }
+            catch (PcdnBlockedException ex)
+            {
+                return new ReturnPlayModel { preventFallback = true, errorMessage = ex.Message };
             }
             catch (Exception)
             {
@@ -676,8 +702,9 @@ namespace BiliBili.UWP.Helper
                     var playList = new LegacyPlaybackPlaylist();
                     foreach (var item in m.data.durl)
                     {
-                        urls.Add(item.url);
-                        playList.Append(item.url, 0, item.length / 1000);
+                        var mediaUrl = PlaybackCdnHelper.RequireUrl(item.url, item.backup_url);
+                        urls.Add(mediaUrl);
+                        playList.Append(mediaUrl, 0, item.length / 1000);
                     }
                     playList.SetNetworkHeaders("https://www.bilibili.com/video/av" + aid + "/");
 
@@ -693,6 +720,10 @@ namespace BiliBili.UWP.Helper
                 {
                     return null;
                 }
+            }
+            catch (PcdnBlockedException ex)
+            {
+                return new ReturnPlayModel { preventFallback = true, errorMessage = ex.Message };
             }
             catch (Exception)
             {
@@ -1141,6 +1172,7 @@ namespace BiliBili.UWP.Helper
             int preferredCodecId,
             bool forceCodec)
         {
+            var videoList = videos == null ? new List<DashItem>() : videos.Where(x => x != null).ToList();
             var audioList = audios == null ? null : audios.Where(x => x != null).ToList();
             bool hasAudioTrack = audioList != null && audioList.Count > 0;
             var audio = hasAudioTrack ? SelectDashAudio(audioList) : null;
@@ -1148,19 +1180,24 @@ namespace BiliBili.UWP.Helper
             //有音轨却挑不出可播放流才算失败
             if (hasAudioTrack && audio == null)
             {
+                if (audioList.Any(x => string.Equals(x.mimeType ?? x.mime_type, "audio/mp4", StringComparison.OrdinalIgnoreCase)
+                    && PlaybackCdnHelper.IsDashBlocked(x)))
+                    return new ReturnPlayModel { preventFallback = true, errorMessage = PlaybackCdnPolicy.BlockedMessage };
                 return forceCodec
                     ? new ReturnPlayModel { preventFallback = true }
                     : null;
             }
 
             bool foundPreferredCodec = false;
+            bool foundAllowedVideo = false;
             foreach (var codecId in DashStreamSelector.GetCodecPreference(preferredCodecId, forceCodec))
             {
-                var video = SelectDashVideo(videos, qualityId, codecId);
+                var video = SelectDashVideo(videoList, qualityId, codecId);
                 if (video == null)
                 {
                     continue;
                 }
+                foundAllowedVideo = true;
                 if (codecId == preferredCodecId)
                 {
                     foundPreferredCodec = true;
@@ -1214,6 +1251,10 @@ namespace BiliBili.UWP.Helper
                     }
                 }
             }
+
+            if (!foundAllowedVideo && videoList.Any(x => DashStreamSelector.GetCodecPreference(preferredCodecId, forceCodec).Contains(x.codecid)
+                && PlaybackCdnHelper.IsDashBlocked(x)))
+                return new ReturnPlayModel { preventFallback = true, errorMessage = PlaybackCdnPolicy.BlockedMessage };
 
             if (forceCodec && !foundPreferredCodec)
             {
@@ -1307,8 +1348,7 @@ namespace BiliBili.UWP.Helper
                 item.codecid,
                 long.TryParse(item.bandwidth, out var bandwidth) ? bandwidth : 0,
                 item.mimeType ?? item.mime_type,
-                GetBaseUrl(item),
-                item.backupUrl ?? item.backup_url);
+                GetBaseUrl(item));
         }
 
         private static string GetBaseUrl(DashItem item)
@@ -1318,9 +1358,7 @@ namespace BiliBili.UWP.Helper
                 return null;
             }
 
-            var baseUrl = string.IsNullOrWhiteSpace(item.baseUrl) ? item.base_url : item.baseUrl;
-            var backupUrls = item.backupUrl ?? item.backup_url;
-            return DashStreamSelector.ResolvePlayableUrl(baseUrl, backupUrls);
+            return PlaybackCdnHelper.ResolveDashUrl(item);
         }
 
         private static SegmentBase GetSegmentBase(DashItem item)

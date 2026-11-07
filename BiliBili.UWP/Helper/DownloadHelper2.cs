@@ -60,6 +60,9 @@ namespace BiliBili.UWP.Helper
             }
             try
             {
+                // 开始写文件前检查整组地址，避免设置切换后只下载了部分分段或音轨。
+                foreach (var url in downloadUrls)
+                    PlaybackCdnHelper.RequireUrl(url.Url);
                 var folder = await GetCIDFolder(m);
                 await Task.Run(async () =>
                 {

@@ -90,6 +90,45 @@ namespace BiliBili.Tests
             Assert.AreEqual(0, LivePlaybackSources.FromPlayInfo(null, 0).Urls.Count);
         }
 
+        [TestMethod]
+        public void PcdnFilterKeepsSignedRegularLinesAndHlsFallback()
+        {
+            var play = new JObject { ["stream"] = new JArray(
+                Stream("http_stream", "flv", 400, "/live.flv?", "https://node.mcdn.bilivideo.cn", "https://live.bilivideo.com"),
+                Stream("http_hls", "ts", 400, "/live.m3u8?", "https://node.szbdyd.com", "https://hls.bilivideo.com")) };
+            var sources = LivePlaybackSources.FromPlayInfo(play, 400, true);
+            CollectionAssert.AreEqual(new[] {
+                "https://live.bilivideo.com/live.flv?token=test%2Bvalue&expires=123",
+                "https://hls.bilivideo.com/live.m3u8?token=test%2Bvalue&expires=123"
+            }, sources.Urls.ToArray());
+            Assert.IsFalse(sources.BlockedByCdnPolicy);
+        }
+
+        [TestMethod]
+        public void AllPcdnLinesAreRejectedWithoutReintroducingLastSourceOrDrmNotice()
+        {
+            var play = new JObject { ["stream"] = new JArray(
+                Stream("http_stream", "flv", 400, "/live.flv?", "https://node.mcdn.bilivideo.cn"),
+                WithAvailability(Stream("http_hls", "fmp4", 400, "/encrypted.m3u8?", "https://encrypted.example"), true, true)) };
+            var sources = LivePlaybackSources.FromPlayInfo(play, 400, true);
+            Assert.AreEqual(0, sources.Urls.Count);
+            Assert.IsTrue(sources.BlockedByCdnPolicy);
+            Assert.IsFalse(sources.RequiresWebPlayback);
+            Assert.AreEqual(1, LivePlaybackSources.FromPlayInfo(play, 400).Urls.Count);
+        }
+
+        [TestMethod]
+        public void LiveFilterExaminesExtraQueryAndDoesNotLockQualityOnBlockedLine()
+        {
+            var blocked = Stream("http_stream", "flv", 400, "/live.flv?", "https://live.bilivideo.com");
+            blocked["format"][0]["codec"][0]["url_info"][0]["extra"] = "os=mcdn&token=signed";
+            var play = new JObject { ["stream"] = new JArray(blocked,
+                Stream("http_hls", "ts", 10000, "/live.m3u8?", "https://hls.bilivideo.com")) };
+            var sources = LivePlaybackSources.FromPlayInfo(play, 400, true);
+            Assert.AreEqual(1, sources.Urls.Count);
+            Assert.AreEqual(10000, sources.Quality);
+        }
+
         private static JObject WithAvailability(JObject stream, bool drm, bool? isPushing)
         {
             var codec = stream["format"][0]["codec"][0];

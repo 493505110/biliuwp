@@ -64,6 +64,7 @@
              Link="Production\DashSegmentBitrateIndex.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\DashStreamSelector.cs"
              Link="Production\DashStreamSelector.cs" />
+    <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackCdnPolicy.cs" Link="Production\PlaybackCdnPolicy.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackTimelineIndex.cs"
              Link="Production\PlaybackTimelineIndex.cs" />
     <Compile Include="..\..\BiliBili.UWP\Modules\Playback\PlaybackEventTimeline.cs"

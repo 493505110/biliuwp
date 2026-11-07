@@ -502,6 +502,8 @@
     <Compile Include="Modules\Playback\PlaybackRequestGate.cs" />
     <Compile Include="Modules\Playback\PlaybackPosition.cs" />
     <Compile Include="Modules\Playback\DashStreamSelector.cs" />
+    <Compile Include="Modules\Playback\PlaybackCdnPolicy.cs" />
+    <Compile Include="Helper\PlaybackCdnHelper.cs" />
     <Compile Include="Modules\Playback\PlaybackTimelineIndex.cs" />
     <Compile Include="Modules\Playback\PlaybackEventTimeline.cs" />
     <Compile Include="Modules\Playback\DanmakuFilterRules.cs" />

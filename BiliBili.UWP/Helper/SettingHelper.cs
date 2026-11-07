@@ -1047,6 +1047,18 @@ namespace BiliBili.UWP
         }
 
 
+        public static bool Get_BlockPcdn()
+        {
+            container = ApplicationData.Current.LocalSettings;
+            return container.Values[SettingKeys.BlockPcdn] is bool enabled && enabled;
+        }
+
+        public static void Set_BlockPcdn(bool value)
+        {
+            container = ApplicationData.Current.LocalSettings;
+            container.Values[SettingKeys.BlockPcdn] = value;
+        }
+
         public static int Get_DASHVideoCodecPreference()
         {
             container = ApplicationData.Current.LocalSettings;
