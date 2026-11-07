@@ -101,6 +101,7 @@ namespace BiliBili.UWP
         public MainPage()
         {
             this.InitializeComponent();
+            Loaded += MainPage_Loaded;
             MusicHelper.InitializeMusicPlay();
             music.Visibility = Visibility.Collapsed;
             MusicHelper.MediaChanged += MusicHelper_MediaChanged;
@@ -119,6 +120,21 @@ namespace BiliBili.UWP
             WebView2CookieHelper.CleanupHostReleaser = ReleaseCleanupWebView;
 
 
+        }
+
+        private async void MainPage_Loaded(object sender, RoutedEventArgs e)
+        {
+            Loaded -= MainPage_Loaded;
+            // 首次导航早于可视树加载，在 Loaded 后补应用一次当前标题栏配色。
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Low, () =>
+            {
+                if (Frame?.Content != this)
+                {
+                    return;
+                }
+                var theme = WindowThemeHelper.GetThemeResources(SettingHelper.Get_EffectiveTheme());
+                WindowThemeHelper.ApplyTitleBar(theme);
+            });
         }
 
         private Microsoft.UI.Xaml.Controls.WebView2 cleanupWebView;

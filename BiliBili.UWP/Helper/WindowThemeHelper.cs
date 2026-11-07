@@ -35,39 +35,22 @@ namespace BiliBili.UWP.Helper
         {
             var background = ((SolidColorBrush)theme["Bili-ForeColor"]).Color;
             var buttonHighlight = ((SolidColorBrush)theme["Bili-ForeColor-Dark"]).Color;
-            ApplyTitleBar(background, buttonHighlight, Color.FromArgb(255, 254, 254, 254));
+            var foreground = Color.FromArgb(255, 254, 254, 254);
+            ApplyTitleBar(background, buttonHighlight, foreground, foreground);
         }
 
-        internal static void ApplyTitleBar(Color background, Color buttonHighlight, Color buttonForeground)
+        internal static void ApplyTitleBar(Color background, Color buttonHighlight, Color foreground, Color buttonForeground)
         {
             var titleBar = ApplicationView.GetForCurrentView().TitleBar;
-            // 系统随底色选择标题字色。强制近白色会让红切粉时的黑字再跳回白色。
-            if (titleBar.ForegroundColor.HasValue)
-            {
-                titleBar.ForegroundColor = null;
-            }
-            if (titleBar.InactiveForegroundColor.HasValue)
-            {
-                titleBar.InactiveForegroundColor = null;
-            }
-            SetColorIfChanged(titleBar.BackgroundColor, background, color => titleBar.BackgroundColor = color);
-            SetColorIfChanged(titleBar.InactiveBackgroundColor, background, color => titleBar.InactiveBackgroundColor = color);
-            SetColorIfChanged(titleBar.ButtonBackgroundColor, background, color => titleBar.ButtonBackgroundColor = color);
-            SetColorIfChanged(titleBar.ButtonForegroundColor, buttonForeground, color => titleBar.ButtonForegroundColor = color);
-            SetColorIfChanged(titleBar.ButtonInactiveBackgroundColor, background, color => titleBar.ButtonInactiveBackgroundColor = color);
-            SetColorIfChanged(titleBar.ButtonInactiveForegroundColor, buttonForeground, color => titleBar.ButtonInactiveForegroundColor = color);
-            SetColorIfChanged(titleBar.ButtonHoverBackgroundColor, buttonHighlight, color => titleBar.ButtonHoverBackgroundColor = color);
-            SetColorIfChanged(titleBar.ButtonHoverForegroundColor, buttonForeground, color => titleBar.ButtonHoverForegroundColor = color);
-            SetColorIfChanged(titleBar.ButtonPressedBackgroundColor, buttonHighlight, color => titleBar.ButtonPressedBackgroundColor = color);
-            SetColorIfChanged(titleBar.ButtonPressedForegroundColor, buttonForeground, color => titleBar.ButtonPressedForegroundColor = color);
-        }
-
-        private static void SetColorIfChanged(Color? current, Color desired, Action<Color> setColor)
-        {
-            if (current != desired)
-            {
-                setColor(desired);
-            }
+            titleBar.BackgroundColor = background;
+            titleBar.ButtonHoverBackgroundColor = buttonHighlight;
+            titleBar.ButtonBackgroundColor = background;
+            titleBar.ButtonForegroundColor = buttonForeground;
+            titleBar.InactiveBackgroundColor = background;
+            titleBar.ButtonInactiveBackgroundColor = background;
+            // 背景更新完成后重置并重新应用标题字色，确保换肤时相同的前景色也能刷新。
+            titleBar.ForegroundColor = null;
+            titleBar.ForegroundColor = foreground;
         }
     }
 }

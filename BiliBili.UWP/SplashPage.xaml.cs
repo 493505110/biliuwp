@@ -47,8 +47,7 @@ namespace BiliBili.UWP
 
             var background = ((SolidColorBrush)((Grid)Content).Background).Color;
             var foreground = isDark ? Color.FromArgb(255, 254, 254, 254) : Colors.Black;
-            var buttonHighlight = isDark ? Color.FromArgb(255, 50, 50, 50) : Colors.White;
-            WindowThemeHelper.ApplyTitleBar(background, buttonHighlight, foreground);
+            WindowThemeHelper.ApplyTitleBar(background, Colors.White, Colors.Black, Color.FromArgb(255, 254, 254, 254));
 
             if (Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar"))
             {
