@@ -16,12 +16,10 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Core;
 using Windows.Foundation;
-using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Media;
 
 namespace BiliBili.UWP
 {
@@ -428,14 +426,16 @@ namespace BiliBili.UWP
             {
                
                 Frame frame = new Frame();
+                var themeName = SettingHelper.Get_EffectiveTheme();
+                var theme = WindowThemeHelper.GetThemeResources(themeName);
+                frame.RequestedTheme = themeName == "Dark" ? ElementTheme.Dark : ElementTheme.Light;
+                WindowThemeHelper.ApplyTitleBar(theme);
                 frame.Navigate(page, par);
                 Window.Current.Content = frame;
           
                 Window.Current.Activate();
                
                 newViewId = ApplicationView.GetForCurrentView().Id;
-                ChangeTheme(frame);
-                ChangeTitbarColor(ApplicationView.GetForCurrentView());
 
                 var bounds = ApplicationView.GetForCurrentView().VisibleBounds;
                 ApplicationView.PreferredLaunchViewSize = new Size(bounds.Width, bounds.Height);
@@ -450,34 +450,6 @@ namespace BiliBili.UWP
 
             //ApplicationView.GetForCurrentView().IsViewModeSupported(ApplicationViewMode.CompactOverlay)
             bool viewShown = await ApplicationViewSwitcher.TryShowAsStandaloneAsync(newViewId);
-        }
-
-        private static void ChangeTheme(Frame f)
-        {
-            string ThemeName = SettingHelper.Get_EffectiveTheme();
-            if (ThemeName == "Dark")
-            {
-                f.RequestedTheme = ElementTheme.Dark;
-            }
-            else
-            {
-                ResourceDictionary newDictionary = new ResourceDictionary();
-                newDictionary.Source = new Uri($"ms-appx:///Theme/{ThemeName}Theme.xaml", UriKind.RelativeOrAbsolute);
-                Application.Current.Resources.ThemeDictionaries["Light"] = newDictionary;
-                f.RequestedTheme = ElementTheme.Dark;
-                f.RequestedTheme = ElementTheme.Light;
-            }
-        }
-        private static void ChangeTitbarColor(ApplicationView v)
-        {
-            var titleBar = v.TitleBar;
-            titleBar.BackgroundColor = ((SolidColorBrush)Application.Current.Resources["Bili-ForeColor"]).Color;
-            titleBar.ForegroundColor = Color.FromArgb(255, 254, 254, 254);//Colors.White纯白用不了。。。
-            titleBar.ButtonHoverBackgroundColor = ((SolidColorBrush)Application.Current.Resources["Bili-ForeColor-Dark"]).Color;
-            titleBar.ButtonBackgroundColor = ((SolidColorBrush)Application.Current.Resources["Bili-ForeColor"]).Color;
-            titleBar.ButtonForegroundColor = Color.FromArgb(255, 254, 254, 254);
-            titleBar.InactiveBackgroundColor = ((SolidColorBrush)Application.Current.Resources["Bili-ForeColor"]).Color;
-            titleBar.ButtonInactiveBackgroundColor = ((SolidColorBrush)Application.Current.Resources["Bili-ForeColor"]).Color;
         }
 
         public static event EventHandler<string> NetworkError;

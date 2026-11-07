@@ -461,6 +461,7 @@
     <Compile Include="Helper\WbiEncodeHelper.cs" />
     <Compile Include="Helper\SignHelper.cs" />
     <Compile Include="Helper\SplashImageSelector.cs" />
+    <Compile Include="Helper\WindowThemeHelper.cs" />
     <Compile Include="Helper\BackgroundTaskRegistrar.cs" />
     <Compile Include="Helper\WebView2CookieHelper.cs" />
     <Compile Include="Helper\WebClientClass.cs" />

@@ -915,26 +915,28 @@ namespace BiliBili.UWP
             ApplyTheme();
         }
 
+        private string appliedThemeName;
+
         /// <summary>
         /// 只重新解析主题资源，不动右侧背景页。
         /// 系统深色模式变化时走这里，避免跟随系统导致背景页被反复重载。
         /// </summary>
         private void ApplyTheme()
         {
-            string ThemeName = SettingHelper.Get_EffectiveTheme();
-            if (ThemeName== "Dark")
+            var themeName = SettingHelper.Get_EffectiveTheme();
+            if (themeName == appliedThemeName)
             {
-                RequestedTheme = ElementTheme.Dark;
+                return;
             }
-            else
+            var theme = WindowThemeHelper.GetThemeResources(themeName);
+            var requestedTheme = themeName == "Dark" ? ElementTheme.Dark : ElementTheme.Light;
+            if (RequestedTheme != requestedTheme)
             {
-                ResourceDictionary newDictionary = new ResourceDictionary();
-                newDictionary.Source = new Uri($"ms-appx:///Theme/{ThemeName}Theme.xaml", UriKind.RelativeOrAbsolute);
-                Application.Current.Resources.ThemeDictionaries["Light"] = newDictionary;
-                RequestedTheme = ElementTheme.Dark;
-                RequestedTheme = ElementTheme.Light;
+                RequestedTheme = requestedTheme;
             }
-            ChangeTitbarColor();
+            WindowThemeHelper.ApplyTitleBar(theme);
+            UpdateStatusBar();
+            appliedThemeName = themeName;
         }
 
         private UISettings uiSettings;
@@ -968,7 +970,7 @@ namespace BiliBili.UWP
             }
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, ApplyTheme);
         }
-        private void ChangeTitbarColor()
+        private void UpdateStatusBar()
         {
             if (Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.UI.ViewManagement.StatusBar"))
             {
@@ -982,14 +984,6 @@ namespace BiliBili.UWP
                 statusBar.BackgroundOpacity = 100;
             }
 
-            var titleBar = Windows.UI.ViewManagement.ApplicationView.GetForCurrentView().TitleBar;
-            titleBar.BackgroundColor = ((SolidColorBrush)grid_Top.Background).Color;
-            titleBar.ForegroundColor = Color.FromArgb(255, 254, 254, 254);//Colors.White纯白用不了。。。
-            titleBar.ButtonHoverBackgroundColor = ((SolidColorBrush)sp_View.PaneBackground).Color;
-            titleBar.ButtonBackgroundColor = ((SolidColorBrush)grid_Top.Background).Color;
-            titleBar.ButtonForegroundColor = Color.FromArgb(255, 254, 254, 254);
-            titleBar.InactiveBackgroundColor = ((SolidColorBrush)grid_Top.Background).Color;
-            titleBar.ButtonInactiveBackgroundColor = ((SolidColorBrush)grid_Top.Background).Color;
         }
         /// <summary>
         /// 重新是否有新的信息
