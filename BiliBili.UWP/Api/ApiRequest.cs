@@ -29,6 +29,16 @@ namespace BiliBili.UWP.Api
         };
         private static readonly HttpClient _client = new HttpClient(_filter);
 
+        internal static async Task<bool> GetHeadersAsync(Uri uri, string userAgent)
+        {
+            using (var request = new HttpRequestMessage(Windows.Web.Http.HttpMethod.Get, uri))
+            {
+                request.Headers.Append("User-Agent", userAgent);
+                using (var response = await _client.SendRequestAsync(request, HttpCompletionOption.ResponseHeadersRead))
+                    return response.IsSuccessStatusCode;
+            }
+        }
+
         /// <summary>
         /// 发送一个GET请求
         /// </summary>

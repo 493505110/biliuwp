@@ -350,20 +350,18 @@ namespace BiliBili.UWP.Modules
         /// <param name="domain">域</param>
         /// <param name="access_key">access token</param>
         /// <returns></returns>
-        public async Task SSO(string access_key)
+        public async Task<bool> SSO(string access_key)
         {
             try
             {
-                //var url = $"{domain}?access_key={access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
-                //url += "&sign=" + ApiHelper.GetSign(url);
-
                 var url = $"https://passport.bilibili.com/api/login/sso?access_key={access_key}&appkey={ApiHelper.AndroidKey.Appkey}&build={ApiHelper.build}&gourl=https%3A%2F%2Faccount.bilibili.com%2Faccount%2Fhome&mobi_app=android&platform=android&ts={ApiHelper.GetTimeSpan}";
                 url += "&sign=" + ApiHelper.GetSign(url);
 
-                var content = await WebClientClass.GetResults(new Uri(url));
+                return await ApiRequest.GetHeadersAsync(new Uri(url), "Bilibili UWP Client/3.4.10.0 (atelier39@outlook.com)");
             }
             catch (Exception)
             {
+                return false;
             }
         }
 
@@ -421,11 +419,11 @@ namespace BiliBili.UWP.Modules
                     SettingHelper.Set_UserID(mid);
                 }
 
-                await SSO(accessToken);
+                var ssoSucceeded = await SSO(accessToken);
                 if (accessToken != SettingHelper.Get_Access_key())
                     return RestoreStatus.AccountChanged;
                 if (!HasWebLoginCookies() || !long.TryParse(GetCookieValue("DedeUserID"), out var cookieMid) || cookieMid != mid)
-                    return RestoreStatus.WebSessionUnavailable;
+                    return ssoSucceeded ? RestoreStatus.WebSessionUnavailable : RestoreStatus.RetryLater;
 
                 var nav = await new WbiAPI().GetWbiKey().Request();
                 if (accessToken != SettingHelper.Get_Access_key())
@@ -442,7 +440,8 @@ namespace BiliBili.UWP.Modules
             }
             catch (Exception)
             {
-                return RestoreStatus.RetryLater;
+                return accessToken == SettingHelper.Get_Access_key()
+                    ? RestoreStatus.RetryLater : RestoreStatus.AccountChanged;
             }
         }
 
