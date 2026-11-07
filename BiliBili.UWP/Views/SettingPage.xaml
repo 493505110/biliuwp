@@ -585,7 +585,7 @@
                                     <TextBlock Foreground="Gray" VerticalAlignment="Center">弹幕速度(默认5,越小越快)</TextBlock>
                                     <TextBlock  VerticalAlignment="Center" HorizontalAlignment="Right" Margin="10 0" Text="{Binding Value, ElementName=slider_DanmuSpeed}"></TextBlock>
                                 </Grid>
-                                <Slider x:Name="slider_DanmuSpeed" ValueChanged="slider_DanmuSpeed_ValueChanged"  Width="300" HorizontalAlignment="Left"   Maximum="25" />
+                                <Slider x:Name="slider_DanmuSpeed" ValueChanged="slider_DanmuSpeed_ValueChanged"  Width="300" HorizontalAlignment="Left"   Maximum="10" />
                             </StackPanel>
                             <StackPanel Margin="0 10 0 0">
                                 <Grid >
