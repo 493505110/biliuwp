@@ -78,13 +78,10 @@ namespace BiliBili.UWP.Views
                 sw_BiliJumpAi.IsOn = SettingHelper.Get_BiliJumpAiEnabled();
                 sw_BiliJumpAiAutoJump.IsOn = SettingHelper.Get_BiliJumpAiAutoJump();
                 txt_BiliJumpAiMinFans.Text = SettingHelper.Get_BiliJumpAiMinFans().ToString();
-                SetBiliJumpAiProviderSelection(SettingHelper.Get_BiliJumpAiProvider());
-                txt_BiliJumpAiApiUrl.Text = SettingHelper.Get_BiliJumpAiApiUrl();
+                txt_BiliJumpAiApiUrl.Text = SettingHelper.Get_BiliJumpAiBaseUrl();
                 txt_BiliJumpAiModel.Text = SettingHelper.Get_BiliJumpAiModel();
                 pwd_BiliJumpAiApiKey.Password = SettingHelper.Get_BiliJumpAiApiKey();
                 sw_BiliJumpAiCacheEnabled.IsOn = SettingHelper.Get_BiliJumpAiCacheEnabled();
-                UpdateBiliJumpAiProviderFields(SettingHelper.Get_BiliJumpAiProvider(), false);
-                UpdateBiliJumpAiCacheState(SettingHelper.Get_BiliJumpAiProvider());
 
                 sw_DownFLV.IsOn= SettingHelper.Get_DownFLV();
 
@@ -1039,80 +1036,11 @@ namespace BiliBili.UWP.Views
             }
         }
 
-        private void cb_BiliJumpAiProvider_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (cb_BiliJumpAiProvider.SelectedItem == null)
-            {
-                return;
-            }
-
-            var provider = GetSelectedBiliJumpAiProvider();
-            if (!loadsetting)
-            {
-                SettingHelper.Set_BiliJumpAiProvider(provider);
-            }
-            UpdateBiliJumpAiProviderFields(provider, !loadsetting);
-            UpdateBiliJumpAiCacheState(provider);
-        }
-
-        private void UpdateBiliJumpAiCacheState(string provider)
-        {
-            var forceEnabled = string.Equals(provider, BiliJumpAiProviders.Zhou2008, StringComparison.OrdinalIgnoreCase);
-            sw_BiliJumpAiCacheEnabled.IsEnabled = !forceEnabled;
-            sw_BiliJumpAiCacheEnabled.IsOn = forceEnabled || SettingHelper.Get_BiliJumpAiCacheEnabled();
-        }
-
-        private string GetSelectedBiliJumpAiProvider()
-        {
-            return (cb_BiliJumpAiProvider.SelectedItem as ComboBoxItem)?.Tag?.ToString()
-                ?? BiliJumpAiProviders.Custom;
-        }
-
-        private void SetBiliJumpAiProviderSelection(string provider)
-        {
-            foreach (ComboBoxItem item in cb_BiliJumpAiProvider.Items)
-            {
-                if (string.Equals(item.Tag?.ToString(), provider, StringComparison.OrdinalIgnoreCase))
-                {
-                    cb_BiliJumpAiProvider.SelectedItem = item;
-                    return;
-                }
-            }
-
-            cb_BiliJumpAiProvider.SelectedIndex = 2;
-        }
-
-        private void UpdateBiliJumpAiProviderFields(string provider, bool saveDefaults)
-        {
-            var isCustom = BiliJumpAiProviders.IsCustom(provider);
-            var isDeepSeek = string.Equals(provider, BiliJumpAiProviders.DeepSeek, StringComparison.OrdinalIgnoreCase);
-            panel_BiliJumpAiApiUrl.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
-            panel_BiliJumpAiModel.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
-            panel_BiliJumpAiApiKey.Visibility = isCustom || isDeepSeek
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            txt_BiliJumpAiApiUrl.IsEnabled = isCustom;
-            txt_BiliJumpAiModel.IsEnabled = isCustom;
-
-            if (!isCustom)
-            {
-                var apiUrl = BiliJumpAiProviders.GetDefaultApiUrl(provider);
-                var model = BiliJumpAiProviders.GetDefaultModel(provider);
-                txt_BiliJumpAiApiUrl.Text = apiUrl;
-                txt_BiliJumpAiModel.Text = model;
-                if (saveDefaults)
-                {
-                    SettingHelper.Set_BiliJumpAiApiUrl(apiUrl);
-                    SettingHelper.Set_BiliJumpAiModel(model);
-                }
-            }
-        }
-
         private void txt_BiliJumpAiApiUrl_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (!loadsetting)
             {
-                SettingHelper.Set_BiliJumpAiApiUrl(txt_BiliJumpAiApiUrl.Text.Trim());
+                SettingHelper.Set_BiliJumpAiBaseUrl(txt_BiliJumpAiApiUrl.Text.Trim());
             }
         }
 
@@ -1134,10 +1062,7 @@ namespace BiliBili.UWP.Views
 
         private void sw_BiliJumpAiCacheEnabled_Toggled(object sender, RoutedEventArgs e)
         {
-            if (!loadsetting && !string.Equals(
-                    GetSelectedBiliJumpAiProvider(),
-                    BiliJumpAiProviders.Zhou2008,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!loadsetting)
             {
                 SettingHelper.Set_BiliJumpAiCacheEnabled(sw_BiliJumpAiCacheEnabled.IsOn);
             }

@@ -6,53 +6,10 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace BiliBili.UWP.Helper
 {
-    public static class BiliJumpAiProviders
-    {
-        public const string Zhou2008 = "zhou2008";
-        public const string DeepSeek = "deepseek";
-        public const string Custom = "custom";
-        public const string Zhou2008BuiltInApiKey = "sk-TWKHcsjER5CuMK8nMC3HNpTFd5Cq2PaAXdv9OkaJ9t0YPKTp";
-
-        public static bool IsCustom(string provider)
-        {
-            return string.Equals(provider, Custom, StringComparison.OrdinalIgnoreCase);
-        }
-
-        public static string GetDefaultApiUrl(string provider)
-        {
-            switch (provider?.Trim().ToLowerInvariant())
-            {
-                case DeepSeek:
-                    return "https://api.deepseek.com/v1/chat/completions";
-                case Custom:
-                    return "https://api.openai.com/v1/chat/completions";
-                case Zhou2008:
-                default:
-                    return "https://newapi.zhou2008.cn/v1/chat/completions";
-            }
-        }
-
-        public static string GetDefaultModel(string provider)
-        {
-            switch (provider?.Trim().ToLowerInvariant())
-            {
-                case DeepSeek:
-                    return "deepseek-v4-flash";
-                case Custom:
-                    return "gpt-5.6-luna";
-                case Zhou2008:
-                default:
-                    return "deepseek-v4-flash";
-            }
-        }
-    }
-
     public static class BiliJumpAiService
     {
         private const string SystemPrompt =
@@ -75,12 +32,13 @@ namespace BiliBili.UWP.Helper
                 return Failure("视频标识不完整");
             }
 
-            var provider = SettingHelper.Get_BiliJumpAiProvider();
-            var isZhou2008 = string.Equals(provider, BiliJumpAiProviders.Zhou2008, StringComparison.OrdinalIgnoreCase);
-            var apiKey = isZhou2008
-                ? BiliJumpAiProviders.Zhou2008BuiltInApiKey
-                : SettingHelper.Get_BiliJumpAiApiKey();
-            var apiUrl = SettingHelper.Get_BiliJumpAiApiUrl();
+            var apiKey = SettingHelper.Get_BiliJumpAiApiKey();
+            var apiUrl = SettingHelper.Get_BiliJumpAiEndpoint();
+            if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var endpoint)
+                || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+            {
+                return Failure("AI API 地址必须是 HTTP 或 HTTPS 地址");
+            }
             var model = SettingHelper.Get_BiliJumpAiModel();
             string cacheKey = null;
             string leaseToken = null;
@@ -91,18 +49,12 @@ namespace BiliBili.UWP.Helper
                 if (!forceRefresh && BiliJumpAiCacheService.IsConfigured())
                 {
                     var claim = await BiliJumpAiCacheService.ClaimAsync(
-                        aid, cid, provider, apiUrl, model, title, duration);
-                    if (claim.IsHit)
-                    {
-                        claim.Result.ads = BiliJumpAiParser.NormalizeSegments(claim.Result.ads, duration);
-                        return Success(claim.Result, "已使用远程 AI 识别缓存");
-                    }
-
+                        aid, cid, model);
                     if (claim.IsPending)
                     {
                         cacheLeaseWasPending = true;
                         var waited = await BiliJumpAiCacheService.WaitForHitAsync(
-                            aid, cid, provider, apiUrl, model);
+                            aid, cid);
                         if (waited.IsHit)
                         {
                             waited.Result.ads = BiliJumpAiParser.NormalizeSegments(waited.Result.ads, duration);
@@ -120,7 +72,13 @@ namespace BiliBili.UWP.Helper
                         }
 
                         claim = await BiliJumpAiCacheService.ClaimAsync(
-                            aid, cid, provider, apiUrl, model, title, duration);
+                            aid, cid, model);
+                    }
+
+                    if (claim.IsHit)
+                    {
+                        claim.Result.ads = BiliJumpAiParser.NormalizeSegments(claim.Result.ads, duration);
+                        return Success(claim.Result, "已使用远程 AI 识别缓存");
                     }
 
                     if (claim.IsLeader)
@@ -141,11 +99,6 @@ namespace BiliBili.UWP.Helper
                 if (string.IsNullOrWhiteSpace(apiKey))
                 {
                     return Failure("请先在设置中填写 AI API 密钥");
-                }
-                if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out var endpoint)
-                    || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
-                {
-                    return Failure("AI API 地址必须是 HTTP 或 HTTPS 地址");
                 }
                 if (string.IsNullOrWhiteSpace(model))
                 {
@@ -177,7 +130,6 @@ namespace BiliBili.UWP.Helper
                     return Failure("字幕内容为空");
                 }
 
-                var subtitleHash = ComputeSha256(subtitleText);
                 var requestBody = new
                 {
                     model = model,
@@ -208,7 +160,7 @@ namespace BiliBili.UWP.Helper
                 if (!string.IsNullOrWhiteSpace(cacheKey) && !string.IsNullOrWhiteSpace(leaseToken))
                 {
                     var saved = await BiliJumpAiCacheService.SaveAsync(
-                        cacheKey, leaseToken, subtitleHash, result);
+                        cacheKey, leaseToken, result);
                     cacheSaved = saved.IsSaved;
                     if (!cacheSaved && saved.Available)
                     {
@@ -231,15 +183,6 @@ namespace BiliBili.UWP.Helper
                 {
                     await BiliJumpAiCacheService.ReleaseAsync(cacheKey, leaseToken);
                 }
-            }
-        }
-
-        private static string ComputeSha256(string value)
-        {
-            using (var sha = SHA256.Create())
-            {
-                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
-                return BitConverter.ToString(bytes).Replace("-", string.Empty).ToLowerInvariant();
             }
         }
 

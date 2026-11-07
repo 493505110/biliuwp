@@ -50,72 +50,39 @@ namespace BiliBili.UWP.Helper
 
     public static class BiliJumpAiCacheService
     {
-        public const string PromptVersion = "bili-jump-v1";
         private const string Endpoint = "https://api.zhou2008.cn/biliuwp/video_ad_jump";
         private const int RequestTimeoutMilliseconds = 3000;
 
         public static bool IsConfigured()
         {
-            return string.Equals(
-                       SettingHelper.Get_BiliJumpAiProvider(),
-                       BiliJumpAiProviders.Zhou2008,
-                       StringComparison.OrdinalIgnoreCase)
-                || SettingHelper.Get_BiliJumpAiCacheEnabled();
+            return SettingHelper.Get_BiliJumpAiCacheEnabled();
         }
 
         public static async Task<BiliJumpAiCacheResponse> QueryAsync(
             string aid,
-            string cid,
-            string provider,
-            string apiUrl,
-            string model)
+            string cid)
         {
-            return await PostAsync("cache/query", new
-            {
-                aid = aid,
-                cid = cid,
-                provider = provider,
-                api_url = apiUrl,
-                model = model,
-                prompt_version = PromptVersion
-            });
+            return await PostAsync("cache/query", new { aid, cid });
         }
 
         public static async Task<BiliJumpAiCacheResponse> ClaimAsync(
             string aid,
             string cid,
-            string provider,
-            string apiUrl,
-            string model,
-            string title,
-            double duration)
+            string model)
         {
-            return await PostAsync("cache/claim", new
-            {
-                aid = aid,
-                cid = cid,
-                provider = provider,
-                api_url = apiUrl,
-                model = model,
-                prompt_version = PromptVersion,
-                title = title ?? string.Empty,
-                duration = duration > 0 ? duration : 0
-            });
+            return await PostAsync("cache/claim", new { aid, cid, model });
         }
 
         public static async Task<BiliJumpAiCacheResponse> WaitForHitAsync(
             string aid,
             string cid,
-            string provider,
-            string apiUrl,
-            string model,
             int attempts = 8)
         {
             var last = BiliJumpAiCacheResponse.Unavailable();
             for (var i = 0; i < attempts; i++)
             {
                 await Task.Delay(1000);
-                last = await QueryAsync(aid, cid, provider, apiUrl, model);
+                last = await QueryAsync(aid, cid);
                 if (!last.Available || last.IsHit || !last.IsPending)
                 {
                     return last;
@@ -128,14 +95,12 @@ namespace BiliBili.UWP.Helper
         public static async Task<BiliJumpAiCacheResponse> SaveAsync(
             string cacheKey,
             string leaseToken,
-            string subtitleHash,
             BiliJumpAiResult result)
         {
             return await PostAsync("cache/save", new
             {
                 cache_key = cacheKey,
                 lease_token = leaseToken,
-                subtitle_hash = subtitleHash,
                 result = result
             });
         }

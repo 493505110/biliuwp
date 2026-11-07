@@ -19,6 +19,7 @@
         public const string BiliJumpAiEnabled = "BiliJumpAiEnabled";
         public const string BiliJumpAiAutoJump = "BiliJumpAiAutoJump";
         public const string BiliJumpAiProvider = "BiliJumpAiProvider";
+        public const string BiliJumpAiBaseUrl = "BiliJumpAiBaseUrl";
         public const string BiliJumpAiApiUrl = "BiliJumpAiApiUrl";
         public const string BiliJumpAiModel = "BiliJumpAiModel";
         public const string BiliJumpAiCacheEnabled = "BiliJumpAiCacheEnabled";

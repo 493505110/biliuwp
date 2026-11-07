@@ -2248,68 +2248,66 @@ namespace BiliBili.UWP
             container.Values[SettingKeys.BiliJumpAiMinFans] = Math.Max(0, value);
         }
 
-        public static string Get_BiliJumpAiProvider()
+        private static void MigrateBiliJumpAiSettings()
         {
-            container = ApplicationData.Current.LocalSettings;
-            var provider = container.Values[SettingKeys.BiliJumpAiProvider] as string;
-            if (string.Equals(provider, BiliJumpAiProviders.Zhou2008, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(provider, BiliJumpAiProviders.DeepSeek, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(provider, BiliJumpAiProviders.Custom, StringComparison.OrdinalIgnoreCase))
-            {
-                return provider;
-            }
+            var values = ApplicationData.Current.LocalSettings.Values;
+            var provider = values[SettingKeys.BiliJumpAiProvider] as string;
+            if (provider == null) return;
 
-            // 保留已有用户的自定义地址；新配置默认使用 zhou2008。
-            return container.Values[SettingKeys.BiliJumpAiApiUrl] != null
-                || container.Values[SettingKeys.BiliJumpAiModel] != null
-                ? BiliJumpAiProviders.Custom
-                : BiliJumpAiProviders.Zhou2008;
+            if (string.Equals(provider, "custom", StringComparison.OrdinalIgnoreCase))
+            {
+                // 旧版自定义配置可能只保存了密钥，补齐当时实际使用的默认值。
+                if (values[SettingKeys.BiliJumpAiApiUrl] == null)
+                    values[SettingKeys.BiliJumpAiApiUrl] = "https://api.openai.com/v1/chat/completions";
+                if (values[SettingKeys.BiliJumpAiModel] == null)
+                    values[SettingKeys.BiliJumpAiModel] = "gpt-5.6-luna";
+            }
+            else
+            {
+                // 旧版切换预设时也会保存预设地址和模型。
+                values.Remove(SettingKeys.BiliJumpAiApiUrl);
+                values.Remove(SettingKeys.BiliJumpAiModel);
+            }
+            values.Remove(SettingKeys.BiliJumpAiProvider);
         }
 
-        public static void Set_BiliJumpAiProvider(string value)
+        public static string Get_BiliJumpAiBaseUrl()
         {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values[SettingKeys.BiliJumpAiProvider] = value ?? BiliJumpAiProviders.Custom;
+            MigrateBiliJumpAiSettings();
+            var values = ApplicationData.Current.LocalSettings.Values;
+            return values[SettingKeys.BiliJumpAiBaseUrl] as string
+                ?? values[SettingKeys.BiliJumpAiApiUrl] as string
+                ?? "https://api.deepseek.com";
         }
 
-        public static string Get_BiliJumpAiApiUrl()
+        public static void Set_BiliJumpAiBaseUrl(string value)
         {
-            container = ApplicationData.Current.LocalSettings;
-            var provider = Get_BiliJumpAiProvider();
-            if (!BiliJumpAiProviders.IsCustom(provider))
-            {
-                return BiliJumpAiProviders.GetDefaultApiUrl(provider);
-            }
-
-            if (container.Values[SettingKeys.BiliJumpAiApiUrl] != null)
-            {
-                return (string)container.Values[SettingKeys.BiliJumpAiApiUrl];
-            }
-
-            return BiliJumpAiProviders.GetDefaultApiUrl(BiliJumpAiProviders.Custom);
+            ApplicationData.Current.LocalSettings.Values[SettingKeys.BiliJumpAiBaseUrl] = value ?? string.Empty;
         }
 
-        public static void Set_BiliJumpAiApiUrl(string value)
+        public static string Get_BiliJumpAiEndpoint()
         {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values[SettingKeys.BiliJumpAiApiUrl] = value ?? string.Empty;
+            var baseUrl = Get_BiliJumpAiBaseUrl();
+            var values = ApplicationData.Current.LocalSettings.Values;
+            // 旧版字段保存完整请求地址，兼容使用自定义路径的代理。
+            if (values[SettingKeys.BiliJumpAiBaseUrl] == null && values[SettingKeys.BiliJumpAiApiUrl] != null)
+                return baseUrl;
+
+            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                return null;
+
+            var path = uri.AbsolutePath.TrimEnd('/');
+            if (path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+                return baseUrl;
+
+            return new UriBuilder(uri) { Path = (path.Length == 0 ? "/v1" : path) + "/chat/completions" }.Uri.AbsoluteUri;
         }
 
         public static string Get_BiliJumpAiModel()
         {
-            container = ApplicationData.Current.LocalSettings;
-            var provider = Get_BiliJumpAiProvider();
-            if (!BiliJumpAiProviders.IsCustom(provider))
-            {
-                return BiliJumpAiProviders.GetDefaultModel(provider);
-            }
-
-            if (container.Values[SettingKeys.BiliJumpAiModel] != null)
-            {
-                return (string)container.Values[SettingKeys.BiliJumpAiModel];
-            }
-
-            return BiliJumpAiProviders.GetDefaultModel(BiliJumpAiProviders.Custom);
+            MigrateBiliJumpAiSettings();
+            return ApplicationData.Current.LocalSettings.Values[SettingKeys.BiliJumpAiModel] as string ?? "deepseek-flash";
         }
 
         public static void Set_BiliJumpAiModel(string value)
