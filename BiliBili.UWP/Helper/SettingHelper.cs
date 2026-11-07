@@ -2144,30 +2144,70 @@ namespace BiliBili.UWP
             container.Values["Password"] = value;
         }
 
-        public static string Get_Access_key()
+        private static readonly object loginCredentialLock = new object();
+
+        private static LoginCredential ReadLoginCredential()
         {
-            //优先读 Credential Locker，空则回退 LocalSettings（兼容旧数据迁移）
-            var value = CredentialVault.Get();
-            if (!string.IsNullOrEmpty(value))
+            lock (loginCredentialLock)
             {
-                return value;
-            }
-            container = ApplicationData.Current.LocalSettings;
-            if (container.Values["Access_key"] != null)
-            {
-                return (string)container.Values["Access_key"];
-            }
-            else
-            {
-                return "";
+                LoginCredential credential;
+                try
+                {
+                    credential = LoginCredentialVault.Read();
+                }
+                catch (Exception)
+                {
+                    LogHelper.WriteLog("无法读取登录凭证", LogType.ERROR);
+                    return null;
+                }
+                if (credential?.RefreshToken != null)
+                    return credential;
+
+                var values = ApplicationData.Current.LocalSettings.Values;
+                var access = credential?.AccessToken ?? values["Access_key"] as string;
+                if (string.IsNullOrEmpty(access))
+                    return null;
+
+                var migrated = new LoginCredential(access, values["Refresh_Token"] as string ?? "");
+                try
+                {
+                    LoginCredentialVault.Save(migrated);
+                    values.Remove("Access_key");
+                    values.Remove("Refresh_Token");
+                }
+                catch (Exception)
+                {
+                    LogHelper.WriteLog("登录凭证迁移未完成，下次读取时重试", LogType.ERROR);
+                }
+                return migrated;
             }
         }
-        public static void Set_Access_key(string value)
+
+        public static string Get_Access_key() => ReadLoginCredential()?.AccessToken ?? "";
+
+        public static string Get_Refresh_Token() => ReadLoginCredential()?.RefreshToken ?? "";
+
+        public static void SetLoginTokens(string accessToken, string refreshToken = null)
         {
-            CredentialVault.Set(value);
-            //写入后清理 LocalSettings 旧键（迁移）
-            container = ApplicationData.Current.LocalSettings;
-            container.Values.Remove("Access_key");
+            lock (loginCredentialLock)
+            {
+                var values = ApplicationData.Current.LocalSettings.Values;
+                if (string.IsNullOrEmpty(accessToken))
+                {
+                    // 注销先清除旧键，避免删除保险箱条目后重新迁移。
+                    values.Remove("Access_key");
+                    values.Remove("Refresh_Token");
+                }
+                LoginCredentialVault.Save(new LoginCredential(accessToken, refreshToken));
+                if (!string.IsNullOrEmpty(accessToken))
+                {
+                    values.Remove("Access_key");
+                    values.Remove("Refresh_Token");
+                }
+                ApiHelper.access_key = accessToken;
+                UserManage.access_key = accessToken;
+                UserManage.SessionNeedsRecovery = false;
+            }
         }
 
         public static string Get_BiliplusCookie()
@@ -2342,24 +2382,6 @@ namespace BiliBili.UWP
         {
             container = ApplicationData.Current.LocalSettings;
             container.Values[SettingKeys.BiliJumpAiCacheEnabled] = value;
-        }
-
-        public static string Get_Refresh_Token()
-        {
-            container = ApplicationData.Current.LocalSettings;
-            if (container.Values["Refresh_Token"] != null)
-            {
-                return (string)container.Values["Refresh_Token"];
-            }
-            else
-            {
-                return "";
-            }
-        }
-        public static void Set_Refresh_Token(string value)
-        {
-            container = ApplicationData.Current.LocalSettings;
-            container.Values["Refresh_Token"] = value;
         }
 
         public static DateTime Get_LoginExpires()

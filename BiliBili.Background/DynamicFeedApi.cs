@@ -4,7 +4,6 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using System.Threading.Tasks;
 using BiliBili.UWP.Helper;
-using Windows.Security.Credentials;
 using Windows.Web.Http;
 
 namespace BiliBili.Background
@@ -29,9 +28,7 @@ namespace BiliBili.Background
         {
             try
             {
-                var credential = new PasswordVault()
-                    .Retrieve(SettingKeys.AccessKeyResource, SettingKeys.AccessKeyUserName);
-                return credential == null ? "" : (credential.Password ?? "");
+                return LoginCredentialVault.Read()?.AccessToken ?? "";
             }
             catch (Exception)
             {

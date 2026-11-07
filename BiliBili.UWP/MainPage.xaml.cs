@@ -532,26 +532,30 @@ namespace BiliBili.UWP
 
             account = new Account();
             //检查登录状态
-            if (SettingHelper.Get_Access_key() != "")
+            var accessToken = SettingHelper.Get_Access_key();
+            if (!string.IsNullOrEmpty(accessToken))
             {
-                if ((await account.CheckLoginState(ApiHelper.access_key)).success)
+                switch (await account.RestoreSessionAsync(accessToken))
                 {
-                    MessageCenter_Logined();
-                    await account.SSO(ApiHelper.access_key);
-                }
-                else
-                {
-                    var data = await account.RefreshToken(SettingHelper.Get_Access_key(), SettingHelper.Get_Refresh_Token());
-                    if (!data.success)
-                    {
+                    case Account.RestoreStatus.Ready:
+                        UserManage.SessionNeedsRecovery = false;
+                        MessageCenter_Logined();
+                        break;
+                    case Account.RestoreStatus.LoginRequired:
                         await UserManage.LogoutAsync();
-                        Utils.ShowMessageToast("登录过期，请重新登录");
+                        Utils.ShowMessageToast("登录已过期，请重新登录");
                         await Utils.ShowLoginDialog();
-                    }
+                        break;
+                    case Account.RestoreStatus.WebSessionUnavailable:
+                        UserManage.SessionNeedsRecovery = true;
+                        Utils.ShowMessageToast("网页登录状态未恢复，请重新登录或稍后重启应用重试");
+                        break;
+                    case Account.RestoreStatus.RetryLater:
+                        UserManage.SessionNeedsRecovery = true;
+                        Utils.ShowMessageToast("暂时无法验证登录状态，凭证已保留，请稍后重启应用重试");
+                        break;
                 }
             }
-
-
         }
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {

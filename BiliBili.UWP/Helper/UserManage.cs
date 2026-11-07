@@ -22,16 +22,12 @@ namespace BiliBili.UWP.Helper
         public static event EventHandler Logined;
         public static string access_key { get; set; }
         public static string username { get; set; }
+        public static bool SessionNeedsRecovery { get; set; }
+
         public static bool IsLogin()
         {
-            if (SettingHelper.Get_Access_key() != "")
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            return !SessionNeedsRecovery && SettingHelper.Get_UserID() > 0 &&
+                !string.IsNullOrEmpty(SettingHelper.Get_Access_key());
         }
         public static async Task<string> LoginBilibili(string UserName, string Password)
         {
@@ -74,7 +70,7 @@ namespace BiliBili.UWP.Helper
                     Windows.Web.Http.HttpResponseMessage hr2 = await hc.GetAsync(new Uri("https://api.bilibili.com/login/sso?&access_key=" + model.access_key + "&appkey=422fd9d7289a1dd9&platform=wp"));
                     hr2.EnsureSuccessStatusCode();
 
-                    SettingHelper.Set_Access_key(model.access_key);
+                    SettingHelper.SetLoginTokens(model.access_key);
                 }
                 //看看存不存在Cookie
                 HttpBaseProtocolFilter hb = new HttpBaseProtocolFilter();
@@ -119,7 +115,7 @@ namespace BiliBili.UWP.Helper
             Windows.Web.Http.HttpResponseMessage hr2 = await hc.GetAsync(new Uri("https://api.bilibili.com/login/sso?&access_key=" + access_token + "&appkey=422fd9d7289a1dd9&platform=wp"));
             hr2.EnsureSuccessStatusCode();
 
-            SettingHelper.Set_Access_key(access_token);
+            SettingHelper.SetLoginTokens(access_token);
             //看看存不存在Cookie
             HttpBaseProtocolFilter hb = new HttpBaseProtocolFilter();
             HttpCookieCollection cookieCollection = hb.CookieManager.GetCookies(new Uri("http://bilibili.com/"));
@@ -194,8 +190,7 @@ namespace BiliBili.UWP.Helper
             }
             ApiHelper.access_key = string.Empty;
             UserManage.access_key = string.Empty;
-            SettingHelper.Set_Access_key(string.Empty);
-            SettingHelper.Set_Refresh_Token(string.Empty);
+            SettingHelper.SetLoginTokens(string.Empty, string.Empty);
             SettingHelper.Set_Password(string.Empty);
             SettingHelper.Set_UserID(0);
             SettingHelper.Set_LoginExpires(DateTime.Now);

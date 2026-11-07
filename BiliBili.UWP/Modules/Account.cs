@@ -200,8 +200,7 @@ namespace BiliBili.UWP.Modules
                 {
                     if (m.data.status == 0)
                     {
-                        SettingHelper.Set_Access_key(m.data.token_info.access_token);
-                        SettingHelper.Set_Refresh_Token(m.data.token_info.refresh_token);
+                        SettingHelper.SetLoginTokens(m.data.token_info.access_token, m.data.token_info.refresh_token);
                         SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(m.data.token_info.expires_in));
                         SettingHelper.Set_UserID(m.data.token_info.mid);
                         //foreach (var item in m.data.sso)
@@ -284,8 +283,7 @@ namespace BiliBili.UWP.Modules
                 if (m.code == 0)
                 {
 
-                    SettingHelper.Set_Access_key(m.data.access_token);
-                    SettingHelper.Set_Refresh_Token(m.data.refresh_token);
+                    SettingHelper.SetLoginTokens(m.data.access_token, m.data.refresh_token);
                     SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(m.data.expires_in));
                     SettingHelper.Set_UserID(m.data.mid);
                     //foreach (var item in m.data.sso)
@@ -338,7 +336,7 @@ namespace BiliBili.UWP.Modules
 
         public async Task SetLoginSuccess(string access_token, string mid)
         {
-            SettingHelper.Set_Access_key(access_token);
+            SettingHelper.SetLoginTokens(access_token);
             // WebView2 授权回跳仅提供 access_key,无 refresh_token,不得用 access_token 冒充
             SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(7200));
             SettingHelper.Set_UserID(long.Parse(mid));
@@ -369,103 +367,82 @@ namespace BiliBili.UWP.Modules
             }
         }
 
-        /// <summary>
-        /// 刷新
-        /// </summary>
-        /// <param name="access_key">access token</param>
-        /// <param name="refresh_token">access token</param>
-        /// <returns></returns>
-        public async Task<ReturnModel> RefreshToken(string access_key, string refresh_token)
+        public enum RestoreStatus
         {
-            try
-            {
-                var url = "https://passport.bilibili.com/api/oauth2/refreshToken";
-                var data = $"access_token={access_key}&refresh_token={refresh_token}&appkey={ApiHelper.AndroidKey.Appkey}&ts={ApiHelper.GetTimeSpan}";
-                data += "&sign=" + ApiHelper.GetSign(data);
-                var content = await WebClientClass.PostResults(new Uri(url), data);
-                var obj = JObject.Parse(content);
-                if (obj["code"].ToInt32() == 0)
-                {
-                    var m = JsonConvert.DeserializeObject<Token_info>(obj["data"].ToString());
-                    SettingHelper.Set_Access_key(m.access_token);
-                    SettingHelper.Set_Refresh_Token(m.refresh_token);
-                    SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(m.expires_in));
-                    SettingHelper.Set_UserID(m.mid);
-                    List<string> sso = new List<string>() {
-                        "https://passport.bilibili.com/api/v2/sso",
-                        "https://passport.biligame.com/api/v2/sso",
-                        "https://passport.im9.com/api/v2/sso"
-                    };
-
-                    //foreach (var item in sso)
-                    //{
-
-                    //}
-                    await SSO(m.access_token);
-                    MessageCenter.SendLogined();
-                    return new ReturnModel()
-                    {
-                        success = true,
-                        message = "刷新成功"
-                    };
-                }
-                else
-                {
-                    return new ReturnModel()
-                    {
-                        success = false,
-                        message = "刷新Token失败,请重新登录"
-                    };
-                }
-            }
-            catch (Exception)
-            {
-
-                return new ReturnModel()
-                {
-                    success = false,
-                    message = "刷新Token失败，请重新登录"
-                };
-            }
+            Ready, LoginRequired, RetryLater, WebSessionUnavailable, AccountChanged
         }
 
-        /// <summary>
-        /// 检查登录状态
-        /// </summary>
-        /// <param name="access_key"></param>
-        /// <returns></returns>
-        public async Task<ReturnModel> CheckLoginState(string access_key)
+        private static bool IsRejectedToken(int? code)
+        {
+            return code == -101 || code == -2 || code == -658 || code == -904;
+        }
+
+        public async Task<RestoreStatus> RestoreSessionAsync(string accessToken)
         {
             try
             {
-                var url = $"https://passport.bilibili.com/api/oauth2/info?access_token={access_key}&appkey={ApiHelper.AndroidKey.Appkey}&ts={ApiHelper.GetTimeSpan}";
-                url += "&sign=" + ApiHelper.GetSign(url);
-                var content = await WebClientClass.GetResults(new Uri(url));
-                var obj = JObject.Parse(content);
-                if (obj["code"].ToInt32() == 0)
+                var infoUrl = $"https://passport.bilibili.com/api/oauth2/info?access_token={Uri.EscapeDataString(accessToken)}&appkey={ApiHelper.AndroidKey.Appkey}&ts={ApiHelper.GetTimeSpan}";
+                var info = JObject.Parse(await WebClientClass.GetResults(new Uri(infoUrl + "&sign=" + ApiHelper.GetSign(infoUrl))));
+                if (accessToken != SettingHelper.Get_Access_key())
+                    return RestoreStatus.AccountChanged;
+
+                int? code = (int?)info["code"];
+                long mid;
+                if (IsRejectedToken(code))
                 {
-                    return new ReturnModel()
-                    {
-                        success = true,
-                        message = "检查状态成功"
-                    };
+                    var refreshToken = SettingHelper.Get_Refresh_Token();
+                    if (string.IsNullOrEmpty(refreshToken))
+                        return RestoreStatus.LoginRequired;
+
+                    var body = $"access_token={Uri.EscapeDataString(accessToken)}&refresh_token={Uri.EscapeDataString(refreshToken)}&appkey={ApiHelper.AndroidKey.Appkey}&ts={ApiHelper.GetTimeSpan}";
+                    var reply = JObject.Parse(await WebClientClass.PostResults(
+                        new Uri("https://passport.bilibili.com/api/oauth2/refreshToken"), body + "&sign=" + ApiHelper.GetSign(body)));
+                    if (accessToken != SettingHelper.Get_Access_key())
+                        return RestoreStatus.AccountChanged;
+
+                    code = (int?)reply["code"];
+                    if (IsRejectedToken(code))
+                        return RestoreStatus.LoginRequired;
+                    if (code != 0)
+                        return RestoreStatus.RetryLater;
+
+                    var token = reply["data"]?.ToObject<Token_info>();
+                    if (string.IsNullOrEmpty(token?.access_token) || string.IsNullOrEmpty(token.refresh_token) || token.mid <= 0)
+                        return RestoreStatus.RetryLater;
+                    SaveTokenInfo(token);
+                    accessToken = token.access_token;
+                    mid = token.mid;
                 }
                 else
                 {
-                    return new ReturnModel()
-                    {
-                        success = false,
-                        message = "检查状态失败"
-                    };
+                    mid = (long?)info["data"]?["mid"] ?? 0;
+                    if (code != 0 || mid <= 0)
+                        return RestoreStatus.RetryLater;
+                    SettingHelper.Set_UserID(mid);
                 }
+
+                await SSO(accessToken);
+                if (accessToken != SettingHelper.Get_Access_key())
+                    return RestoreStatus.AccountChanged;
+                if (!HasWebLoginCookies() || !long.TryParse(GetCookieValue("DedeUserID"), out var cookieMid) || cookieMid != mid)
+                    return RestoreStatus.WebSessionUnavailable;
+
+                var nav = await new WbiAPI().GetWbiKey().Request();
+                if (accessToken != SettingHelper.Get_Access_key())
+                    return RestoreStatus.AccountChanged;
+                if (!nav.status)
+                    return RestoreStatus.RetryLater;
+                var web = nav.GetJObject();
+                if ((int?)web["code"] == -101)
+                    return RestoreStatus.WebSessionUnavailable;
+                if ((int?)web["code"] != 0)
+                    return RestoreStatus.RetryLater;
+                return (long?)web["data"]?["mid"] == mid && (bool?)web["data"]?["isLogin"] == true
+                    ? RestoreStatus.Ready : RestoreStatus.WebSessionUnavailable;
             }
             catch (Exception)
             {
-                return new ReturnModel()
-                {
-                    success = true,
-                    message = "检查状态失败"
-                };
+                return RestoreStatus.RetryLater;
             }
         }
 
@@ -528,11 +505,7 @@ namespace BiliBili.UWP.Modules
                 var mid = info["data"]?["mid"]?.Value<long>() ?? obj["mid"]?.Value<long>() ?? 0;
                 var refreshToken = obj["refresh_token"]?.ToString() ?? "";
                 var expiresIn = obj["expires_in"]?.ToInt32() ?? 0;
-                SettingHelper.Set_Access_key(accessToken);
-                if (!string.IsNullOrEmpty(refreshToken))
-                {
-                    SettingHelper.Set_Refresh_Token(refreshToken);
-                }
+                SettingHelper.SetLoginTokens(accessToken, refreshToken);
                 if (mid > 0)
                 {
                     SettingHelper.Set_UserID(mid);
@@ -561,8 +534,7 @@ namespace BiliBili.UWP.Modules
         {
             try
             {
-                SettingHelper.Set_Access_key(access_key);
-                SettingHelper.Set_Refresh_Token(refresh_token);
+                SettingHelper.SetLoginTokens(access_key, refresh_token);
                 SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(expires));
                 SettingHelper.Set_UserID(userid);
                 List<string> sso = new List<string>() {
@@ -1012,8 +984,7 @@ namespace BiliBili.UWP.Modules
 
         private static void SaveTokenInfo(Token_info token)
         {
-            SettingHelper.Set_Access_key(token.access_token);
-            SettingHelper.Set_Refresh_Token(token.refresh_token);
+            SettingHelper.SetLoginTokens(token.access_token, token.refresh_token);
             SettingHelper.Set_LoginExpires(DateTime.Now.AddSeconds(token.expires_in));
             SettingHelper.Set_UserID(token.mid);
         }

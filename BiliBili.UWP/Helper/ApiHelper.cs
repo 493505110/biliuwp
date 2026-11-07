@@ -167,18 +167,8 @@ namespace BiliBili.UWP
 
         }
 
-        public  static bool IsLogin()
-        {
-            if (SettingHelper.Get_Access_key() != "")
-            {
-                return true;
-            }
-            else
-            {
-               
-                return false;
-            }
-        }
+        public static bool IsLogin() => UserManage.IsLogin();
+
         public static string GetCookies()
         {
             HttpBaseProtocolFilter hb = new HttpBaseProtocolFilter();

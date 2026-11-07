@@ -438,6 +438,8 @@
     <Compile Include="Modules\Playback\LivePlaybackSources.cs" />
     <Compile Include="Modules\Playback\LivePlaybackFallback.cs" />
     <Compile Include="Helper\LogHelper.cs" />
+    <Compile Include="Helper\LoginCredential.cs" />
+    <Compile Include="Helper\LoginCredentialVault.cs" />
     <Compile Include="Helper\CredentialVault.cs" />
     <Compile Include="Helper\DanmakuViewport.cs" />
     <Compile Include="Helper\SettingKeys.cs" />

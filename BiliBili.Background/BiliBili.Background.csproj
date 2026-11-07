@@ -137,6 +137,12 @@
     <Compile Include="NotificationBuilder.cs" />
     <Compile Include="SettingHelper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="..\BiliBili.UWP\Helper\LoginCredential.cs">
+      <Link>Helper\LoginCredential.cs</Link>
+    </Compile>
+    <Compile Include="..\BiliBili.UWP\Helper\LoginCredentialVault.cs">
+      <Link>Helper\LoginCredentialVault.cs</Link>
+    </Compile>
     <Compile Include="..\BiliBili.UWP\Helper\SettingKeys.cs">
       <Link>Helper\SettingKeys.cs</Link>
     </Compile>
