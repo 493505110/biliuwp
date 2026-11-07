@@ -38,8 +38,10 @@ namespace BiliBili.UWP.Helper
                     FileName = storageFolder.Path + @"\log\" + DateTime.Now.ToString("yyyyMMdd") + ".log",
                     Layout = "${longdate}|${level:uppercase=true}|${logger}|${threadid}|${message}|${exception:format=Message,StackTrace}"
                 };
+#if DEBUG
                 config.AddRule(LogLevel.Info, LogLevel.Info, logfile);
                 config.AddRule(LogLevel.Debug, LogLevel.Debug, logfile);
+#endif
                 config.AddRule(LogLevel.Error, LogLevel.Error, logfile);
                 config.AddRule(LogLevel.Fatal, LogLevel.Fatal, logfile);
                 NLog.LogManager.Configuration = config;

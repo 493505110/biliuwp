@@ -2474,13 +2474,13 @@ namespace BiliBili.UWP.Pages
             UpdateScriptDanmakuInfo(load);
             if (load?.IsDanmakuClosed == true)
             {
-                AddLog("当前视频已关闭弹幕");
+                LogHelper.WriteLog("当前视频已关闭弹幕", LogType.INFO);
                 return;
             }
 
             if (load?.UnsupportedDanmakuCount > 0)
             {
-                AddLog(FormatUnsupportedDanmakuMessage(load));
+                LogHelper.WriteLog(FormatUnsupportedDanmakuMessage(load), LogType.INFO);
             }
 
             if (load?.WebLoadPlan != null)
@@ -2569,7 +2569,7 @@ namespace BiliBili.UWP.Pages
 
             try
             {
-                AddLog("读取互动弹幕...");
+                LogHelper.WriteLog("读取互动弹幕...", LogType.INFO);
                 var result = await InteractiveDanmakuService.LoadAsync(aid, cid);
                 if (requestId != 0 && !IsPlaybackRequestCurrent(requestId, item))
                 {
@@ -2583,7 +2583,7 @@ namespace BiliBili.UWP.Pages
                 }
 
                 interactiveDanmakuPool = result ?? new List<InteractiveDanmakuModel>();
-                AddLog("互动弹幕数量: " + interactiveDanmakuPool.Count);
+                LogHelper.WriteLog("互动弹幕数量: " + interactiveDanmakuPool.Count, LogType.INFO);
             }
             catch (Exception ex)
             {
@@ -2629,7 +2629,7 @@ namespace BiliBili.UWP.Pages
             }
 
             txt_fvideo.Text = status;
-            AddLog("软解状态：" + status);
+            LogHelper.WriteLog("软解状态：" + status, LogType.INFO);
         }
 
         private async Task<bool> ApplyPlaybackSourceAsync(ReturnPlayModel result, int requestId, PlayerModel item)
@@ -2790,7 +2790,8 @@ namespace BiliBili.UWP.Pages
                 {
                     return;
                 }
-                AddLog("请求策略：" + GetPlaybackRequestStrategy());
+                AddLog("强制软解视频：" + SettingHelper.Get_ForceVideo());
+                LogHelper.WriteLog("请求策略：" + GetPlaybackRequestStrategy(), LogType.INFO);
                 cb_Quity.IsEnabled = true;
                 var quality = (cb_Quity.SelectedItem as QualityModel)?.qn ?? 64;
                 switch (item.Mode)
@@ -2799,12 +2800,13 @@ namespace BiliBili.UWP.Pages
                     case PlayMode.Movie:
                     case PlayMode.VipBangumi:
                         pr.Text = "正在加载视频...";
-                        AddLog("开始加载视频和弹幕...");
+                        AddLog("开始填充弹幕...");
                         var bangumiDanmakuTask = LoadDanmakuOrEmptyAsync(
                             Convert.ToInt64(item.Aid),
                             Convert.ToInt64(item.Mid),
                             item.Duration,
                             danmakuCancellationToken);
+                        AddLog(string.Format("开始读取视频{0}-{1}-{2}...", "anime", item.banId, item.Mid));
                         var bangumiSourceTask = PlayurlHelper.GetBangumiUrl(item, quality);
                         await Task.WhenAll(bangumiDanmakuTask, bangumiSourceTask);
                         var ban = bangumiSourceTask.Result;
@@ -2831,12 +2833,13 @@ namespace BiliBili.UWP.Pages
                         break;
                     case PlayMode.Video:
                         pr.Text = "正在加载视频...";
-                        AddLog("开始加载视频和弹幕...");
+                        AddLog("开始填充弹幕...");
                         var videoDanmakuTask = LoadDanmakuOrEmptyAsync(
                             Convert.ToInt64(item.Aid),
                             Convert.ToInt64(item.Mid),
                             item.Duration,
                             danmakuCancellationToken);
+                        AddLog(string.Format("开始读取视频{0}-{1}-{2}...", "video", item.Aid, item.Mid));
                         var videoSourceTask = PlayurlHelper.GetVideoUrl(item.Aid, item.Mid, quality);
                         await Task.WhenAll(videoDanmakuTask, videoSourceTask);
                         var videoSource = videoSourceTask.Result;
@@ -2861,12 +2864,13 @@ namespace BiliBili.UWP.Pages
                         break;
                     case PlayMode.Sohu:
                         pr.Text = "正在加载视频...";
-                        AddLog("开始加载视频和弹幕...");
+                        AddLog("开始填充弹幕...");
                         var sohuDanmakuTask = LoadDanmakuOrEmptyAsync(
                             Convert.ToInt64(item.Aid),
                             Convert.ToInt64(item.Mid),
                             item.Duration,
                             danmakuCancellationToken);
+                        AddLog(string.Format("开始读取视频{0}-{1}...", "sohu", item.Mid));
                         var sohuSourceTask = PlayurlHelper.GetSoHuPlayInfo(item.rich_vid, cb_Quity.SelectedIndex + 1);
                         await Task.WhenAll(sohuDanmakuTask, sohuSourceTask);
                         if (!IsPlaybackRequestCurrent(requestId, item)) return;
@@ -3118,7 +3122,7 @@ namespace BiliBili.UWP.Pages
 
             try
             {
-                AddLog("读取UP主粉丝数...");
+                LogHelper.WriteLog("读取UP主粉丝数...", LogType.INFO);
                 var response = await new VideoAPI().Detail(aid, false).Request();
                 if (response == null || !response.status)
                 {
@@ -3515,7 +3519,7 @@ namespace BiliBili.UWP.Pages
             if (danmakuFile != null)
             {
                 pr.Text = "正在加载弹幕...";
-                AddLog("正在加载弹幕...");
+                AddLog("填充弹幕中...");
                 var pool = await danmakuParse.ParseBiliBili(danmakuFile);
                 if (!IsPlaybackRequestCurrent(requestId, item)) return;
                 SetDanmakuPool(pool);

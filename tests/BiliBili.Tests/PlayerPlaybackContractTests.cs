@@ -318,7 +318,7 @@ namespace BiliBili.Tests
                 source,
                 "private string GetPlaybackRequestStrategy");
 
-            StringAssert.Contains(openVideo, "AddLog(\"请求策略：\" + GetPlaybackRequestStrategy())");
+            StringAssert.Contains(openVideo, "LogHelper.WriteLog(\"请求策略：\" + GetPlaybackRequestStrategy(), LogType.INFO)");
             Assert.IsFalse(openVideo.Contains("UpdateSoftwareDecodeInfo(null)"));
             StringAssert.Contains(strategy, "SettingHelper.Get_UseDASH()");
             StringAssert.Contains(strategy, "SettingHelper.Get_ForceVideo()");
