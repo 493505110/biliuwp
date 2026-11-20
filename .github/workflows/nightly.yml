@@ -3,7 +3,7 @@ name: Nightly Build
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 23 * * *'   # 每天北京时间 23:30
+    - cron: '30 23 * * 0'   # 每周日北京时间 23:30
       timezone: Asia/Shanghai
 
 concurrency:
