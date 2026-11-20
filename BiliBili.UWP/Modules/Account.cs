@@ -1262,7 +1262,7 @@ namespace BiliBili.UWP.Modules
             /// <summary>
             /// Mid
             /// </summary>
-            public int mid { get; set; }
+            public long mid { get; set; }
             /// <summary>
             /// xiaoyaocz
             /// </summary>
