@@ -212,11 +212,14 @@ namespace BiliBili.UWP
                 if (result.status)
                 {
                     var data = result.GetJObject();
-                    if (data["code"].ToInt32() == 0)
+                    //未登录时 nav 返回 code -101（账号未登录），但 data 里仍带 wbi_img；
+                    //wbi key 与登录状态无关，按 data.wbi_img 是否存在判断，不要依赖 code
+                    var navData = data?["data"] as JObject;
+                    if (navData?["wbi_img"] != null)
                     {
-                        var wbiKeyFakeUrl = JsonConvert.DeserializeObject<UserNavModel>(data["data"].ToString());
-                        var wbiKey = Regex.Match(wbiKeyFakeUrl.wbi_img.img_url, @"wbi\/(.+).png").Groups[1].Value;
-                        var subKey = Regex.Match(wbiKeyFakeUrl.wbi_img.sub_url, @"wbi\/(.+).png").Groups[1].Value;
+                        var wbiKeyFakeUrl = JsonConvert.DeserializeObject<UserNavModel>(navData.ToString());
+                        var wbiKey = Regex.Match(wbiKeyFakeUrl?.wbi_img?.img_url ?? string.Empty, @"wbi\/(.+).png").Groups[1].Value;
+                        var subKey = Regex.Match(wbiKeyFakeUrl?.wbi_img?.sub_url ?? string.Empty, @"wbi\/(.+).png").Groups[1].Value;
                         //正则没匹配上时不要写入缓存，否则整个生命周期都签不出正确的w_rid
                         if (!string.IsNullOrEmpty(wbiKey) && !string.IsNullOrEmpty(subKey))
                         {
